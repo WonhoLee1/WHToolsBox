@@ -1121,10 +1121,12 @@ class CADSimplifier:
             print(f"  - CadQuery 내보내기 실패: {e}")
             show_custom_msg("Export Error", f"CadQuery Export Failed:\n{e}", 'error')
         
-        # Gmsh 종료 처리 (필요시)
-        if HAS_GMSH:
-            try: gmsh.finalize()
-            except: pass
+        
+        # Gmsh Finalize는 프로그램 종료 시에만 호출해야 함 (여기서 닫으면 세션이 끊김)
+        # if HAS_GMSH:
+        #    try: gmsh.finalize()
+        #    except: pass
+
 
     def export_cutter_info(self, filename):
         """커터 정보를 텍스트 파일로 저장합니다."""
