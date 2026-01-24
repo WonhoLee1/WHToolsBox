@@ -570,8 +570,12 @@ class CADSimplifier:
                     continue
                 
                 # 방향성 있는 경계 상자(OBB) 계산
-                pc = trimesh.points.PointCloud(points)
-                obb = pc.bounding_box_oriented
+                # Trimesh가 평면(부피=0)에 대해 물리량을 계산할 때 발생하는 RuntimeWarning(나눗셈) 무시
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    pc = trimesh.points.PointCloud(points)
+                    obb = pc.bounding_box_oriented
                 
                 transform = obb.primitive.transform
                 extents = obb.primitive.extents
