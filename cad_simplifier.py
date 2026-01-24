@@ -84,7 +84,15 @@ def show_custom_msg(title, msg, dtype='info', parent=None):
         
         tk.Label(dlg, text=icon_char, font=("Arial", 24), bg=bg_col).pack(pady=(20, 5))
         tk.Label(dlg, text=msg, wraplength=320, bg=bg_col, font=("Arial", 10)).pack(pady=5, expand=True)
-        tk.Button(dlg, text="OK", command=dlg.destroy, width=10, bg='white').pack(pady=(0, 20))
+        
+        # 버튼 높이 고정 및 포커스 설정
+        btn_ok = tk.Button(dlg, text="OK", command=dlg.destroy, width=10, bg='white', height=1)
+        btn_ok.pack(pady=(0, 20))
+        btn_ok.focus_set()
+        
+        # 엔터/스페이스바 바인딩
+        dlg.bind('<Return>', lambda e: dlg.destroy())
+        dlg.bind('<space>', lambda e: dlg.destroy())
         
         center_window(dlg, parent)
         root_ref.wait_window(dlg)
