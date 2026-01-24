@@ -500,6 +500,12 @@ class CADSimplifier:
                 size=(size_x, size_y, size_z), 
                 tolerance=tolerance
             )
+            
+            if refined_box is None:
+                # Refinement 실패 시 (거의 발생 안 함) 해당 영역 무시
+                mark_grid_occupied(self.current_grid, (vx, vy, vz, vw, vh, vd))
+                continue
+
             refined_box['type'] = 'aabb' # 축 정렬 경계 상자 (Axis Aligned Bounding Box)
             
             self.cutters.append(refined_box)
