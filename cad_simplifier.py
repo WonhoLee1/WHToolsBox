@@ -1087,6 +1087,35 @@ class CADSimplifier:
                     print(f"  - 저장 완료: {filename}")
                     return
 
+                if shape_flag == "export_base_and_cutters":
+                    print(f"  - 원본 베이스와 모든 커터(Assembly) 저장 중: {filename}")
+                    gmsh.clear()
+                    gmsh.model.add("base_and_cutters")
+
+                    # 1. Base Block (Raw Material)
+                    min_pt, max_pt = self.bounding_box
+                    size = max_pt - min_pt
+                    # Color it Gray/Invisible if possible? Gmsh doesn't easily store color in STEP cleanly without attributes, 
+                    # but we create the geometry.
+                    base_id = gmsh.model.occ.addBox(min_pt[0], min_pt[1], min_pt[2], size[0], size[1], size[2])
+                    
+                    # 2. All Cutters
+                    for c in self.cutters:
+                        if c.get('type') == 'oriented':
+                            sx, sy, sz = c['extents']
+                            cid = gmsh.model.occ.addBox(-sx/2, -sy/2, -sz/2, sx, sy, sz)
+                            matrix = c['transform'].flatten().tolist()
+                            gmsh.model.occ.affineTransform([(3, cid)], matrix)
+                        else:
+                            cx, cy, cz = c['center']
+                            sx, sy, sz = c['size']
+                            cid = gmsh.model.occ.addBox(cx - sx/2, cy - sy/2, cz - sz/2, sx, sy, sz)
+
+                    gmsh.model.occ.synchronize()
+                    gmsh.write(filename)
+                    print(f"  - 저장 완료: {filename}")
+                    return
+
                 # Normal Model Export
                 # FORCE REGENERATION:
                 # 사용자가 "Refine" 등을 통해 커터를 수정한 상태를 확실히 반영하기 위해
@@ -1266,6 +1295,7 @@ class CADSimplifier:
         pv.global_theme.allow_empty_mesh = True
         print("[시각화] 상세 비교 뷰(2x2) 실행 중...")
         p = pv.Plotter(shape=(2, 2), title="CAD Simplification Detailed Comparison")
+        p.enable_parallel_projection() # 원본 비율 유지를 위해 평행 투영(Orthographic) 사용
         
         # 결과물 메쉬 변환
         result_pv = None
@@ -1299,19 +1329,27 @@ class CADSimplifier:
 
         # 2. 생성된 커팅 블럭 (Solids)
         p.subplot(0, 1)
-        p.add_text("2. Cutting Blocks", font_size=9, color='black')
-        for i, c in enumerate(self.cutters):
-            if c.get('type') == 'oriented':
-                box = pv.Box(bounds=(-c['extents'][0]/2, c['extents'][0]/2,
-                                     -c['extents'][1]/2, c['extents'][1]/2,
-                                     -c['extents'][2]/2, c['extents'][2]/2))
-                box.transform(c['transform'], inplace=True)
-                p.add_mesh(box, color='orange', opacity=0.6, show_edges=True)
-            else:
-                cx, cy, cz = c['center']
-                sx, sy, sz = c['size']
-                bounds = [cx-sx/2, cx+sx/2, cy-sy/2, cy+sy/2, cz-sz/2, cz+sz/2]
-                p.add_mesh(pv.Box(bounds=bounds), color='red', opacity=0.6, show_edges=True)
+        p.add_text("2. Cutting Blocks Structure", font_size=9, color='black')
+        
+        # 색상 팔레트 (Refine view_cutters_only와 동일하게)
+        colors = ["#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231", "#911eb4", "#46f0f0", "#f032e6", "#bcf60c", "#fabebe", "#008080", "#e6beff", "#9a6324", "#fffac8", "#800000", "#aaffc3", "#808000", "#ffd8b1", "#000075", "#808080"]
+        
+        if not self.cutters:
+            p.add_text("\n(No Cutters Generated)", color='gray', font_size=10)
+        else:
+            for i, c in enumerate(self.cutters):
+                color = colors[i % len(colors)]
+                if c.get('type') == 'oriented':
+                    box = pv.Box(bounds=(-c['extents'][0]/2, c['extents'][0]/2,
+                                         -c['extents'][1]/2, c['extents'][1]/2,
+                                         -c['extents'][2]/2, c['extents'][2]/2))
+                    box.transform(c['transform'], inplace=True)
+                    p.add_mesh(box, color=color, opacity=0.8, show_edges=True)
+                else:
+                    cx, cy, cz = c['center']
+                    sx, sy, sz = c['size']
+                    bounds = [cx-sx/2, cx+sx/2, cy-sy/2, cy+sy/2, cz-sz/2, cz+sz/2]
+                    p.add_mesh(pv.Box(bounds=bounds), color=color, opacity=0.8, show_edges=True)
 
         # 3. 최종 형상과 원본 비교 (Overlay)
         p.subplot(1, 0)
@@ -1401,6 +1439,21 @@ class CADSimplifier:
                     r2 = cq.Workplane("XY").box(2, W-2*t, H-t).translate((i*30, 0, t/2))
                     rib_grid = rib_grid.union(r2)
                 s = s.union(rib_grid)
+                s = s.union(rib_grid)
+                self.original_cq = s
+
+            elif shape_type == 'l_bracket':
+                # L-Shape Bracket with holes
+                s = cq.Workplane("XY").box(60, 60, 10).faces(">Z").workplane().rect(20, 60).cutThruAll()
+                s = s.faces("<X").workplane().circle(5).cutThruAll()
+                self.original_cq = s
+            
+            elif shape_type == 'pipe_connector':
+                # Cylindrical Pipe
+                s = cq.Workplane("XY").cylinder(50, 20).faces(">Z").hole(30)
+                # Side pipe
+                s2 = cq.Workplane("XZ").transformed(offset=(0,0,10)).cylinder(40, 10).faces(">Z").hole(12)
+                s = s.union(s2)
                 self.original_cq = s
 
             # Convert to mesh for visualization/processing
@@ -1994,12 +2047,13 @@ class CADSimplifier:
                    save_win.destroy()
 
             tk.Button(save_win, text="1. Save Simplified Model (STEP/STL...)", command=lambda: [export_cad_file(), save_win.destroy()], width=35, anchor='w', padx=10).pack(pady=2)
-            tk.Button(save_win, text="2. Save Original Bounding Box (STEP)", command=lambda: ask_and_export("export_bounding_box", "Bounding Box"), width=35, anchor='w', padx=10).pack(pady=2)
-            tk.Button(save_win, text="3. Save Cutters Only (STEP)", command=lambda: ask_and_export("export_cutters_only", "Cutters"), width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="2. Save Base + Cutters (Assembly)", command=lambda: ask_and_export("export_base_and_cutters", "Base & Cutters"), width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="3. Save Original Bounding Box (STEP)", command=lambda: ask_and_export("export_bounding_box", "Bounding Box"), width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="4. Save Cutters Only (STEP)", command=lambda: ask_and_export("export_cutters_only", "Cutters"), width=35, anchor='w', padx=10).pack(pady=2)
             
             tk.Frame(save_win, height=1, bg="grey").pack(fill='x', pady=5, padx=10)
             
-            tk.Button(save_win, text="4. Save Cutter Info (.txt)", command=lambda: [export_cutter_txt(), save_win.destroy()], width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="5. Save Cutter Info (.txt)", command=lambda: [export_cutter_txt(), save_win.destroy()], width=35, anchor='w', padx=10).pack(pady=2)
 
 
         # --- Menu Bar ---
@@ -2008,9 +2062,15 @@ class CADSimplifier:
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Open...", command=open_file)
         
+        file_menu.add_command(label="Save Base + Cutters...", command=lambda: export_cad_file() if False else show_custom_msg("Info", "Use Save button for advanced options", 'info'))
+        file_menu.add_separator()
+        
         samples_menu = tk.Menu(file_menu, tearoff=0)
         samples_menu.add_command(label="Basic Box", command=lambda: load_sample('basic'))
         samples_menu.add_command(label="Ribbed Cushion", command=lambda: load_sample('ribbed_cushion'))
+        samples_menu.add_command(label="Complex Ribs", command=lambda: load_sample('complex_ribs'))
+        samples_menu.add_command(label="L-Bracket", command=lambda: load_sample('l_bracket'))
+        samples_menu.add_command(label="Pipe Connector", command=lambda: load_sample('pipe_connector'))
         samples_menu.add_command(label="Complex Ribs", command=lambda: load_sample('complex_ribs'))
         file_menu.add_cascade(label="Sample Shapes", menu=samples_menu)
         
