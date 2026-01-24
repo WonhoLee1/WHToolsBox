@@ -31,6 +31,67 @@ except ImportError as e:
 if not HAS_CADQUERY and not HAS_GMSH:
     print("경고: CAD 라이브러리(CadQuery 또는 Gmsh)를 찾을 수 없습니다. STEP/IGES 기능이 제한됩니다.")
 
+import tkinter as tk
+from tkinter import messagebox
+
+def center_window(win, parent=None):
+    try:
+        win.update_idletasks()
+        width = win.winfo_width()
+        height = win.winfo_height()
+        
+        p = parent if parent else win.master
+        if p is None: # Fallback to screen center if no parent
+            p_x = 0
+            p_y = 0
+            p_w = win.winfo_screenwidth()
+            p_h = win.winfo_screenheight()
+        else:
+            p.update_idletasks()
+            p_x = p.winfo_rootx()
+            p_y = p.winfo_rooty()
+            p_w = p.winfo_width()
+            p_h = p.winfo_height()
+        
+        x = p_x + (p_w // 2) - (width // 2)
+        y = p_y + (p_h // 2) - (height // 2)
+        win.geometry(f'+{x}+{y}')
+    except Exception as e:
+        print(f"Window centering failed: {e}")
+
+def show_custom_msg(title, msg, dtype='info', parent=None):
+    try:
+        root_ref = parent if parent else tk._default_root
+        dlg = tk.Toplevel(root_ref)
+        dlg.title(title)
+        
+        # Determine size based on message length
+        width = 350
+        height = 180 + (len(msg) // 40) * 15
+        dlg.geometry(f"{width}x{height}")
+        
+        dlg.resizable(False, False)
+        if parent: dlg.transient(parent)
+        dlg.grab_set()
+        
+        icon_char = "ℹ"
+        bg_col = "#f0f0f0"
+        if dtype == 'warning': icon_char = "⚠️"; bg_col="#fff8e1"
+        elif dtype == 'error': icon_char = "❌"; bg_col="#ffebee"
+        elif dtype == 'success': icon_char = "✅"; bg_col="#e8f5e9"
+        
+        dlg.configure(bg=bg_col)
+        
+        tk.Label(dlg, text=icon_char, font=("Arial", 24), bg=bg_col).pack(pady=(20, 5))
+        tk.Label(dlg, text=msg, wraplength=320, bg=bg_col, font=("Arial", 10)).pack(pady=5, expand=True)
+        tk.Button(dlg, text="OK", command=dlg.destroy, width=10, bg='white').pack(pady=(0, 20))
+        
+        center_window(dlg, parent)
+        root_ref.wait_window(dlg)
+    except Exception as e:
+        print(f"Custom message box failed: {e}")
+        messagebox.showinfo(title, msg) # Fallback
+
 # =============================================================================
 # 1. Numba 최적화 알고리즘 (Numba Optimized Algorithms)
 # =============================================================================
@@ -1086,10 +1147,10 @@ class CADSimplifier:
         if result_pv and result_pv.n_points > 0:
             p.add_mesh(result_pv, color='lightgreen', show_edges=True)
         else:
-            p.add_text("\n(Empty Result)", color='darkred', font_size=10)
+            p.add_text("\n(Empty Result)", color='darkred', font_size=9)
             
         if show_removed:
-            p.add_text("\n(+ Removed Volume)", position='upper_right', font_size=8, color='darkred')
+            p.add_text("\n(+ Removed Volume)", position='upper_right', font_size=9, color='darkred')
             for c in self.cutters:
                 if c.get('type') == 'oriented':
                     box = pv.Box(bounds=(-c['extents'][0]/2, c['extents'][0]/2,
@@ -1130,7 +1191,7 @@ class CADSimplifier:
                 print(f"[시각화] 히트맵 계산 실패: {e}")
                 p.add_text(f"\nHeatmap Error: {e}", color='darkred', font_size=8)
         else:
-             p.add_text("\n(Insufficient Data)", color='darkred', font_size=10)
+             p.add_text("\n(Insufficient Data)", color='darkred', font_size=9)
 
         p.link_views() # 모든 뷰포트 시점 동기화
         p.show()
@@ -1248,45 +1309,7 @@ class CADSimplifier:
         
         if vol_original <= 1e-6 and self.original_mesh:
              vol_original = self.original_mesh.volume
-             
-        # Helper: Center Window
-        def center_window(win, parent=None):
-            win.update_idletasks()
-            width = win.winfo_width()
-            height = win.winfo_height()
-            
-            p = parent if parent else root
-            p_x = p.winfo_rootx()
-            p_y = p.winfo_rooty()
-            p_w = p.winfo_width()
-            p_h = p.winfo_height()
-            
-            x = p_x + (p_w // 2) - (width // 2)
-            y = p_y + (p_h // 2) - (height // 2)
-            win.geometry(f'+{x}+{y}')
 
-        # Helper: Custom Message Box (Centered)
-        def show_custom_msg(title, msg, dtype='info', parent=None):
-            dlg = tk.Toplevel(parent if parent else root)
-            dlg.title(title)
-            dlg.geometry("350x180")
-            dlg.resizable(False, False)
-            dlg.transient(parent if parent else root)
-            dlg.grab_set()
-            
-            icon_char = "ℹ"
-            bg_col = "#f0f0f0"
-            if dtype == 'warning': icon_char = "⚠️"; bg_col="#fff8e1"
-            elif dtype == 'error': icon_char = "❌"; bg_col="#ffebee"
-            
-            dlg.configure(bg=bg_col)
-            
-            tk.Label(dlg, text=icon_char, font=("Arial", 24), bg=bg_col).pack(pady=(20, 5))
-            tk.Label(dlg, text=msg, wraplength=320, bg=bg_col, font=("Arial", 10)).pack(pady=5, expand=True)
-            tk.Button(dlg, text="OK", command=dlg.destroy, width=10, bg='white').pack(pady=(0, 20))
-            
-            center_window(dlg, parent if parent else root)
-            root.wait_window(dlg)
 
 
     def create_sample_shape(self, shape_type='basic'):
@@ -1384,8 +1407,8 @@ class CADSimplifier:
         # Tkinter 윈도우 설정
         root = tk.Tk()
         root.title("CAD Simplifier Control Panel")
-        root.geometry("550x750")
         root.geometry("550x800")
+        center_window(root)
         
         # 설명 (스크롤 가능하도록 변경)
         desc_frame = tk.Frame(root)
@@ -1452,32 +1475,32 @@ class CADSimplifier:
             diagonal = np.linalg.norm(max_pt - min_pt)
             mode = self.preset_var.get()
             
-            # Scale-based Heuristics
-            # Tolerance는 모델 크기와 무관하게 작게 유지해야 벽면에 밀착됨
+            # Scale-based Heuristics with FIXED Min Cutter Sizes
             if "Fine" in mode:
                 res = diagonal / 150.0
-                min_cutter_factor = 2.0
-                tol = 0.01 # Fixed small tolerance
+                min_cutter = 2.0 
+                tol = 0.01 
                 max_cnt = 200
             elif "Very Rough" in mode:
                 res = diagonal / 25.0
-                min_cutter_factor = 5.0
-                tol = 0.1 # Looser but still fixed
+                min_cutter = 10.0
+                tol = 0.1 
                 max_cnt = 25
             elif "Coarse" in mode:
                 res = diagonal / 50.0
-                min_cutter_factor = 4.0
+                min_cutter = 5.0
                 tol = 0.05
                 max_cnt = 50
             else: # Medium
                 res = diagonal / 100.0
-                min_cutter_factor = 3.0
+                min_cutter = 3.0
                 tol = 0.02
                 max_cnt = 100
                 
             # Limits
             res = max(0.2, round(res, 2))
-            min_cutter = max(1.0, round(res * min_cutter_factor, 1))
+            # min_cutter is now fixed per preset, but ensuring it's not too small is still good
+            min_cutter = max(0.5, min_cutter)
             
             # Update UI
             entries['voxel_resolution'].delete(0, tk.END); entries['voxel_resolution'].insert(0, str(res))
@@ -1485,9 +1508,8 @@ class CADSimplifier:
             entries['max_cutters'].delete(0, tk.END); entries['max_cutters'].insert(0, str(max_cnt))
             entries['tolerance'].delete(0, tk.END); entries['tolerance'].insert(0, str(round(tol, 3)))
             
-            entries['tolerance'].delete(0, tk.END); entries['tolerance'].insert(0, str(round(tol, 3)))
-            
             show_custom_msg("Preset Applied", f"Applied '{mode}' preset.\n(Scale: {diagonal:.1f}mm)\n\nRes: {res}mm\nMin Cutter: {min_cutter}mm", 'info', root)
+
 
         tk.Button(preset_frame, text="Apply", command=apply_preset, bg='white').pack(side=tk.LEFT)
 
@@ -1572,12 +1594,12 @@ class CADSimplifier:
                 self._cfg['detect_slanted'] = self.var_detect_slanted.get()
                 return True
             except ValueError:
-                messagebox.showerror("Error", "숫자를 올바르게 입력해주세요.")
+                show_custom_msg("Error", "숫자를 올바르게 입력해주세요.", 'error', root)
                 return False
 
         def show_preview():
             if self.original_mesh is None:
-                messagebox.showwarning("Warning", "No model loaded.")
+                show_custom_msg("Warning", "No model loaded.", 'warning', root)
                 return
             if not get_values_from_ui(): return
             
@@ -1593,6 +1615,21 @@ class CADSimplifier:
             grid_shape = np.ceil((size + padding*2) / res).astype(int)
             total_voxels = np.prod(grid_shape)
             
+            # OBB Calculation for Tight Bounding Box
+            obb_info = ""
+            obb_box = None
+            if self.original_mesh:
+                try:
+                    obb = self.original_mesh.bounding_box_oriented
+                    extents = obb.primitive.extents
+                    obb_vol = np.prod(extents)
+                    aabb_vol = np.prod(size)
+                    obb_info = (f"\nTight BBox (OBB):\n"
+                                f"  Size: {extents[0]:.2f} x {extents[1]:.2f} x {extents[2]:.2f}\n"
+                                f"  Vol Ratio: {obb_vol/aabb_vol*100:.1f}%")
+                    obb_box = obb
+                except: pass
+
             # 정보 텍스트 (Font Size 9로 축소, Dark Colors)
             info = (f"Resolution: {res} mm\n"
                     f"Grid: {grid_shape}\n"
@@ -1600,7 +1637,8 @@ class CADSimplifier:
                     f"Bounding Box:\n"
                     f"  X: {min_pt[0]:.2f} ~ {max_pt[0]:.2f} ({size[0]:.2f})\n"
                     f"  Y: {min_pt[1]:.2f} ~ {max_pt[1]:.2f} ({size[1]:.2f})\n"
-                    f"  Z: {min_pt[2]:.2f} ~ {max_pt[2]:.2f} ({size[2]:.2f})")
+                    f"  Z: {min_pt[2]:.2f} ~ {max_pt[2]:.2f} ({size[2]:.2f})"
+                    f"{obb_info}")
             
             print("\n" + "="*40)
             print(" [클래스 1/2] Preview Information")
@@ -1625,6 +1663,19 @@ class CADSimplifier:
                           origin[2], origin[2] + grid_shape[2]*res]
                 p.add_mesh(pv.Box(bounds=bounds), style='wireframe', color='darkblue', line_width=2)
                 p.add_text("Grid too dense to display fully", position='lower_left', color='darkred', font_size=8)
+            
+            # Visualize OBB if available
+            if obb_box:
+                try:
+                    ext = obb_box.primitive.extents
+                    # Create box centered at origin
+                    b_obb = pv.Box(bounds=(-ext[0]/2, ext[0]/2, -ext[1]/2, ext[1]/2, -ext[2]/2, ext[2]/2))
+                    # Apply transform
+                    b_obb.transform(obb_box.primitive.transform)
+                    p.add_mesh(b_obb, color='blue', style='wireframe', opacity=0.5, line_width=2, label='Tight BBox')
+                except Exception as e:
+                    print(f"OBB Visualization Error: {e}")
+
             
             # [Preview Enhancement] Detect Slanted Surfaces 옵션이 켜져 있으면 미리보기 제공
             if cfg.get('detect_slanted', False):
