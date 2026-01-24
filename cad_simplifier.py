@@ -1037,11 +1037,12 @@ class CADSimplifier:
                 if not gmsh.isInitialized():
                     gmsh.initialize()
                 
-                # 모델이 비어있을 수 있으므로 (세션 만료 등) 엔티티 확인
-                # 만약 엔티티가 없다면 형상 재생성 시도
-                if not gmsh.model.getEntities(3):
-                    print("  - Gmsh 모델 데이터가 없어 재생성합니다...")
-                    self._generate_cad_gmsh()
+                # FORCE REGENERATION:
+                # 사용자가 "Refine" 등을 통해 커터를 수정한 상태를 확실히 반영하기 위해
+                # 기존 모델을 초기화하고 현재 self.cutters 기반으로 다시 생성합니다.
+                gmsh.clear() 
+                print("  - Gmsh 모델 데이터 재생성 중...")
+                self._generate_cad_gmsh()
                 
                 gmsh.write(filename)
                 print(f"  - 저장 완료: {filename}")
