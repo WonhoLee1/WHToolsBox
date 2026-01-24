@@ -1048,7 +1048,15 @@ class CADSimplifier:
         심플화된 형상을 STEP 또는 IGES 파일로 내보냅니다.
         """
         # 1. Gmsh Engine
-        if isinstance(shape_flag, str) and shape_flag.startswith("gmsh_model") and HAS_GMSH:
+        # Check if it's a Gmsh model reference OR a special export flag for Gmsh
+        is_gmsh_task = False
+        if isinstance(shape_flag, str) and HAS_GMSH:
+            if shape_flag.startswith("gmsh_model"):
+                is_gmsh_task = True
+            elif shape_flag in ["export_bounding_box", "export_cutters_only", "export_base_and_cutters"]:
+                is_gmsh_task = True
+
+        if is_gmsh_task:
             print(f"[내보내기] Gmsh를 통해 {filename} 저장 중...")
             try:
                 # Gmsh 세션 확인 및 복구
