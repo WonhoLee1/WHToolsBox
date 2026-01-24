@@ -1963,13 +1963,19 @@ class CADSimplifier:
                         root.after(0, on_failure)
 
                 except Exception as e:
-                    print(e)
-                    def on_error(msg):
+                    import traceback
+                    tb_str = traceback.format_exc()
+                    print(tb_str) # Print to console
+                    
+                    def on_error(msg, trace):
                         status_var.set(f"Error: {msg}")
                         btn_run.config(state='normal')
                         btn_refine.config(state='normal')
-                        show_custom_msg("Error", f"An error occurred:\n{msg}", 'error', root)
-                    root.after(0, on_error, str(e))
+                        # Truncate trace if too long for msgbox
+                        short_trace = trace[-500:] if len(trace) > 500 else trace
+                        show_custom_msg("Error", f"An error occurred:\n{msg}\n\nTraceback:\n{short_trace}", 'error', root)
+                        
+                    root.after(0, on_error, str(e), tb_str)
             threading.Thread(target=worker, daemon=True).start()
 
         def view_result():
