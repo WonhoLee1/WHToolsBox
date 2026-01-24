@@ -1037,6 +1037,49 @@ class CADSimplifier:
                 if not gmsh.isInitialized():
                     gmsh.initialize()
                 
+                # Special Export Flags
+                if shape_flag == "export_bounding_box":
+                    print(f"  - Bounding Box 생성 및 저장 중: {filename}")
+                    gmsh.clear()
+                    gmsh.model.add("bounding_box")
+                    min_pt, max_pt = self.bounding_box
+                    size = max_pt - min_pt
+                    gmsh.model.occ.addBox(min_pt[0], min_pt[1], min_pt[2], size[0], size[1], size[2])
+                    gmsh.model.occ.synchronize()
+                    gmsh.write(filename)
+                    print(f"  - 저장 완료: {filename}")
+                    return
+
+                if shape_flag == "export_cutters_only":
+                    print(f"  - 커터 형상(Union) 생성 및 저장 중: {filename}")
+                    gmsh.clear()
+                    gmsh.model.add("cutters_only")
+                    
+                    cutter_ids = []
+                    for c in self.cutters:
+                        if c.get('type') == 'oriented':
+                            sx, sy, sz = c['extents']
+                            cid = gmsh.model.occ.addBox(-sx/2, -sy/2, -sz/2, sx, sy, sz)
+                            matrix = c['transform'].flatten().tolist()
+                            gmsh.model.occ.affineTransform([(3, cid)], matrix)
+                            cutter_ids.append((3, cid))
+                        else:
+                            cx, cy, cz = c['center']
+                            sx, sy, sz = c['size']
+                            cid = gmsh.model.occ.addBox(cx - sx/2, cy - sy/2, cz - sz/2, sx, sy, sz)
+                            cutter_ids.append((3, cid))
+                    
+                    gmsh.model.occ.synchronize()
+                    
+                    if cutter_ids:
+                        gmsh.model.occ.fuse([cutter_ids[0]], cutter_ids[1:])
+                        gmsh.model.occ.synchronize()
+                    
+                    gmsh.write(filename)
+                    print(f"  - 저장 완료: {filename}")
+                    return
+
+                # Normal Model Export
                 # FORCE REGENERATION:
                 # 사용자가 "Refine" 등을 통해 커터를 수정한 상태를 확실히 반영하기 위해
                 # 기존 모델을 초기화하고 현재 self.cutters 기반으로 다시 생성합니다.
@@ -1926,17 +1969,27 @@ class CADSimplifier:
             
             save_win = tk.Toplevel(root)
             save_win.title("Save Results")
-            save_win.geometry("300x150")
+            save_win.geometry("350x250")
             center_window(save_win, root) # Center this too
             
-            tk.Label(save_win, text="Select format to save:", pady=10).pack()
+            tk.Label(save_win, text="Select format to save:", pady=10, font=('Arial', 11, 'bold')).pack()
 
-            save_win.title("Save Results")
-            save_win.geometry("300x150")
+            # Helper to ask filename and call export
+            def ask_and_export(type_flag, title_prefix):
+                file_types = [('STEP files', '*.step *.stp'), ('IGES files', '*.iges *.igs')]
+                filename = filedialog.asksaveasfilename(title=f"Save {title_prefix}", filetypes=file_types, defaultextension=".step")
+                if filename:
+                   self.export_step(type_flag, filename)
+                   show_custom_msg("Export", f"Saved {title_prefix} to {filename}", 'info', root)
+                   save_win.destroy()
+
+            tk.Button(save_win, text="1. Save Simplified Model (STEP/STL...)", command=lambda: [export_cad_file(), save_win.destroy()], width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="2. Save Original Bounding Box (STEP)", command=lambda: ask_and_export("export_bounding_box", "Bounding Box"), width=35, anchor='w', padx=10).pack(pady=2)
+            tk.Button(save_win, text="3. Save Cutters Only (STEP)", command=lambda: ask_and_export("export_cutters_only", "Cutters"), width=35, anchor='w', padx=10).pack(pady=2)
             
-            tk.Label(save_win, text="Select format to save:", pady=10).pack()
-            tk.Button(save_win, text="Save CAD Model (STEP/STL...)", command=lambda: [export_cad_file(), save_win.destroy()], width=30).pack(pady=5)
-            tk.Button(save_win, text="Save Cutter Info (.txt)", command=lambda: [export_cutter_txt(), save_win.destroy()], width=30).pack(pady=5)
+            tk.Frame(save_win, height=1, bg="grey").pack(fill='x', pady=5, padx=10)
+            
+            tk.Button(save_win, text="4. Save Cutter Info (.txt)", command=lambda: [export_cutter_txt(), save_win.destroy()], width=35, anchor='w', padx=10).pack(pady=2)
 
 
         # --- Menu Bar ---
