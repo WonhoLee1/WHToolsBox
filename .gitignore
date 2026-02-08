@@ -19,7 +19,13 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.vscode/
+# Simulation & Large Files
+*.png
+*.mp4
+*.rad
+*.pos
+*.TXT
+*.html
 *.stl
 *.step
 *.stp
@@ -27,3 +33,5 @@ wheels/
 *.igs
 *.log
 tmp/
+.vscode/
+__pycache__/

@@ -4,208 +4,205 @@ from matplotlib.animation import FuncAnimation
 from scipy.integrate import solve_ivp
 from scipy.spatial.transform import Rotation as R
 from numba import njit
+import matplotlib.font_manager as fm
 
 # ==========================================
-# 0. 전역 상수 설정
+# 0. 물리 및 기하학 상수
 # ==========================================
 BOX_WIDTH, BOX_DEPTH, BOX_HEIGHT = 2.0, 1.6, 0.2
 BOX_MASS = 30.0
-NX, NY, NZ = 5, 5, 3  # 요소 분할
-GRAVITY = 9.81
-GROUND_K = 2.0e9      # 지면 강성
-DAMPING_RATIO = 0.9   # 감쇠비
-INITIAL_COM_Z = 0.7
-CORNER_RELATIVE_Z = np.array([0.05, 0.02, 0.0, 0.03]) # 바닥 4점 초기 틀어짐
+BOX_E = 1e7          # 영률 (Pa)
+BOX_NU = 0.3         # 포아송비
+AIR_RHO = 1.225
+AIR_MU = 1.81e-5
+CD_DRAG = 1.1
+H_SQ_LIMIT = 0.05
+GROUND_K = 2e7
+NX, NY, NZ = 5, 5, 3
 
+# 폰트 설정 (D2Coding 우선, 없을 경우 기본 폰트)
+try:
+    FONT_PROP = fm.FontProperties(family='D2Coding', size=9)
+except:
+    FONT_PROP = fm.FontProperties(size=9)
+    
 # ==========================================
-# 1. 노드 생성 및 외곽면 인덱스 추출
+# 1. 격자 및 인덱스 정의
 # ==========================================
-def get_fem_structure():
+def get_mesh_info():
     x = np.linspace(-BOX_WIDTH/2, BOX_WIDTH/2, NX+1)
     y = np.linspace(-BOX_DEPTH/2, BOX_DEPTH/2, NY+1)
     z = np.linspace(-BOX_HEIGHT/2, BOX_HEIGHT/2, NZ+1)
     X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-    nodes_local = np.stack([X.flatten(), Y.flatten(), Z.flatten()], axis=1)
+    nodes = np.stack([X.flatten(), Y.flatten(), Z.flatten()], axis=1)
+    idx_map = np.arange(len(nodes)).reshape((NX+1, NY+1, NZ+1))
     
-    # 8개 꼭짓점 인덱스 추출
-    corners_idx = []
-    for cz in [z[0], z[-1]]:
-        for cy in [y[0], y[-1]]:
-            for cx in [x[0], x[-1]]:
-                dist = np.sum((nodes_local - [cx, cy, cz])**2, axis=1)
-                corners_idx.append(np.argmin(dist))
-                
-    # 외곽면(Free Surface) 노드 추출 (Shading용)
-    # 각 면의 노드 인덱스를 평면으로 구성
-    surfaces = []
-    ni, nj, nk = NX+1, NY+1, NZ+1
-    idx_map = np.arange(nodes_local.shape[0]).reshape((ni, nj, nk))
+    # 윗면(Top) 및 아랫면(Bottom) 꼭짓점 4개씩 추출
+    top_corners = [idx_map[0,0,-1], idx_map[-1,0,-1], idx_map[-1,-1,-1], idx_map[0,-1,-1]]
+    bot_corners = [idx_map[0,0,0], idx_map[-1,0,0], idx_map[-1,-1,0], idx_map[0,-1,0]]
+    bottom_surface_nodes = idx_map[:, :, 0].flatten()
     
-    surfaces.append(idx_map[0, :, :])   # Left
-    surfaces.append(idx_map[-1, :, :])  # Right
-    surfaces.append(idx_map[:, 0, :])   # Front
-    surfaces.append(idx_map[:, -1, :])  # Back
-    surfaces.append(idx_map[:, :, 0])   # Bottom
-    surfaces.append(idx_map[:, :, -1])  # Top
-    
-    return nodes_local, np.array(corners_idx), surfaces
+    return nodes, top_corners, bot_corners, bottom_surface_nodes, idx_map
 
-NODES_LOCAL, CORNERS_IDX, SURFACE_MAPS = get_fem_structure()
+NODES_L, TOP_C, BOT_C, BOT_SURF, IDX_MAP = get_mesh_info()
 
 # ==========================================
-# 2. 물리 엔진 (Numba 가속)
+# 2. 물리 계산 코어 (Numba)
 # ==========================================
 @njit
-def compute_physics(h, v, rot, omegas, nodes_local, mass):
-    # 1. 노드당 분배된 기본 물리량
-    num_nodes = nodes_local.shape[0]
-    # 침투 최소화를 위해 지면 강성을 기존보다 높게 설정 (상단 GROUND_K 참조)
-    k_node = GROUND_K / num_nodes
-    # 임계 감쇠 계수 계산
-    c_node = 2.0 * np.sqrt(k_node * (mass / num_nodes)) * DAMPING_RATIO
-    
-    total_f_z = 0.0
+def compute_all_forces(h, v, rot, omegas, nodes_l, mass):
+    num_nodes = nodes_l.shape[0]
+    total_fz = 0.0
     total_tau = np.zeros(3)
-    node_pos_z = np.zeros(num_nodes)
-    node_vel_z = np.zeros(num_nodes)
+    area_per_node = (BOX_WIDTH * BOX_DEPTH) / ((NX+1)*(NY+1))
     
-    # 2. 모든 노드 순회 (5x5x3 분할 노드 전체 대상)
+    # 결과 저장을 위한 배열
+    node_fz_contact = np.zeros(num_nodes)
+    node_fz_squeeze = np.zeros(num_nodes)
+    
+    # 전체 공기 저항 (Drag)
+    f_drag_total = -0.5 * AIR_RHO * CD_DRAG * (BOX_WIDTH * BOX_DEPTH) * v * abs(v)
+    
     for i in range(num_nodes):
-        # 강체 회전 변환 및 세계 좌표 계산
-        r_l = nodes_local[i]
-        r_w = rot @ r_l
+        r_w = rot @ nodes_l[i]
+        pz = h + r_w[2]
+        vz = v + (omegas[0]*r_w[1] - omegas[1]*r_w[0])
         
-        # 노드의 현재 높이(pos_z)와 수직 속도(vel_z)
-        pos_z = h + r_w[2]
-        vel_z = v + (omegas[0]*r_w[1] - omegas[1]*r_w[0])
+        # 1. 지면 충격력
+        if pz < 0:
+            pen = abs(pz)
+            kn = GROUND_K / num_nodes
+            cn = 2.0 * np.sqrt(kn * (mass/num_nodes))
+            node_fz_contact[i] = kn * (pen**1.5) - cn * vz
         
-        fz = 0.0
-        # 3. 침투 발생 시 접촉력 계산 (Penetration Handling)
-        if pos_z < 0:
-            penetration = abs(pos_z)
-            
-            # [개선 1] 비선형 탄성력: 침투가 깊어질수록 강성이 제곱으로 증가 (Hertzian 모사)
-            # 선형 스프링보다 침투 억제력이 훨씬 강력함
-            f_elastic = k_node * (penetration**1.5) 
-            
-            # [개선 2] 가변 감쇠: 침투량에 비례하여 감쇠력을 조절하여 불연속적인 튐 방지
-            # 감쇠력 = c * v * (침투 깊이 비율)
-            f_damping = -c_node * vel_z * (1.0 + 10.0 * penetration)
-            
-            # 최종 수직 항력 (바닥 아래로만 작용)
-            fz = max(0.0, f_elastic + f_damping)
-            
-        # 4. 전체 힘과 토크 누적
-        total_f_z += fz
-        total_tau[0] += r_w[1] * fz  # Roll 토크 (Y축 방향 힘에 의한 X축 회전)
-        total_tau[1] -= r_w[0] * fz  # Pitch 토크 (X축 방향 힘에 의한 Y축 회전)
+        # 2. 스퀴즈 필름 (아랫면 근처)
+        if pz > 0 and pz < H_SQ_LIMIT:
+            h_eff = max(pz, 0.0008)
+            node_fz_squeeze[i] = -(1.5 * AIR_MU * (area_per_node**2) * vz) / (np.pi * (h_eff**3))
         
-        # 데이터 저장
-        node_pos_z[i] = pos_z
-        node_vel_z[i] = vel_z
+        fz_sum = max(0.0, node_fz_contact[i]) + node_fz_squeeze[i]
+        total_fz += fz_sum
+        total_tau[0] += r_w[1] * fz_sum
+        total_tau[1] -= r_w[0] * fz_sum
         
-    return total_f_z, total_tau, node_pos_z, node_vel_z
+    return total_fz + f_drag_total, total_tau, node_fz_contact, node_fz_squeeze, f_drag_total
 
 # ==========================================
-# 3. 시뮬레이션 및 데이터 처리
+# 3. 데이터 로깅 및 시뮬레이션
 # ==========================================
-class FEMBoxSimulator:
+class FullAnalysisSimulator:
     def __init__(self):
-        self.I_inv = np.linalg.inv(np.diag([
-            (1/12)*BOX_MASS*(BOX_DEPTH**2 + BOX_HEIGHT**2),
-            (1/12)*BOX_MASS*(BOX_WIDTH**2 + BOX_HEIGHT**2),
-            (1/12)*BOX_MASS*(BOX_WIDTH**2 + BOX_DEPTH**2)
-        ]))
+        self.I = np.diag([(1/12)*BOX_MASS*(BOX_DEPTH**2+BOX_HEIGHT**2), (1/12)*BOX_MASS*(BOX_WIDTH**2+BOX_HEIGHT**2), (1/12)*BOX_MASS*(BOX_WIDTH**2+BOX_DEPTH**2)])
+        self.I_inv = np.linalg.inv(self.I)
+
+    def run(self):
+        y0 = [0.6, 0.0, 0.05, 0.03, 0.0, 0.0, 0.0, 0.0]
+        sol = solve_ivp(self.ode, (0, 1.2), y0, method='Radau', max_step=0.001)
+        return self.post_process(sol)
 
     def ode(self, t, y):
         h, v, phi, theta, psi, wx, wy, wz = y
         rot = R.from_euler('xyz', [phi, theta, psi]).as_matrix()
-        fz, tau, _, _ = compute_physics(h, v, rot, np.array([wx, wy, wz]), NODES_LOCAL, BOX_MASS)
-        dv = -GRAVITY + fz / BOX_MASS
-        dw = self.I_inv @ tau
-        return [v, dv, wx, wy, wz, dw[0], dw[1], dw[2]]
+        fz, tau, _, _, _ = compute_all_forces(h, v, rot, np.array([wx, wy, wz]), NODES_L, BOX_MASS)
+        return [v, -9.81 + fz/BOX_MASS, wx, wy, wz, (self.I_inv @ tau)[0], (self.I_inv @ tau)[1], (self.I_inv @ tau)[2]]
 
-    def run(self):
-        p = np.arctan2(CORNER_RELATIVE_Z[3] - CORNER_RELATIVE_Z[0], BOX_DEPTH)
-        r = np.arctan2(CORNER_RELATIVE_Z[1] - CORNER_RELATIVE_Z[0], BOX_WIDTH)
-        sol = solve_ivp(self.ode, (0, 0.8), [INITIAL_COM_Z, 0, r, p, 0, 0, 0, 0], 
-                        method='RK45', max_step=0.001)
-        return sol
-
-class Analysis:
-    def __init__(self, sol):
-        self.t, self.y = sol.t, sol.y
-        self.corner_data = {idx: {'pos':[], 'vel':[], 'acc':[]} for idx in CORNERS_IDX}
+    def post_process(self, sol):
+        # 모든 요청 데이터를 저장할 딕셔너리
+        data = {'t': sol.t, 'h_com': sol.y[0], 'v_com': sol.y[1]}
+        num_steps = len(sol.t)
         
-    def process(self):
-        for i in range(len(self.t)):
-            yi = self.y[:, i]
-            rot = R.from_euler('xyz', yi[2:5]).as_matrix()
-            fz, tau, pz, vz = compute_physics(yi[0], yi[1], rot, yi[5:8], NODES_LOCAL, BOX_MASS)
-            
-            # 가속도 계산용
-            dwdt = self.I_inv_val @ tau
-            a_com = -GRAVITY + fz / BOX_MASS
-            
-            for idx in CORNERS_IDX:
-                rw = rot @ NODES_LOCAL[idx]
-                self.corner_data[idx]['pos'].append(yi[0] + rw[2])
-                self.corner_data[idx]['vel'].append(yi[1] + (yi[5]*rw[1] - yi[6]*rw[0]))
-                # 가속도 근사: a_com + alpha x r
-                self.corner_data[idx]['acc'].append(a_com + (dwdt[0]*rw[1] - dwdt[1]*rw[0]))
-
-    def plot_corners(self):
-        fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
-        fig.suptitle("8개 꼭짓점 상세 물리 데이터 분석")
+        # 에너지 및 저항력 배열 초기화
+        data['KE'], data['PE_strain'] = np.zeros(num_steps), np.zeros(num_steps)
+        data['f_drag'], data['f_squeeze_total'], data['f_contact_total'] = np.zeros(num_steps), np.zeros(num_steps), np.zeros(num_steps)
         
-        for idx in CORNERS_IDX:
-            axes[0].plot(self.t, self.corner_data[idx]['pos'], alpha=0.7)
-            axes[1].plot(self.t, self.corner_data[idx]['vel'], alpha=0.7)
-            axes[2].plot(self.t, self.corner_data[idx]['acc'], alpha=0.7)
-            
-        axes[0].set_ylabel("Disp (m)"); axes[0].grid(True)
-        axes[1].set_ylabel("Vel (m/s)"); axes[1].grid(True)
-        axes[2].set_ylabel("Accel (m/s²)"); axes[2].grid(True); axes[2].set_xlabel("Time (s)")
-        plt.tight_layout()
+        # 스트레스/변형률 (아랫면 평균)
+        data['avg_stress'], data['avg_strain'] = np.zeros(num_steps), np.zeros(num_steps)
 
-    def animate_shading(self):
-        fig = plt.figure("3D Surface Shading Animation", figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        def update(frame):
-            ax.cla()
-            yi = self.y[:, frame]
-            rot = R.from_euler('xyz', yi[2:5]).as_matrix()
-            nodes_world = (rot @ NODES_LOCAL.T).T + [0, 0, yi[0]]
+        for i in range(num_steps):
+            y = sol.y[:, i]
+            rot = R.from_euler('xyz', y[2:5]).as_matrix()
+            fz, tau, f_con_n, f_sq_n, f_drag = compute_all_forces(y[0], y[1], rot, y[5:8], NODES_L, BOX_MASS)
             
-            # 6개 면 Shading 처리
-            for s_idx in SURFACE_MAPS:
-                sx = nodes_world[s_idx, 0]
-                sy = nodes_world[s_idx, 1]
-                sz = nodes_world[s_idx, 2]
-                ax.plot_surface(sx, sy, sz, color='cyan', alpha=0.6, edgecolor='blue', lw=0.5)
+            # 1~6번 항목: 힘 데이터
+            data['f_drag'][i] = f_drag
+            data['f_squeeze_total'][i] = np.sum(f_sq_n)
+            data['f_contact_total'][i] = np.sum(f_con_n)
             
-            # 바닥 평면
-            gx, gy = np.meshgrid([-1.5, 1.5], [-1.5, 1.5])
-            ax.plot_surface(gx, gy, np.zeros_like(gx), color='gray', alpha=0.2)
+            # 7번 항목: 등가 응력/변형률 근사 (지면 반력 기반)
+            avg_p = np.sum(f_con_n) / (BOX_WIDTH * BOX_DEPTH)
+            data['avg_strain'][i] = avg_p / BOX_E
+            data['avg_stress'][i] = avg_p  # 수직 응력 지배적 가정
             
-            ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5); ax.set_zlim(-0.1, 1.2)
-            ax.set_title(f"Time: {self.t[frame]:.3f}s")
+            # 8번 항목: 에너지
+            data['KE'][i] = 0.5 * BOX_MASS * y[1]**2 + 0.5 * np.dot(y[5:8], self.I @ y[5:8])
+            # 변형 에너지는 지면 반력에 의한 가상 일로 근사
+            data['PE_strain'][i] = 0.5 * np.sum(f_con_n * np.abs(np.minimum(0, y[0]))) 
 
-        ani = FuncAnimation(fig, update, frames=range(0, len(self.t), 5), interval=30)
-        plt.show()
+        return data
 
 # ==========================================
-# 4. 실행
+# 4. 결과 출력 및 그래프 (종합 리포트)
 # ==========================================
+def plot_full_report(data):
+    t = data['t']
+    
+    # 윈도우 정렬 함수
+    def apply_cascade(idx):
+        mgr = plt.get_current_fig_manager()
+        try: 
+            # TkAgg backend assumed or similar
+            mgr.window.wm_geometry(f"+{50+idx*30}+{50+idx*30}")
+        except: 
+            pass
+
+    # [그래프 1] 충격력 및 저항력
+    plt.figure("Forces Analysis", figsize=(8, 6))
+    plt.plot(t, data['f_contact_total'], label='Total Contact Force (Floor)')
+    plt.plot(t, data['f_squeeze_total'], label='Squeeze Film Force')
+    plt.plot(t, data['f_drag'], label='Aero Drag')
+    plt.title("Forces over Time", fontproperties=FONT_PROP)
+    plt.legend(prop=FONT_PROP)
+    plt.grid(True)
+    apply_cascade(0)
+
+    # [그래프 2] 에너지 변화
+    plt.figure("Energy Analysis", figsize=(8, 6))
+    plt.plot(t, data['KE'], label='Kinetic Energy')
+    plt.plot(t, data['PE_strain'], label='Strain Energy (Approx)')
+    plt.title("Energy Balance", fontproperties=FONT_PROP)
+    plt.legend(prop=FONT_PROP)
+    plt.grid(True)
+    apply_cascade(1)
+
+    # [그래프 3] 아랫면 등가 응력 및 변형률
+    fig, ax3 = plt.subplots(figsize=(8, 6))
+    fig.canvas.manager.set_window_title("Stress & Strain")
+    ax3.plot(t, data['avg_stress'], 'r-', label='Avg. Stress (Pa)')
+    ax3.set_ylabel("Stress (Pa)")
+    ax3_2 = ax3.twinx()
+    ax3_2.plot(t, data['avg_strain'], 'b--', label='Avg. Strain')
+    ax3_2.set_ylabel("Strain")
+    ax3.set_title("Bottom Surface Stress & Strain", fontproperties=FONT_PROP)
+    lines, labels = ax3.get_legend_handles_labels()
+    lines2, labels2 = ax3_2.get_legend_handles_labels()
+    ax3.legend(lines + lines2, labels + labels2, loc='upper left', prop=FONT_PROP)
+    ax3.grid(True)
+    apply_cascade(2)
+
+    # [그래프 4] CoM 높이 및 속도
+    plt.figure("CoM Motion", figsize=(8, 6))
+    plt.plot(t, data['h_com'], label='CoM Height')
+    plt.plot(t, data['v_com'], label='CoM Velocity')
+    plt.title("CoM Motion", fontproperties=FONT_PROP)
+    plt.legend(prop=FONT_PROP)
+    plt.grid(True)
+    apply_cascade(3)
+
+    plt.show()
+
 if __name__ == "__main__":
-    sim = FEMBoxSimulator()
-    sol = sim.run()
-    
-    # 분석 데이터 처리를 위한 관성행렬 전달
-    ana = Analysis(sol)
-    ana.I_inv_val = sim.I_inv
-    ana.process()
-    
-    ana.plot_corners()    # 그래프 추가 (속도-변위-가속도)
-    ana.animate_shading() # 3D Plot 수정 (Surface Mesh Shading)
+    analyzer = FullAnalysisSimulator()
+    print("Running Simulation (Radau)...")
+    results = analyzer.run()
+    print("Simulation Complete. Plotting Results...")
+    plot_full_report(results)
