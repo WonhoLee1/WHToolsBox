@@ -10,6 +10,18 @@ import msvcrt
 # ==========================================
 # Global Constants & Configuration
 # ==========================================
+# Solver Presets (Iterations, Tolerance, Solver, Cones)
+# [기본값 설명]
+# iterations: 솔버가 접촉력을 계산하기 위해 반복하는 횟수 (높을수록 정밀하지만 느림)
+# tolerance: 솔버가 계산을 중단하는 오차 범위 (작을수록 정밀하지만 오래 걸림)
+# solver: 'Newton'은 빠르고 정밀하며, 'PGS'는 안정적이고 접촉이 많을 때 유리함
+# cones: 'elliptic'은 마찰력을 원형으로 계산(정교함), 'pyramidal'은 사각뿔로 근사(빠름)
+SOLVER_PRESETS = {
+    "1": {"name": "Accurate (정확)", "iter": 100, "tol": 1e-8, "solver": "Newton", "cone": "elliptic"},
+    "2": {"name": "Normal (보통)",   "iter": 50,  "tol": 1e-5, "solver": "Newton", "cone": "pyramidal"},
+    "3": {"name": "Fast (빠른)",     "iter": 30,  "tol": 1e-4, "solver": "PGS",    "cone": "pyramidal"},
+    "4": {"name": "Very Fast (매우빠름)", "iter": 20, "tol": 1e-3, "solver": "PGS", "cone": "pyramidal"}
+}
 # Optimization Parameters
 DEFAULT_SOLREF = [0.05, 0.1]
 DEFAULT_SOLIMP = [0.2, 0.7, 0.02, 0.5, 2] # dmin, dmax, width, mid, power
@@ -33,10 +45,11 @@ PLASTIC_DEFORMATION_RATIO = 0.5
 # Class: BoxDropInstance
 # ==========================================
 class BoxDropInstance:
-    def __init__(self, uid, position_offset, drop_type="corner", box_params=None, com_random=False):
+    def __init__(self, uid, position_offset, drop_type="corner", box_params=None, com_random=False, com_offset=None, label=""):
         self.uid = uid
         self.base_pos = np.array(position_offset)  # Grid position (x, y, 0)
         self.drop_type = drop_type # "corner", "edge", "face" (Prepared for future)
+        self.label = label # 텍스트 라벨
         
         # Default Box Parameters
         self.L = box_params.get('L', 1.8)
@@ -46,7 +59,9 @@ class BoxDropInstance:
         
         # CoM Offset
         self.CoM_offset = np.zeros(3)
-        if com_random:
+        if com_offset is not None:
+            self.CoM_offset = np.array(com_offset)
+        elif com_random:
             # Random offset within 100mm (-0.1 ~ 0.1)
             self.CoM_offset = np.random.uniform(-0.1, 0.1, 3)
             
@@ -237,7 +252,7 @@ class BoxDropInstance:
 # Class: SimulationManager
 # ==========================================
 class SimulationManager:
-    def __init__(self, enable_air_cushion=True, enable_plasticity=True):
+    def __init__(self, enable_air_cushion=True, enable_plasticity=True, solver_mode="2"):
         self.instances = []
         self.model = None
         self.data = None
@@ -246,6 +261,10 @@ class SimulationManager:
         # Feature Toggles
         self.enable_air_cushion = enable_air_cushion
         self.enable_plasticity = enable_plasticity
+        
+        # Solver Configuration
+        self.solver_params = SOLVER_PRESETS.get(solver_mode, SOLVER_PRESETS["2"])
+        print(f"⚙️  Solver Setting: {self.solver_params['name']}")
         
     def add_instance(self, instance):
         self.instances.append(instance)
@@ -262,7 +281,11 @@ class SimulationManager:
             <material name="grid" texture="grid" texrepeat="8 8" texuniform="true"/>
           </asset>
           
-          <option timestep="0.001" gravity="0 0 -{G_ACC}" density="{AIR_DENSITY}" viscosity="{AIR_VISCOSITY}">
+          <option timestep="0.001" gravity="0 0 -{G_ACC}" density="{AIR_DENSITY}" viscosity="{AIR_VISCOSITY}"
+                  iterations="{self.solver_params['iter']}" 
+                  tolerance="{self.solver_params['tol']}" 
+                  solver="{self.solver_params['solver']}" 
+                  cone="{self.solver_params['cone']}">
             <flag contact="enable"/>
           </option>
           
@@ -531,6 +554,28 @@ class SimulationManager:
                 step_start = time.time()
                 
                 while viewer.is_running():
+                    # Draw Labels (Manual Marker Injection for Compatibility)
+                    try:
+                        viewer.user_scn.ngeom = 0 # Reset user geoms each frame
+                        for inst in self.instances:
+                            if inst.label and viewer.user_scn.ngeom < 100:
+                                f_half = max(inst.L, inst.W) * 0.8
+                                l_pos = [inst.base_pos[0], inst.base_pos[1] - f_half - 0.4, 0.1]
+                                
+                                idx = viewer.user_scn.ngeom
+                                viewer.user_scn.ngeom += 1
+                                mujoco.mjv_initGeom(
+                                    viewer.user_scn.geoms[idx],
+                                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                                    size=[0.01, 0.01, 0.01],
+                                    pos=l_pos,
+                                    mat=np.eye(3).flatten(),
+                                    rgba=[1, 1, 1, 0] 
+                                )
+                                viewer.user_scn.geoms[idx].label = inst.label
+                    except:
+                        pass # Ignore errors if viewer is closing
+
                     if self.should_quit:
                         viewer.close()
                         break
@@ -612,15 +657,23 @@ class SimulationManager:
 # TESTCASE A
 # ==========================================
 def run_testcase_A():
-    # Feature Toggle Prompt
-    print("🔧 Physics Configuration:")
+    # 1. Physics & Solver Configuration
+    print("\n🔧 Physics Configuration:")
     ac_in = input("Enable Air Cushion (y/n, default y): ").strip().lower()
     pl_in = input("Enable Plastic Deformation (y/n, default y): ").strip().lower()
+    
+    print("\n🚀 Solver Configuration:")
+    print("1. Accurate (정확 - Newton, Elliptic, Iter 100)")
+    print("2. Normal   (보통 - Newton, Pyramidal, Iter 50)")
+    print("3. Fast     (빠름 - PGS, Pyramidal, Iter 30)")
+    print("4. Very Fast(매우빠름 - PGS, Pyramidal, Iter 20)")
+    solver_mode = input("Select Solver Mode (1-4, default 3): ").strip()
+    if not solver_mode: solver_mode = "3"
     
     use_ac = (ac_in != 'n')
     use_pl = (pl_in != 'n')
     
-    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl)
+    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
     
     rows, cols = 4, 5
     spacing_x, spacing_y = 4.0, 4.0
@@ -638,7 +691,8 @@ def run_testcase_A():
                 position_offset=[x, y, 0],
                 drop_type="corner",
                 box_params={}, # Use defaults
-                com_random=True
+                com_random=True,
+                label=f"Box {box_id}" # Default label
             )
             sim.add_instance(inst)
             box_id += 1
@@ -664,8 +718,125 @@ def run_testcase_A():
     # 3. Visualization Loop
     return sim
 
+# ==========================================
+# TESTCASE B: Parametric COM Sweep
+# ==========================================
+def run_testcase_B():
+    print("\n🧪 Running Testcase B: Parametric CoM Sweep (3 rows x 5 columns)")
+    
+    # 1. Physics & Solver Configuration
+    print("\n🔧 Physics Configuration:")
+    ac_in = input("Enable Air Cushion (y/n, default y): ").strip().lower()
+    pl_in = input("Enable Plastic Deformation (y/n, default y): ").strip().lower()
+    
+    print("\n🚀 Solver Configuration:")
+    print("1. Accurate, 2. Normal, 3. Fast, 4. Very Fast")
+    solver_mode = input("Select Solver Mode (1-4, default 3): ").strip()
+    if not solver_mode: solver_mode = "3"
+    
+    use_ac = (ac_in != 'n')
+    use_pl = (pl_in != 'n')
+    
+    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
+    
+    # Grid Config: 3 axis x 5 offsets
+    rows, cols = 3, 5
+    spacing_x, spacing_y = 4.0, 4.0
+    offsets_mm = [-50, -25, 0, 25, 50]
+    
+    print(f"📦 Generating 15 Box Instances (Rows: Axis X,Y,Z | Cols: Offsets -50 to +50mm)...")
+    
+    box_id = 0
+    for r in range(rows): # r=0:X, r=1:Y, r=2:Z
+        for c in range(cols):
+            x = c * spacing_x
+            y = r * spacing_y
+            
+            # Create Specific CoM Offset
+            val_mm = offsets_mm[c]
+            val_m = val_mm / 1000.0 # to meters
+            com = [0.0, 0.0, 0.0]
+            com[r] = val_m
+            
+            axis_name = ["X", "Y", "Z"][r]
+            label_str = f"{axis_name}: {val_mm:+}mm"
+            
+            inst = BoxDropInstance(
+                uid=box_id,
+                position_offset=[x, y, 0],
+                drop_type="corner",
+                box_params={},
+                com_offset=com,
+                label=label_str # "X: -50mm" 형태
+            )
+            sim.add_instance(inst)
+            box_id += 1
+            
+    sim.init_simulation()
+    
+    # 1. Preview
+    print("\nSelect Viewer Mode (1. Standard, 2. Passive): ")
+    mode_in = input("Enter mode (default 2): ").strip()
+    sim.run_simulation_loop(mode='standard' if mode_in == "1" else 'passive')
+    
+    # Wait for viewer resources to settle
+    time.sleep(0.5)
+    
+    # 2. Data Collection
+    print("\n📊 Starting Headless Data Collection...")
+    sim.init_simulation()
+    sim.run_headless(duration=2.5)
+    
+    # 3. Summary Plot
+    plot_testcase_B_summary(sim)
+    
+    return sim
+
+def plot_testcase_B_summary(sim):
+    """Testcase B 전용: CoM Sweep 비교 그래프"""
+    print("\n📈 Generating Testcase B Summary Charts...")
+    instances = sim.instances
+    if not instances or not instances[0].history['time']:
+        print("No data recorded.")
+        return
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    axis_names = ["X-Axis CoM Sweep", "Y-Axis CoM Sweep", "Z-Axis CoM Sweep"]
+    colors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6'] 
+    offset_labels = ["-50mm", "-25mm", "0mm", "+25mm", "+50mm"]
+
+    for r in range(3):
+        ax = axes[r]
+        ax.set_title(f"{axis_names[r]} (Drop Behavior)", fontsize=12, fontweight='bold')
+        
+        for c in range(5):
+            idx = r * 5 + c
+            if idx >= len(instances): break
+            inst = instances[idx]
+            time_arr = np.array(inst.history['time'])
+            pos_z = np.array(inst.history['pos'])[:, 2] * 1000.0 # to mm
+            
+            ax.plot(time_arr, pos_z, color=colors[c], label=offset_labels[c], linewidth=1.5, alpha=0.9)
+            
+        ax.set_ylabel("Z-Height (mm)")
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend(loc='upper right', title="Offset", fontsize='x-small')
+        
+    axes[2].set_xlabel("Time (seconds)")
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
-    manager = run_testcase_A()
+    print("--- WonhoLee Multi-Box Simulation System ---")
+    print("Select Testcase:")
+    print("A. Random Grid (4x5, Randomized CoM)")
+    print("B. Parametric Sweep (3x5, Sweeping X,Y,Z CoM)")
+    tc_choice = input("Enter selection (A/B, default B): ").strip().upper()
+    
+    if tc_choice == "A":
+        manager = run_testcase_A()
+    else:
+        manager = run_testcase_B()
     
     while True:
         try:
