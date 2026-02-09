@@ -94,7 +94,7 @@ class BoxDropInstance:
         rot = R.from_quat([0, 0, 0, 1])
         min_z_local = -self.H / 2.0
         
-        corners_local = np.array([
+        self.corners_local = np.array([
             [x, y, z] for x in [-self.L/2, self.L/2]
             for y in [-self.W/2, self.W/2]
             for z in [-self.H/2, self.H/2]
@@ -247,9 +247,17 @@ class BoxDropInstance:
             
             <!-- Sites for Sensing -->
             <site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
+            {self._get_corner_sites_xml()}
         </body>
         """
         return floor_xml + body_xml
+
+    def _get_corner_sites_xml(self):
+        """Generate XML for 8 sensing sites at the corners"""
+        xml = ""
+        for i, c in enumerate(self.corners_local):
+            xml += f'<site name="s_corner_{self.uid}_{i}" pos="{c[0]} {c[1]} {c[2]}" size="0.005" rgba="0.5 0.5 0.5 0.2"/>\n'
+        return xml
 
 
 # ==========================================
@@ -950,8 +958,10 @@ def plot_detailed_singleton_results(inst):
             # 2. Plot 8 Corners
             corner_data_list = h[corner_keys[row]]
             for i in range(8):
-                c_arr = np.array(corner_data_list[i])
-                ax.plot(times, c_arr[:, col] * 1000, label=f'Corner {i+1}', color=colors[i], linewidth=1.0, alpha=0.6)
+                if i < len(corner_data_list) and len(corner_data_list[i]) > 0:
+                    c_arr = np.array(corner_data_list[i])
+                    if c_arr.ndim > 1:
+                        ax.plot(times, c_arr[:, col] * 1000, label=f'Corner {i+1}', color=colors[i], linewidth=1.0, alpha=0.6)
             
             ax.set_ylabel(row_titles[row])
             ax.set_title(f"{row_titles[row]} - {labels[col]}", fontsize=11, fontweight='bold')
