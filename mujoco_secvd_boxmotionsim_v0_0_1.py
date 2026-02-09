@@ -68,11 +68,12 @@ class BoxDropInstance:
         # State Data Storage
         self.history = {
             'time': [],
-            'pos': [],      # CoM World Pos
-            'vel': [],      # CoM World Vel
-            'acc': [],      # CoM World Acc (derived)
+            'pos': [],          # CoM World Pos
+            'vel': [],          # CoM World Vel
+            'acc': [],          # CoM World Acc (derived)
             'impact_force': [],
-            'cushion_force': []
+            'cushion_force': [],
+            'corner_pos': [[] for _ in range(8)]  # Site positions
         }
         self.prev_vel = np.zeros(3)
 
@@ -298,22 +299,34 @@ class SimulationManager:
         return xml
 
     def init_simulation(self):
-        xml_str = self.generate_full_xml()
+        # 1. Clean up previous resources
         try:
-            self.model = mujoco.MjModel.from_xml_string(xml_str)
-        except Exception as e:
-            print(f"❌ XML Loading Error: {e}")
-            with open("failed_model.xml", "w") as f:
-                f.write(xml_str)
-            print("   -> Dumped XML to failed_model.xml")
-            raise e
-            
-        self.data = mujoco.MjData(self.model)
+            if hasattr(self, 'model') and self.model: del self.model
+            if hasattr(self, 'data') and self.data: del self.data
+        except: pass
+        self.model = None
+        self.data = None
         
-        # Reset tracker
+        # 2. Generate and Load with Retry
+        xml_str = self.generate_full_xml()
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.model = mujoco.MjModel.from_xml_string(xml_str)
+                self.data = mujoco.MjData(self.model)
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    print(f"❌ XML Loading Error: {e}")
+                    with open("failed_model.xml", "w", encoding='utf-8') as f:
+                        f.write(xml_str)
+                    print("   -> Dumped XML to failed_model.xml")
+                    raise e
+                print(f"⚠️  Retrying XML Load due to engine busy (Attempt {attempt+2}/{max_retries})...")
+                time.sleep(1.0)
+        
+        # Reset tracker & Initial velocity
         self.geom_state_tracker = {}
-        
-        # Initialize Random Angular Velocity for all boxes
         np.random.seed(42)
         for i, inst in enumerate(self.instances):
             # Find joint address by name
@@ -630,28 +643,62 @@ class SimulationManager:
                 self.data.qvel[qvel_adr+3 : qvel_adr+6] = angvel
         mujoco.mj_forward(self.model, self.data)
 
-    def run_headless(self, duration=2.5):
-        print(f"🚀 Running Headless Simulation for {duration}s...")
+    def run_headless(self, duration=2.5, record_details=False):
+        print(f"🚀 Running Headless Simulation for {duration}s... (Record Details: {record_details})")
         steps = int(duration / 0.001)
         
-        for _ in range(steps):
+        # Initial Forward to settle state
+        mujoco.mj_forward(self.model, self.data)
+        
+        for step_idx in range(steps):
             mujoco.mj_step(self.model, self.data)
             if self.enable_plasticity:
                 self.apply_plastic_deformation()
             
-            # Record Data for each instance
-            # Recording every 1ms might be too heavy for 20 boxes? -> 20 * 2500 steps = 50k points per var. It's fine for RAM.
             t = self.data.time
+            # Progress dot every 0.25s
+            if step_idx % 250 == 0: print(".", end="", flush=True)
+
             for inst in self.instances:
-                # Find body ID
                 bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"box_{inst.uid}")
                 if bid != -1:
+                    # 1. Basic Recording
                     inst.history['time'].append(t)
-                    inst.history['pos'].append(self.data.xpos[bid].copy())
-                    cvel = self.data.cvel[bid]
-                    inst.history['vel'].append(cvel[3:6].copy()) # approx lin vel
-                    # Force recording omitted for speed in this demo
-        print("✅ Simulation Complete.")
+                    curr_pos = self.data.xpos[bid].copy()
+                    inst.history['pos'].append(curr_pos)
+                    curr_vel = self.data.cvel[bid][3:6].copy()
+                    inst.history['vel'].append(curr_vel)
+                    
+                    # 2. Detailed Recording (if requested)
+                    if record_details:
+                        # Acceleration (Numerical Diff)
+                        acc = (curr_vel - inst.prev_vel) / 0.001
+                        inst.history['acc'].append(acc)
+                        inst.prev_vel = curr_vel.copy()
+                        
+                        # Air Cushion Force (Applied Z force)
+                        ext_force = self.data.xfrc_applied[bid][2]
+                        inst.history['cushion_force'].append(ext_force)
+                        
+                        # Impact Force (Sum of Normal Forces for this instance)
+                        total_impact = 0.0
+                        floor_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"floor_{inst.uid}")
+                        for i in range(self.data.ncon):
+                            con = self.data.contact[i]
+                            if con.geom1 == floor_id or con.geom2 == floor_id:
+                                # Normal force is index 0 of contact force in local frame
+                                c_force = np.zeros(6)
+                                mujoco.mj_contactForce(self.model, self.data, i, c_force)
+                                total_impact += c_force[0]
+                        inst.history['impact_force'].append(total_impact)
+                        
+                        # Virtual Corners (8 Sites)
+                        for i in range(8):
+                            sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"s_corner_{inst.uid}_{i}")
+                            if sid != -1:
+                                inst.history['corner_pos'][i].append(self.data.site_xpos[sid].copy())
+
+        print("\n✅ Simulation Complete.")
 
 # ==========================================
 # TESTCASE A
@@ -826,6 +873,94 @@ def plot_testcase_B_summary(sim):
     plt.tight_layout()
     plt.show()
 
+def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
+    """선택한 박스 하나만 별도로 시뮬레이션하여 상세 데이터를 수집"""
+    print(f"\n🔬 Starting Detailed Singleton Analysis for: {original_inst.label}")
+    
+    # Create a fresh manager for a single box at origin
+    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
+    
+    # Clone instance properties but reset position to origin
+    inst = BoxDropInstance(
+        uid=0,
+        position_offset=[0, 0, 0],
+        drop_type=original_inst.drop_type,
+        box_params={'L': original_inst.L, 'W': original_inst.W, 'H': original_inst.H, 'MASS': original_inst.MASS},
+        com_offset=original_inst.CoM_offset,
+        label=original_inst.label
+    )
+    sim.add_instance(inst)
+    sim.init_simulation()
+    
+    # Run with Record Details enabled
+    sim.run_headless(duration=2.5, record_details=True)
+    
+    # Plot results
+    plot_detailed_singleton_results(inst)
+
+def plot_detailed_singleton_results(inst):
+    """mujoco_boxdrop_analysis.py 스타일의 상세 그래프 생성"""
+    print(f"\n📈 Generating Detailed Analysis Plots for {inst.label}...")
+    
+    h = inst.history
+    times = np.array(h['time'])
+    if not times.size: return
+    
+    # 1. Figure: 3x3 (Pos, Vel, Acc) x (X, Y, Z)
+    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
+    fig.suptitle(f'Detailed Analysis: {inst.label} (Center & 8 Corners)', fontsize=15, fontweight='bold')
+    
+    labels = ['X', 'Y', 'Z']
+    row_titles = ['Position (mm)', 'Velocity (mm/s)', 'Acceleration (mm/s²)']
+    data_keys = ['pos', 'vel', 'acc']
+    scales = [1000, 1000, 1000] # m to mm
+    
+    colors = plt.cm.tab10(np.linspace(0, 1, 9))
+    
+    for row, (key, row_title, scale) in enumerate(zip(data_keys, row_titles, scales)):
+        data_arr = np.array(h[key])
+        for col, axis_label in enumerate(labels):
+            ax = axes[row, col]
+            
+            # Center Data
+            ax.plot(times, data_arr[:, col] * scale, label='Center', color='black', linewidth=2, zorder=10)
+            
+            # Corner Data
+            for i in range(8):
+                c_data = np.array(h['corner_pos'][i])
+                if row == 0: # Position
+                    val = c_data[:, col] * scale
+                elif row == 1: # Velocity (Numerical)
+                    val = np.gradient(c_data[:, col], 0.001) * scale
+                else: # Acceleration (Numerical)
+                    val = np.gradient(np.gradient(c_data[:, col], 0.001), 0.001) * scale
+                
+                ax.plot(times, val, color=colors[i], alpha=0.5, linewidth=1, label=f'C{i+1}' if row==0 and col==2 else "")
+            
+            ax.set_title(f"{row_title} - {axis_label}")
+            ax.grid(True, alpha=0.3)
+            if row == 0 and col == 2: ax.legend(fontsize='x-small', ncol=2)
+            
+    plt.tight_layout()
+    plt.show()
+    
+    # 2. Figure: Impact & Cushion Forces
+    plt.figure(figsize=(10, 5))
+    plt.plot(times, h['impact_force'], color='red', label='Impact Force (N)')
+    plt.plot(times, h['cushion_force'], color='blue', alpha=0.6, label='Air Cushion (N)')
+    
+    max_f = np.max(h['impact_force'])
+    max_t = times[np.argmax(h['impact_force'])]
+    plt.annotate(f'Peak: {max_f:.1f}N @ {max_t:.3f}s', xy=(max_t, max_f), xytext=(max_t+0.1, max_f),
+                 arrowprops=dict(facecolor='black', shrink=0.05))
+                 
+    plt.title(f"Forces Analysis: {inst.label}")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Force (N)")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
 if __name__ == "__main__":
     print("--- WonhoLee Multi-Box Simulation System ---")
     print("Select Testcase:")
@@ -838,35 +973,27 @@ if __name__ == "__main__":
     else:
         manager = run_testcase_B()
     
+    # Physics Settings storage for singleton re-run
+    use_ac = manager.enable_air_cushion
+    use_pl = manager.enable_plasticity
+    solver_mode = manager.solver_mode # We might need to store this in manager
+
     while True:
+        # 1. Print Case List
+        print("\n📋 Available Cases:")
+        for inst in manager.instances:
+            print(f"  [{inst.uid:2d}] {inst.label}")
+            
         try:
-            choice = input(f"\n📊 Enter Box ID to plot (0-{len(manager.instances)-1}) or Enter to quit: ").strip()
+            choice = input(f"\n📊 Enter Box ID to run detailed analysis (0-{len(manager.instances)-1}) or Enter to quit: ").strip()
             if choice == "": break
             idx = int(choice)
             
             if 0 <= idx < len(manager.instances):
-                inst = manager.instances[idx]
-                if not inst.history['pos']:
-                    print("No data collected.")
-                    continue
-                    
-                pos_data = np.array(inst.history['pos'])
-                vel_data = np.array(inst.history['vel'])
-                times = np.array(inst.history['time'])
-                
-                fig, ax = plt.subplots(2, 1, figsize=(8, 8))
-                ax[0].plot(times, pos_data[:, 2] * 1000, label='Z Pos (mm)')
-                ax[0].set_title(f"Box {idx} Vertical Motion")
-                ax[0].set_ylabel("Height (mm)")
-                ax[0].legend()
-                
-                ax[1].plot(times, vel_data[:, 2], label='Z Vel (m/s)', color='orange')
-                ax[1].set_xlabel("Time (s)")
-                ax[1].set_ylabel("Velocity (m/s)")
-                ax[1].legend()
-                
-                plt.tight_layout()
-                plt.show()
+                selected = manager.instances[idx]
+                run_detailed_singleton_analysis(selected, solver_mode, use_ac, use_pl)
+            else:
+                print("Out of range.")
                 
         except ValueError:
             print("Invalid input.")
