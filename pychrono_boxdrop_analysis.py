@@ -27,12 +27,19 @@ class BoxDropSimulation:
         self.COEF_GROUND_EFFECT = 1.0
         
         # Collision pad parameters
-        self.PAD_XY, self.PAD_Z = 0.1, self.H / 6.0
+        self.PAD_XY = 0.1
+        self.CORNER_PADS_NUMS = 5  # Number of divisions along depth (vertical edge)
+        
+        # Optimization parameters (SOLREF, SOLIMP)
+        # SOLREF: [time_const, damping_ratio]
+        self.DEFAULT_SOLREF = [0.02, 1.0] 
+        self.DEFAULT_SOLIMP = [0.9, 0.95, 0.001, 0.5, 2] # MuJoCo default-like
+        
+        self.pad_configs = [] # List to store pad attributes
         
         # Internal state
         self.system = None
         self.box_body = None
-        self.corner_bodies = []
         self.vis = None
         self._current_cushion_force = 0.0
         
@@ -49,7 +56,73 @@ class BoxDropSimulation:
             for y in [-self.W/2, self.W/2]
             for z in [-self.H/2, self.H/2]])
         
+        # Define vertical edges (indices of corners that form a vertical edge)
+        # Based on corners_local logic: x loops first, then y, then z
+        # 0: ---, 1: --+ (Edge 1)
+        # 2: -+-, 3: -++ (Edge 2)
+        # 4: +--, 5: +-+ (Edge 3)
+        # 6: ++-, 7: +++ (Edge 4)
+        self.vertical_edges = [(0, 1), (2, 3), (4, 5), (6, 7)]
+        
+        self._generate_pad_configs()
         self._calculate_corner_drop_rotation()
+        
+    def _generate_pad_configs(self):
+        """
+        Generate N split pads along vertical edges.
+        Integrates previous corner/mid logic into a unified N-segment definition.
+        """
+        self.pad_configs = []
+        
+        # Pad Size
+        # Total height H is divided by N (or slightly less to account for gaps if needed)
+        # Here we use exact division for coverage
+        pad_h = self.H / self.CORNER_PADS_NUMS
+        
+        for edge_idx, (idx_bottom, idx_top) in enumerate(self.vertical_edges):
+            c_bottom = self.corners_local[idx_bottom]
+            c_top = self.corners_local[idx_top]
+            
+            # Interpolate N pads
+            for i in range(self.CORNER_PADS_NUMS):
+                # Normalized position 0..1 (center of each segment)
+                # i=0 -> bottom, i=N-1 -> top
+                # Center of segment i: t = (i + 0.5) / N
+                t = (i + 0.5) / self.CORNER_PADS_NUMS
+                
+                pos = c_bottom + (c_top - c_bottom) * t
+                
+                # Inset logic (move pads slightly inward to avoid edge artifacts same as MuJoCo logic)
+                # Determine "outward" direction for this edge in XY plane
+                sign_x = np.sign(pos[0])
+                sign_y = np.sign(pos[1])
+                
+                # Inset position
+                inset_pos = pos.copy()
+                inset_pos[0] -= sign_x * self.PAD_XY * 0.0 # Keeping flush for now or apply inset
+                inset_pos[1] -= sign_y * self.PAD_XY * 0.0
+                
+                # For collision shape size (half-size)
+                size = np.array([self.PAD_XY, self.PAD_XY, pad_h / 2.0])
+                
+                pad_config = {
+                    'id': f"edge_{edge_idx}_pad_{i}",
+                    'edge_index': edge_idx,
+                    'pad_index': i,
+                    'pos': inset_pos,
+                    'size': size, # Half-sizes for Chrono Box
+                    'solref': list(self.DEFAULT_SOLREF), # Copy list
+                    'solimp': list(self.DEFAULT_SOLIMP),
+                    'color': [0.2, 0.8, 0.2] if (i == 0 or i == self.CORNER_PADS_NUMS - 1) else [0.8, 0.8, 0.2] # Green ends, Yellow mid
+                }
+                
+                self.pad_configs.append(pad_config)
+        
+        print(f"✅ Generated {len(self.pad_configs)} pad configurations ({self.CORNER_PADS_NUMS} per edge)")
+
+    def get_solref_xml_string(self, pad_config):
+        """Convert list SOLREF to string for XML requirement"""
+        return f"{pad_config['solref'][0]:.5f} {pad_config['solref'][1]:.5f}"
     
     def _calculate_corner_drop_rotation(self):
         diagonal = np.array([self.L, self.W, self.H])
@@ -96,7 +169,7 @@ class BoxDropSimulation:
         self.ground_material.SetKn(2e6)
         self.ground_material.SetGn(100)
         
-        # Corner pad material (soft foam)
+        # Corner pad material (Base properties - individual pads use create_box logic)
         self.corner_material = chrono.ChContactMaterialSMC()
         self.corner_material.SetYoungModulus(1e6)  # 1 MPa soft foam
         self.corner_material.SetRestitution(0.3)
@@ -115,39 +188,84 @@ class BoxDropSimulation:
         print("✅ Ground created")
     
     def create_box(self):
-        # Calculate density based on target mass
-        volume = self.L * self.W * self.H
-        density = self.MASS / volume if volume > 0 else 1000.0
-
-        # Create box with Easy constructor (handles mass, inertia, visual, and collision)
-        self.box_body = chrono.ChBodyEasyBox(
-            self.L, self.W, self.H, density, True, True, self.corner_material
-        )
+        # Calculate inertia manually since we are using raw ChBody for custom collision
+        vol = self.L * self.W * self.H
+        mass = self.MASS
         
-        # Set initial position and orientation
+        # Rectangular box inertia: (1/12) * M * (d1^2 + d2^2)
+        Ixx = (1/12) * mass * (self.W**2 + self.H**2)
+        Iyy = (1/12) * mass * (self.L**2 + self.H**2)
+        Izz = (1/12) * mass * (self.L**2 + self.W**2)
+        
+        # Create Body
+        self.box_body = chrono.ChBody()
+        self.box_body.SetMass(mass)
+        self.box_body.SetInertiaXX(chrono.ChVector3d(Ixx, Iyy, Izz))
+        
+        # Set initial position/rotation
         quat = self.initial_rotation.as_quat()
-        chrono_quat = chrono.ChQuaterniond(quat[3], quat[0], quat[1], quat[2])
         self.box_body.SetPos(chrono.ChVector3d(0, 0, self.initial_center_z))
-        self.box_body.SetRot(chrono_quat)
-        self.box_body.EnableCollision(True)
+        self.box_body.SetRot(chrono.ChQuaterniond(quat[3], quat[0], quat[1], quat[2]))
         
-        # Add initial angular velocity for instability
+        # Visual Shape (Main Box - Blue transparent)
+        vis_box = chrono.ChVisualShapeBox(self.L, self.W, self.H)
+        vis_box.SetColor(chrono.ChColor(0.1, 0.5, 0.8))
+        vis_box.SetOpacity(0.3)
+        self.box_body.AddVisualShape(vis_box)
+        
+        # Collision System
+        self.box_body.EnableCollision(True)
+        cm = self.box_body.GetCollisionModel()
+        cm.ClearModel()
+        
+        # Add pads based on configuration
+        for pad in self.pad_configs:
+            # Create material for this pad
+            mat = chrono.ChContactMaterialSMC()
+            
+            # Map SOLREF (time_const, damping_ratio) to Key parameters if possible
+            # Note: Explicit mapping requires formula. For now, using default foam properties 
+            # or we could attempt to tune Kn/Gn based on solref logic if strictly required.
+            # Using standard foam properties as base, but modified by solref 'stiffness' concept if we wanted.
+            # Here keeping the reliable foam settings but acknowledging the config values.
+            
+            # To respect "Optimizability", we assume external optimizer will tweak these Kn/Gn values 
+            # based on the solref variables stored in pad_config.
+            # For this implementations, I'll use the constants defined in create_materials default for now,
+            # but allow them to be distinct per pad.
+            
+            mat.SetYoungModulus(1e6) # Base stiffness
+            mat.SetFriction(0.5)
+            mat.SetRestitution(0.3)
+            
+            # Pad Position/Size
+            pos = pad['pos']
+            size = pad['size']
+            
+            # Add box shape for this pad
+            # Note: AddBox takes (material, size_x, size_y, size_z, pos, rot)
+            cm.AddBox(mat, size[0], size[1], size[2], 
+                      chrono.ChVector3d(pos[0], pos[1], pos[2]), 
+                      chrono.ChQuaterniond(1,0,0,0))
+                      
+            # Visualization for Pad (distinct colors)
+            vis_pad = chrono.ChVisualShapeBox(size[0]*2, size[1]*2, size[2]*2)
+            rgb = pad['color']
+            vis_pad.SetColor(chrono.ChColor(rgb[0], rgb[1], rgb[2]))
+            self.box_body.AddVisualShape(vis_pad, chrono.ChFrameD(chrono.ChVector3d(pos[0], pos[1], pos[2])))
+
+        cm.BuildModel()
+        
+        # Initial perturbation
         np.random.seed(42)
         angvel = np.random.uniform(-0.003, 0.003, 3)
         self.box_body.SetAngVelLocal(chrono.ChVector3d(angvel[0], angvel[1], angvel[2]))
         
-        # Optional: Set visual appearance
-        vis_shape = self.box_body.GetVisualModel().GetShape(0)
-        if vis_shape:
-            # vis_shape is typically a ChVisualShapeBox in EasyBox
-            vis_shape.SetColor(chrono.ChColor(0.1, 0.5, 0.8))
-            vis_shape.SetOpacity(0.7)
-        
         self.system.Add(self.box_body)
-        print(f"✅ Box created using ChBodyEasyBox with collision enabled")
-    
+        print(f"✅ Box created with {len(self.pad_configs)} contact pads")
+
     def _create_pads(self):
-        # Pads disabled - using main box collision instead
+        # Superseded by create_box integration
         pass
     
     def apply_custom_forces(self):
@@ -179,46 +297,58 @@ class BoxDropSimulation:
             self.box_body.AccumulateForce(0, drag_vec * drag_mag, chrono.ChVector3d(0,0,0), True)
     
     def create_visualization(self):
-        self.vis = chronoirr.ChVisualSystemIrrlicht()
-        self.vis.AttachSystem(self.system)
-        self.vis.SetWindowSize(1024, 768)
-        self.vis.SetWindowTitle('PyChorno Box Drop')
-        self.vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
-        self.vis.Initialize()
-        self.vis.AddSkyBox()
-        self.vis.AddCamera(chrono.ChVector3d(3, 3, 2), chrono.ChVector3d(0, 0, 0.5))
-        self.vis.AddTypicalLights()
-        print("✅ Visualization ready")
+        try:
+            self.vis = chronoirr.ChVisualSystemIrrlicht()
+            self.vis.AttachSystem(self.system)
+            self.vis.SetWindowSize(1024, 768)
+            self.vis.SetWindowTitle('PyChorno Box Drop - Corner Configuration')
+            self.vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
+            self.vis.Initialize()
+            
+            # Add scene elements after Initialize
+            self.vis.AddSkyBox()
+            self.vis.AddTypicalLights()
+            self.vis.AddCamera(chrono.ChVector3d(3, 3, 2), chrono.ChVector3d(0, 0, 0.5))
+            
+            print("✅ Visualization ready")
+        except Exception as e:
+            print(f"⚠️ Could not initialize visualization: {e}")
+            print("   Falling back to headless mode.")
+            self.vis = None
     
     def run_interactive(self):
+        if not self.vis:
+            return
+            
         print("\n🎮 Interactive Mode (close window to continue)\n")
-        step_count = 0
-        max_steps = 5000
+        
+        # Limit simulation to 10 seconds of simulation time
+        MAX_SIM_TIME = 10.0
         
         try:
-            while step_count < max_steps:
-                run_result = self.vis.Run()
-                if not run_result:
-                    print(f"   vis.Run() returned False at step {step_count}")
+            while self.vis.Run():
+                if self.system.GetChTime() >= MAX_SIM_TIME:
+                    print("   Reached maximum simulation time.")
                     break
                     
                 self.vis.BeginScene()
                 self.vis.Render()
                 
                 self.apply_custom_forces()
-                
                 self.system.DoStepDynamics(self.DT)
-                self.vis.EndScene()
-                step_count += 1
                 
-                if step_count % 500 == 0:
+                self.vis.EndScene()
+                
+                # Progress report
+                t = self.system.GetChTime()
+                if int(t / self.DT) % 1000 == 0:
                     pos = self.box_body.GetPos()
-                    print(f"   Step {step_count}: z = {pos.z*1000:.1f} mm")
+                    print(f"   Time: {t:.2f}s | z: {pos.z*1000:.1f} mm")
                     
         except Exception as e:
             print(f"❌ Error during simulation: {e}")
             
-        print(f"✅ Preview completed ({step_count} steps)\n")
+        print(f"✅ Preview completed\n")
     
     def run_data_collection(self):
         print("📊 Data Collection")

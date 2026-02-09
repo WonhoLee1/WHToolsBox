@@ -111,7 +111,7 @@ COEF_GROUND_EFFECT = 1.0
 # 코너 패드 변형(이동/축소)의 정도를 조절하는 계수
 # 값이 클수록 충돌 시 더 많이 찌그러지고 안쪽으로 이동함. (기본값 0.5 -> 0.2로 완화)
 # 0.0으로 설정 시 변형 없음 (형상 유지)
-PLASTIC_DEFORMATION_RATIO = 0.1
+PLASTIC_DEFORMATION_RATIO = 0.5
 
 # ==========================================
 # [Helper] 재료 물성 변환 함수 (Young's Modulus -> Solref)
@@ -132,88 +132,121 @@ def calc_solref_from_youngs(E_mpa, damping_ratio, size_m, effective_mass=MASS):
     
     
     # 3. Solref 계산 (기존 로직 재사용)
-    if k <= 0: return "0.02 1.0"
+    if k <= 0: return [0.02, 1.0]
     omega_n = np.sqrt(k / effective_mass)
     time_const = 1.0 / omega_n
     
-    return f"{time_const:.5f} {damping_ratio}"
+    return [time_const, damping_ratio]
 
 # ==========================================
-# [사용자 튜닝 섹션] 재료 물성(MPa) 기반 코너 설정
+# [사용자 튜닝 섹션] 재료 물성 및 분할 설정
 # ==========================================
 # 패드 크기 설정 (반폭 Half-Size 기준)
 PAD_XY = 0.1        # 가로/세로 20cm -> 반폭 0.1m
-PAD_Z  = H / 6.0    # 높이의 1/3 크기 -> 반폭 H/6
 
-# 코너별 설정 리스트 초기화 (기본 재료: 일반 플라스틱, E=1000 MPa)
-DEFAULT_SOLREF = calc_solref_from_youngs(1000, 1.0, 0.02) # size는 강성 계산용 참조값(작게 유지)
-CORNER_PROPERTIES = []
+# 패드 크기 설정 (반폭 Half-Size 기준)
+PAD_XY = 0.1        # 가로/세로 20cm -> 반폭 0.1m
 
-for _ in range(8):
-    CORNER_PROPERTIES.append({
-        'solref': DEFAULT_SOLREF, 
-        'rgba': "0 1 0 0.5"
-    })
+# [New] Visual Offset to prevent Z-fighting
+# 0.01 mm 안쪽으로 위치시킴 (1e-5 m)
+BOX_PAD_OFFSET = 0.00001
+CORNER_PADS_NUMS = 5  # Depth (Z-axis) 방향 분할 개수
 
-'''
-🧪 조합 예시 (Simulation Recipe)
-느낌	solref 값	설명
-딱딱한 플라스틱	"0.004 1.0"	단단하고 튀지 않음 (기본값)
-탱탱볼 (슈퍼볼)	"0.010 0.1"	약간만 부드럽고, 엄청나게 튕김
-일반 고무	"0.020 0.5"	적당히 들어가고 적당히 튕김
-메모리 폼 (스펀지)	"0.100 2.0"	쑥 들어가고(Soft), 천천히 나옴(Over-damped)
-찰흙 / 찌그러짐	"0.150 8.0"	깊게 들어가고(Very Soft), 거의 안 나옴(Extreme Damping)
-'''
+# [New] Optimization Parameters (List-based management)
+# SOLREF: [time_const, damping_ratio]
+DEFAULT_SOLREF = [0.05, 0.1]
+# SOLIMP: [dmin, dmax, width, mid, power] (MuJoCo Solver Impedance)
+# 접촉/구속조건이 위반(침투)되었을 때, 솔버가 얼마나 강하게 저항할지(Impedance) 결정하는 곡선 파라미터입니다.
+# 1. dmin (0.9): 최소 임피던스. 작은 침투에서도 90% 강도로 저항 (단단함). 낮추면 부드러워짐.
+# 2. dmax (0.95): 최대 임피던스. 깊은 침투 시 95% 강도로 저항. 1.0에 가까울수록 완전 비탄성(딱딱함).
+# 3. width (0.001): 전이 구간의 너비 (단위: 미터). 침투 깊이가 이 값만큼 진행될 때 임피던스가 증가함.
+#    예: 0.001 = 1mm 침투 시 dmin에서 dmax로 변화가 완료됨. 너무 작으면(1e-10) 즉시 딱딱해짐.
+# 4. mid (0.5): 전이 구간 중간값. 곡선의 기울기 조절.
+# 5. power (2): 곡선의 차수. 2는 2차 곡선임(부드러운 증가).
+DEFAULT_SOLIMP = [0.2, 0.7, 0.02, 0.5, 2]
+
+# Pad Configurations 저장소
+PAD_CONFIGS = []
+
+# 4개의 수직 모서리 (Vertical Edges) 정의
+# corners_local 인덱스: 0(-z), 1(+z)가 짝을 이룸? 
+# indices logic:
+# 0: -L/2, -W/2, -H/2
+# 1: -L/2, -W/2, +H/2
+# ... (Z changes every 1 step in the comprehension at line 19? Check line 23)
+# Line 19 list comprehension nest order: x, then y, then z.
+# loops: x in [-L/2, L/2], y in [-W/2, W/2], z in [-H/2, H/2]
+# Indices:
+# 0: - - -
+# 1: - - + (Pair 0-1)
+# 2: - + -
+# 3: - + + (Pair 2-3)
+# 4: + - -
+# 5: + - + (Pair 4-5)
+# 6: + + -
+# 7: + + + (Pair 6-7)
+vertical_edges = [(0, 1), (2, 3), (4, 5), (6, 7)]
+
+# Pad Height (Total H divided by N)
+pad_segment_h = H / CORNER_PADS_NUMS # Center-to-center distance
+# [New] Gap between pads (5% of thickness/height)
+GAP_RATIO = 0.05 
+pad_h_actual = pad_segment_h / (1.0 + GAP_RATIO)
+pad_z_half = pad_h_actual / 2.0
+
+# Generate Configs
+for edge_idx, (idx_bottom, idx_top) in enumerate(vertical_edges):
+    c_bottom = corners_local[idx_bottom]
+    c_top = corners_local[idx_top]
+    
+    # Base inset direction (XY plane)
+    # Use bottom corner to determine sign
+    sign_x = np.sign(c_bottom[0])
+    sign_y = np.sign(c_bottom[1])
+    
+    for i in range(CORNER_PADS_NUMS):
+        # Interpolate Center Z
+        # i=0 (bottom) -> i=N-1 (top)
+        # Normalized t for center of segment i: (i + 0.5) / N
+        t = (i + 0.5) / CORNER_PADS_NUMS
+        
+        # Position Interpolation
+        pos = c_bottom + (c_top - c_bottom) * t
+        
+        # Apply Inset (Same logic as original: move inward by PAD_XY)
+        # Note: In original, "pos_x = c[0] - c_sign[0] * PAD_XY"
+        # Since we want the pads to form the 'corner' surface but be separate objects.
+        # [Update] Apply extra offset (BOX_PAD_OFFSET) to move pads slightly inside
+        pos_x = pos[0] - sign_x * (PAD_XY + BOX_PAD_OFFSET)
+        pos_y = pos[1] - sign_y * (PAD_XY + BOX_PAD_OFFSET)
+        pos_z = pos[2] # Z is already center of segment
+        
+        pad_config = {
+            'name': f"g_edge_{edge_idx}_pad_{i}",
+            'pos': [pos_x, pos_y, pos_z],
+            'size': [PAD_XY, PAD_XY, pad_z_half],
+            'solref': list(DEFAULT_SOLREF),
+            'solimp': list(DEFAULT_SOLIMP),
+            # Gradient color (Green -> Yellow -> Green) just for viz
+            # [Update] Reverted to Green to distinguish from "Edge Pads" (Long ones)
+            'rgba': "0.2 0.8 0.2 1.0"
+        }
+        PAD_CONFIGS.append(pad_config)
+
+# Special Case overrides (Example: Soft bottom corners)
+# Edge 0, Pad 0 (Bottom-most of first edge)
+# [Update] Removed red override to keep consistent yellow per request
+# if len(PAD_CONFIGS) > 0:
+#     PAD_CONFIGS[0]['solref'] = [0.05, 0.5] # Softer
+#     PAD_CONFIGS[0]['rgba'] = "1 0 0 1.0"   # Red
+
 # [New] Contact Parameters (Bouncing Effect)
-# solref = (time_const, damping_ratio)
 SOLREF_TIME_CONST = 0.05
 SOLREF_DAMPING_RATIO = 0.5
 
 # [New] Friction Parameters
 # friction = "sliding torsional rolling"
-# sliding: 미끄럼 마찰 (보통 0.5~1.0)
-# torsional: 비틀림 마찰 (회전 저항, 0.005)
-# rolling: 구름 마찰 (0.0001)
-BOX_FRICTION_PARAMS = "0.3 0.005 0.0001"
-# -------------------------------------------------------------
-# Case 1: 낙하 지점(0번, 빨강) - "Plastic Distortion" (소성 변형 모사)
-# -------------------------------------------------------------
-foam_E = 0.01         # 0.01 MPa
-foam_damping = 8.0    # [Key] 과감쇠(Over-damped) -> 찌그러진 후 복원 매우 느림
-# TimeConst=0.05 (부드러움), Damping=8.0 (복원 억제)
-CORNER_PROPERTIES[0]['solref'] = "0.05 0.5" 
-CORNER_PROPERTIES[0]['rgba'] = "1 0 0 0.8" 
-
-# [Safety Fix] 변수 재정의
-PAD_XY = 0.1
-PAD_Z = H / 6.0
-
-# -------------------------------------------------------------
-# Case 2: 인접 지점(1번, 파랑) - "Hard Rubber"
-# -------------------------------------------------------------
-hard_E = 0.01        
-hard_damping = 0.9    
-# [Fix] CUBE_SIZE -> 0.02 등 변수명 에러 수정
-CORNER_PROPERTIES[1]['solref'] = calc_solref_from_youngs(hard_E, hard_damping, 0.02, effective_mass=0.01)
-CORNER_PROPERTIES[1]['solref'] = "0.05 0.5"
-CORNER_PROPERTIES[1]['rgba'] = "0 0 1 0.8"
-
-# -------------------------------------------------------------
-# Case 3: 중간 지점 (Midpoint) - MID_PROPERTIES 도입
-# -------------------------------------------------------------
-# 4개의 기둥 쌍: (0,1), (2,3), (4,5), (6,7)
-MID_PROPERTIES = []
-DEFAULT_MID_SOLREF = "0.05 0.5"
-DEFAULT_MID_RGBA = "1 1 0 0.8" # Yellow
-
-for _ in range(4): # 4 pairs
-    MID_PROPERTIES.append({
-        'solref': DEFAULT_MID_SOLREF,
-        'rgba': DEFAULT_MID_RGBA
-    })
-
-# 예: 0번 쌍(0-1 사이)에 대해 특별한 물성 적용 (소성 변형 테스트)
-# MID_PROPERTIES[0]['solref'] = "0.05 8.0" 
+BOX_FRICTION_PARAMS = "0.3 0.005 0.0001" 
  
 # ==========================================
 # 1-3. XML 모델 생성
@@ -222,55 +255,31 @@ for _ in range(4): # 4 pairs
 # XML 모델용 코너 Site, Sensor, 그리고 [New] Collision Geom 문자열 생성
 corner_sites_str = ""
 corner_sensors_str = ""
-corner_geoms_str = "" # [New] 충돌용 구 생성
+pad_geoms_str = "" # [New] N-split 충돌용 블록
 
-# 패드 크기 설정 (반폭 Half-Size 기준) - 사용자 요청
-PAD_XY = 0.1        # 20cm -> 반폭 0.1m
-PAD_Z  = H / 6.0    # 높이의 1/3 크기 -> 반폭 H/6
-
-# 1. 8개 코너 (상/하단 1/3 지점 배치)
+# 1. 8개 코너 (Site & Sensor) - 데이터 수집 및 기하학적 참조용
+# 실제 충돌은 Pad Geoms가 담당하므로 여기서는 시각적/센싱 기능만 수행
 for i in range(8):
     c = corners_local[i]
-    props = CORNER_PROPERTIES[i] # solref, rgba만 참조
-    
-    # [Inset & Position Logic] 
-    # XY: 코너 끝에서 PAD_XY(0.1)만큼 안으로
-    # Z:  코너 끝에서 PAD_Z(H/6)만큼 안으로 (즉, 상/하단 1/3 영역)
-    c_sign = np.sign(c)
-    pos_x = c[0] - c_sign[0] * PAD_XY
-    pos_y = c[1] - c_sign[1] * PAD_XY
-    pos_z = c[2] - c_sign[2] * PAD_Z
     
     # 1. Site
-    corner_sites_str += f'      <site name="s_corner_{i}" pos="{c[0]} {c[1]} {c[2]}" size="0.01" rgba="0 0 0 0"/>\n'
+    corner_sites_str += f'      <site name="s_corner_{i}" pos="{c[0]} {c[1]} {c[2]}" size="0.01" rgba="0.5 0.5 0.5 0.5"/>\n'
     # 2. Sensor
     corner_sensors_str += f'    <velocimeter name="vel_corner_{i}" site="s_corner_{i}" cutoff="50"/>\n'
-    
-    # 3. Collision Geom
-    corner_geoms_str += f"""
-      <geom name="g_corner_{i}" type="box" size="{PAD_XY} {PAD_XY} {PAD_Z}" 
-            pos="{pos_x} {pos_y} {pos_z}" 
-            rgba="{props['rgba']}" solref="{props['solref']}" 
-            friction="{BOX_FRICTION_PARAMS}" />
-    """
 
-# 2. 4개 중간 기둥 (중앙 1/3 지점 배치)
-depth_pairs = [(0, 1), (2, 3), (4, 5), (6, 7)]
-
-for idx, (idx1, idx2) in enumerate(depth_pairs):
-    props = MID_PROPERTIES[idx] # [New] 속성 참조
+# 2. Collision Pads (Generated from PAD_CONFIGS)
+for pad in PAD_CONFIGS:
+    p_pos = pad['pos']
+    p_size = pad['size']
     
-    c1 = corners_local[idx1]
-    # 중간 지점은 Z=0이고, XY는 코너와 동일하게 Inset
-    c_sign = np.sign(c1)
-    mid_pos_x = c1[0] - c_sign[0] * PAD_XY
-    mid_pos_y = c1[1] - c_sign[1] * PAD_XY
+    # Convert list to string for XML
+    solref_str = f"{pad['solref'][0]:.5f} {pad['solref'][1]:.5f}"
+    solimp_str = f"{pad['solimp'][0]} {pad['solimp'][1]} {pad['solimp'][2]} {pad['solimp'][3]} {pad['solimp'][4]}"
     
-    corner_geoms_str += f"""
-      <!-- Midpoint Collision ({idx1}-{idx2}) -->
-      <geom name="g_mid_{idx1}_{idx2}" type="box" size="{PAD_XY} {PAD_XY} {PAD_Z}" 
-            pos="{mid_pos_x} {mid_pos_y} 0.0"
-            rgba="{props['rgba']}" solref="{props['solref']}" 
+    pad_geoms_str += f"""
+      <geom name="{pad['name']}" type="box" size="{p_size[0]} {p_size[1]} {p_size[2]}" 
+            pos="{p_pos[0]} {p_pos[1]} {p_pos[2]}" 
+            rgba="{pad['rgba']}" solref="{solref_str}" solimp="{solimp_str}"
             friction="{BOX_FRICTION_PARAMS}" />
     """
 
@@ -283,44 +292,57 @@ blk_thick = PAD_XY  # 블록 두께는 코너와 동일
 blk_z = H / 2.0     # 높이는 전체 H 커버 (코너 위아래도 커버)
 
 # 3-1. Front/Back Blocks (장변 커버)
-# 코너의 중심: L/2 - PAD_XY, 코너의 반폭: PAD_XY
-# -> 코너의 안쪽 끝(Inner Edge): L/2 - 2*PAD_XY
-fb_sx = L/2.0 - 2.0 * PAD_XY 
+# 코너의 중심: L/2 - (PAD_XY + Offset), 반폭: PAD_XY
+# -> 코너의 안쪽 끝(Inner Edge): (L/2 - PAD_XY - Offset) - PAD_XY = L/2 - 2*PAD_XY - Offset
+# Protective block should start from here or slightly overlap?
+# Previous logic: fb_sx = L/2.0 - 2.0 * PAD_XY
+# If pads moved in by offset, the gap increases by offset? Or decreases?
+# Pad Outer Face: L/2 - Offset. Inner Face: L/2 - 2*PAD_XY - Offset.
+# So the gap between Left Pad Inner and Right Pad Inner is:
+# 2 * (L/2 - 2*PAD_XY - Offset) = L - 4*PAD_XY - 2*Offset.
+# Half gap: L/2 - 2*PAD_XY - Offset.
+fb_sx = L/2.0 - 2.0 * PAD_XY - BOX_PAD_OFFSET
 fb_sy = blk_thick 
-fb_pos_y = W/2.0 - fb_sy 
+# Also inset these blocks slightly in Y to avoid fighting with main box side faces?
+# Or just align with pads? The pads are at W/2 - PAD_XY - Offset (center).
+# Pad Y-extent: [W/2 - 2*PAD_XY - Offset, W/2 - Offset].
+# So these blocks should be at Y = W/2 - PAD_XY - Offset (same as pads).
+fb_pos_y = W/2.0 - fb_sy - BOX_PAD_OFFSET 
 
 # 방어 코드
 fb_sx = max(fb_sx, 0.001)
 
-corner_geoms_str += f"""
+pad_geoms_str += f"""
       <!-- Front/Back Blocks (Long Edge Protection) - Mass negligible -->
+      <!-- [Update] Color changed to Yellow per user request for "Edge Pads" -->
       <geom name="g_front" type="box" size="{fb_sx} {fb_sy} {blk_z}" 
             pos="0 -{fb_pos_y} 0"
-            rgba="0.3 0.3 0.3 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}"
+            rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}"
             mass="0.001" />
       <geom name="g_back" type="box" size="{fb_sx} {fb_sy} {blk_z}" 
             pos="0 {fb_pos_y} 0"
-            rgba="0.3 0.3 0.3 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
+            rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
             mass="0.001" />
 """
 
 # 3-2. Left/Right Blocks (단변 커버)
 lr_sx = blk_thick 
-lr_sy = W/2.0 - 2.0 * PAD_XY # 양쪽 코너 제외
-lr_pos_x = L/2.0 - lr_sx
+lr_sy = W/2.0 - 2.0 * PAD_XY - BOX_PAD_OFFSET # Apply offset to gap calculation
+lr_pos_x = L/2.0 - lr_sx - BOX_PAD_OFFSET # Locate at same X depth as pads
 
 # 방어 코드
 lr_sy = max(lr_sy, 0.001)
 
-corner_geoms_str += f"""
+pad_geoms_str += f"""
       <!-- Left/Right Blocks (Short Edge Protection) - Mass negligible -->
+      <!-- [Update] Color changed to Yellow per user request for "Edge Pads" -->
       <geom name="g_left" type="box" size="{lr_sx} {lr_sy} {blk_z}" 
             pos="-{lr_pos_x} 0 0"
-            rgba="0.3 0.3 0.3 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
+            rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
             mass="0.001" />
       <geom name="g_right" type="box" size="{lr_sx} {lr_sy} {blk_z}" 
             pos="{lr_pos_x} 0 0"
-            rgba="0.3 0.3 0.3 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
+            rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
             mass="0.001" />
     """
 
@@ -356,14 +378,15 @@ xml = f"""
       <inertial pos="{CoM_offset[0]} {CoM_offset[1]} {CoM_offset[2]}" mass="{MASS}" diaginertia="{Ixx} {Iyy} {Izz}"/>
       
       <!-- [Main Body] 시각 효과 및 공기역학 담당 (충돌 끔: contype=0 conaffinity=0) -->
-      <!-- 오직 모양만 보여주고, 실제 벽 충돌은 코너 Sphere들이 담당함 -->
-      <geom name="box_visual" type="box" size="{L/2} {W/2} {H/2}" rgba="0.1 0.5 0.8 0.3" 
-            contype="0" conaffinity="0"
+      <!-- [Update] Reverted transparency to alpha 0.3 per user request -->
+      <geom name="box_visual" type="box" size="{L/2} {W/2} {H/2}" rgba="0.8 0.6 0.3 0.3" 
+             contype="0" conaffinity="0"
             fluidshape="ellipsoid"
             fluidcoef="{COEF_BLUNT_DRAG} {COEF_SLENDER_DRAG} {COEF_ANGULAR_DRAG} {COEF_LIFT} {COEF_MAGNUS}" />
       
       <!-- [Collision Bodies] 8개 코너별 개별 충돌체 -->
-      {corner_geoms_str}
+      <!-- [Collision Bodies] N-Split Pads -->
+      {pad_geoms_str}
       
       <!-- 속도 측정을 위한 Site -->
       <site name="s_center" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
@@ -550,25 +573,27 @@ mujoco.set_mjcb_control(apply_air_cushion)
 mujoco.mj_forward(model, data)  # 파생 물리량 계산
 
 # ==========================================
-# [New] Plastic Deformation Logic (소성 변형)
+# [New] Plastic Deformation Logic (소성 변형 - Hysteresis 기반)
 # ==========================================
+
+# 전역 변수로 각 Geom의 상태 추적
+# { geom_id: { 'max_penetration': 0.0, 'deformed_amount': 0.0, 'is_recovering': False } }
+geom_state_tracker = {}
 
 def apply_plastic_deformation(model, data, plastic_ratio=0.5):
     """
-    충돌 시 침투 깊이만큼 Geom을 영구적으로 변형(축소+이동)시킵니다.
-    [개선] 
-    1. Geom별 Max Penetration만 적용 (중복 변형 방지)
-    2. Size 축소보다 안쪽 이동(Shift) 가중치 부여 (시각적 리얼리티)
+    [Advanced Plasticity]
+    즉각적인 변형 대신, 침투가 회복되는 과정(Rebound)에서 변형을 적용합니다.
+    - Compression Phase: 최대 침투 깊이(Max Penetration)를 기록.
+    - Recovery Phase: 현재 침투가 (1 - ratio) * Max 이하로 떨어지면 변형 확정.
     """
     floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
     
-    # Geom별 최대 침투 깊이 저장소
-    geom_deformations = {}
+    # 현재 스텝의 각 Geom별 침투 깊이 파악
+    current_penetrations = {}
     
     for i in range(data.ncon):
         con = data.contact[i]
-        
-        # 바닥과의 충돌인지 확인
         g1, g2 = con.geom1, con.geom2
         target_geom = None
         
@@ -576,47 +601,104 @@ def apply_plastic_deformation(model, data, plastic_ratio=0.5):
         elif g2 == floor_id: target_geom = g1
         else: continue
             
-        # 침투 깊이 확인
         penetration = -con.dist
-        if penetration > 1e-4: # 0.1mm 이상
-            current_max = geom_deformations.get(target_geom, 0.0)
+        if penetration > 1e-4: # 0.1mm 이상 유효 접촉
+            # 한 Geom에 여러 접점(contact point)이 있을 수 있으므로 Max값 취함
+            current_max = current_penetrations.get(target_geom, 0.0)
             if penetration > current_max:
-                geom_deformations[target_geom] = penetration
+                current_penetrations[target_geom] = penetration
 
-    # 집계된 최대 침투 깊이로 변형 적용
-    for geom_id, penetration in geom_deformations.items():
+    # 상태 업데이트 및 변형 적용 로직
+    # 처리 대상: 현재 접촉 중인 Geom + 이전에 접촉했다가 떨어지고 있는 Geom
+    # (Tracker에 있는 모든 Geom을 검사해야 함? -> 접촉 끊기면 리셋 혹은 유지?
+    #  여기서는 '최대 변형'을 영구적으로 적용하므로, 충돌 이벤트 단위로 관리)
+    
+    # 1. Tracker에 없는 새로운 접촉 등록
+    for geom_id in current_penetrations:
+        if geom_id not in geom_state_tracker:
+            geom_state_tracker[geom_id] = {
+                'max_p': 0.0,       # 이번 충돌 이벤트에서의 최대 침투
+                'prev_p': 0.0,      # 직전 스텝 침투
+                'applied': False    # 변형 적용 여부
+            }
+    
+    # 2. 로직 수행
+    for geom_id, state in geom_state_tracker.items():
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
         if name is None: continue
         
-        if "g_corner" in name or "g_mid" in name or name in ["g_front", "g_back", "g_left", "g_right"]:
+        # 관심 대상 필터링
+        if not ("g_edge_" in name or "g_corner" in name or "g_mid" in name or name in ["g_front", "g_back", "g_left", "g_right"]):
+            continue
+
+        curr_p = current_penetrations.get(geom_id, 0.0)
+        
+        # A. 압축 단계 (Compression): 더 깊게 들어가는 중
+        if curr_p >= state['max_p']:
+            state['max_p'] = curr_p
+            state['applied'] = False # 더 깊이 들어갔으므로 다시 대기
             
-            # Global Scale 적용            
-            deformation = penetration * plastic_ratio
+        # B. 회복 단계 (Recovery) 감지 및 변형 적용
+        # 조건: 현재 침투가 줄어들고 있고(curr_p < max_p), 아직 변형 미적용시
+        # Trigger: 회복탄성 에너지가 소성 변형 에너지로 전환되는 시점
+        # 여기서는 요청대로 "회복되는 과정에서 ratio만큼 회복되었을 때" 적용
+        # Threshold: Max * (1 - ratio) 지점을 지나갈 때?
+        # 아니면 "점진적"으로? -> 간단하게 Step형으로 구현:
+        # "최대치 대비 일정 비율(ratio)만큼 힘이 빠졌을 때(회복됐을 때) 영구 변형 발생"
+        
+        # 유효한 충돌이었는지 확인 (노이즈 방지, 1mm 이상)
+        if state['max_p'] > 0.001 and not state['applied']:
             
-            # 내측 방향 벡터 (로컬 좌표계 기준, 중심을 향해)
-            current_pos = model.geom_pos[geom_id]
-            # 중심(0,0,0) 방향이 안쪽임.
-            # 코너는 (+,+), (+,-) 등이므로 sign 반대가 안쪽.
-            inward_dir = -np.sign(current_pos[:3])
+            # 회복량 체크: (Max - Current)
+            recovery_amount = state['max_p'] - curr_p
             
-            current_size = model.geom_size[geom_id]
+            # 기준치: Max * Plastic_Ratio 만큼 "회복" 되었을 때 변형 Start
+            # 예: Ratio=0.5, Max=10mm. 
+            # -> 5mm만큼 튀어올라왔을 때 (즉 남은 깊이 5mm) 변형 적용
+            target_recovery = state['max_p'] * plastic_ratio
             
-            if current_size[0] > 0.005:
-                # [전략] Shift 위주. Size 감소는 20%, Shift는 80%
-                shrink_amount = deformation * 0.2
-                shift_amount = deformation * 0.8
+            if recovery_amount >= target_recovery:
+                # [변형 적용]
+                # 변형량 계산: 사용자가 원하는 건 "침투량에 대한 이동" 
+                # 여기서는 최대 침투 깊이 자체를 변형량으로 쓸 것인가, 아니면 Ratio를 곱할 것인가?
+                # "최대 침투량 * Ratio" 만큼 영구적 변형
+                deformation = state['max_p'] * plastic_ratio
                 
-                # XY 평면 수축
-                model.geom_size[geom_id][0] -= shrink_amount
-                model.geom_size[geom_id][1] -= shrink_amount
+                # 내측 방향 벡터
+                current_pos = model.geom_pos[geom_id]
+                inward_dir = -np.sign(current_pos[:3])
                 
-                # 중심 이동 (안쪽으로)
-                model.geom_pos[geom_id][0] += inward_dir[0] * shift_amount
-                model.geom_pos[geom_id][1] += inward_dir[1] * shift_amount
-                
-                # 최소 크기 방어
-                model.geom_size[geom_id][0] = max(model.geom_size[geom_id][0], 0.001)
-                model.geom_size[geom_id][1] = max(model.geom_size[geom_id][1], 0.001)
+                current_size = model.geom_size[geom_id]
+                if current_size[0] > 0.005:
+                    shrink = deformation * 0.2
+                    shift = deformation * 0.8
+                    
+                    model.geom_size[geom_id][0] -= shrink
+                    model.geom_size[geom_id][1] -= shrink
+                    
+                    model.geom_pos[geom_id][0] += inward_dir[0] * shift
+                    model.geom_pos[geom_id][1] += inward_dir[1] * shift
+                    
+                    # 최소 크기 방어
+                    model.geom_size[geom_id][0] = max(model.geom_size[geom_id][0], 0.001)
+                    model.geom_size[geom_id][1] = max(model.geom_size[geom_id][1], 0.001)
+                    
+                    # print(f"🔨 Deformed {name}: MaxP={state['max_p']*1000:.1f}mm -> Shift={shift*1000:.1f}mm")
+                    
+                state['applied'] = True # 이번 충돌 이벤트에선 적용 완료
+                # (주의: 더 큰 충격이 오면 Max_P가 갱신되어 다시 적용될 수 있음)
+        
+        # 상태 업데이트
+        state['prev_p'] = curr_p
+        
+        # 접촉이 완전히 끝나면(curr_p=0) 트래커 리셋? 
+        # 아니면 다음 충돌을 위해 state 유지? 
+        # 여기선 'max_p'가 갱신되어야 새 변형이 일어나므로 유지해도 무방하나, 
+        # 완전히 떨어졌을 때 리셋해주면 "새로운 충돌"로 인식 가능.
+        if curr_p == 0.0 and state['applied']:
+            state['max_p'] = 0.0
+            state['applied'] = False
+            state['prev_p'] = 0.0
 
 print("="*70)
 print("🎯 Box Drop Simulation - Corner Drop (Diagonal Vertical)")
@@ -624,8 +706,6 @@ print("="*70)
 print(f"📦 Box: {L*1000:.0f} × {W*1000:.0f} × {H*1000:.0f} mm, {MASS} kg")
 print(f"📏 Drop height: {initial_center_z*1000:.1f} mm (lowest corner at 500 mm)")
 print(f"� Diagonal length: {np.linalg.norm(diagonal)*1000:.1f} mm")
-print(f"�🔄 Rotation (calculated): Roll={euler_angles[0]:.1f}°, Pitch={euler_angles[1]:.1f}°, Yaw={euler_angles[2]:.1f}°")
-print(f" Diagonal length: {np.linalg.norm(diagonal)*1000:.1f} mm")
 print(f"🔄 Rotation (calculated): Roll={euler_angles[0]:.1f}°, Pitch={euler_angles[1]:.1f}°, Yaw={euler_angles[2]:.1f}°")
 print(f"   Quaternion (WXYZ): [{data.qpos[3]:.3f}, {data.qpos[4]:.3f}, {data.qpos[5]:.3f}, {data.qpos[6]:.3f}]")
 print(f"   Vertical span: {(max_z - min_z)*1000:.1f} mm (min={min_z*1000:.1f}, max={max_z*1000:.1f})")
