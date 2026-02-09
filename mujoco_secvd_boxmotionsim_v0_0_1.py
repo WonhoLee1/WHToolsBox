@@ -73,9 +73,12 @@ class BoxDropInstance:
             'acc': [],          # CoM World Acc (derived)
             'impact_force': [],
             'cushion_force': [],
-            'corner_pos': [[] for _ in range(8)]  # Site positions
+            'corner_pos': [[] for _ in range(8)], # Site positions (x,y,z)
+            'corner_vel': [[] for _ in range(8)], # Site velocities
+            'corner_acc': [[] for _ in range(8)]  # Site accelerations
         }
         self.prev_vel = np.zeros(3)
+        self.prev_corner_vels = [np.zeros(3) for _ in range(8)]
 
         # Internal Calculation for Drop Orientation
         self.quat_mj = [1, 0, 0, 0] # w, x, y, z
@@ -264,6 +267,7 @@ class SimulationManager:
         self.enable_plasticity = enable_plasticity
         
         # Solver Configuration
+        self.solver_mode = solver_mode # Store for singleton re-runs
         self.solver_params = SOLVER_PRESETS.get(solver_mode, SOLVER_PRESETS["2"])
         print(f"⚙️  Solver Setting: {self.solver_params['name']}")
         
@@ -299,6 +303,9 @@ class SimulationManager:
         return xml
 
     def init_simulation(self):
+        # 0. DE-REGISTER global callbacks before reloading model to prevent "Python exception raised"
+        mujoco.set_mjcb_control(None)
+        
         # 1. Clean up previous resources
         try:
             if hasattr(self, 'model') and self.model: del self.model
@@ -312,6 +319,7 @@ class SimulationManager:
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                # MuJoCo parser might trigger callbacks, so ensure it's None
                 self.model = mujoco.MjModel.from_xml_string(xml_str)
                 self.data = mujoco.MjData(self.model)
                 break
@@ -325,19 +333,19 @@ class SimulationManager:
                 print(f"⚠️  Retrying XML Load due to engine busy (Attempt {attempt+2}/{max_retries})...")
                 time.sleep(1.0)
         
-        # Reset tracker & Initial velocity
+        # 3. Reset tracker & Initial velocity
         self.geom_state_tracker = {}
         np.random.seed(42)
         for i, inst in enumerate(self.instances):
-            # Find joint address by name
             joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{inst.uid}")
             if joint_id != -1:
                 qvel_adr = self.model.jnt_dofadr[joint_id]
                 angvel = np.random.uniform(-0.003, 0.003, 3)
                 self.data.qvel[qvel_adr+3 : qvel_adr+6] = angvel
 
-        # Register callbacks
+        # 4. RE-REGISTER callback after model/data are ready
         mujoco.set_mjcb_control(self._cb_control_wrapper)
+        print(f"✅ Simulation Initialized ({len(self.instances)} instances)")
 
     def _cb_control_wrapper(self, model, data):
         # 1. Apply Air Cushion (if enabled)
@@ -696,7 +704,19 @@ class SimulationManager:
                         for i in range(8):
                             sid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"s_corner_{inst.uid}_{i}")
                             if sid != -1:
-                                inst.history['corner_pos'][i].append(self.data.site_xpos[sid].copy())
+                                pos = self.data.site_xpos[sid].copy()
+                                inst.history['corner_pos'][i].append(pos)
+                                
+                                # Corner Velocity mapping (Linear only)
+                                obj_vel = np.zeros(6)
+                                mujoco.mj_objectVelocity(self.model, self.data, mujoco.mjtObj.mjOBJ_SITE, sid, obj_vel, 0)
+                                c_vel = obj_vel[3:6].copy()
+                                inst.history['corner_vel'][i].append(c_vel)
+                                
+                                # Corner Acc (Numerical Diff)
+                                c_acc = (c_vel - inst.prev_corner_vels[i]) / 0.001
+                                inst.history['corner_acc'][i].append(c_acc)
+                                inst.prev_corner_vels[i] = c_vel.copy()
 
         print("\n✅ Simulation Complete.")
 
@@ -738,9 +758,11 @@ def run_testcase_A():
                 position_offset=[x, y, 0],
                 drop_type="corner",
                 box_params={}, # Use defaults
-                com_random=True,
-                label=f"Box {box_id}" # Default label
+                com_random=True
             )
+            # Assign descriptive name after random CoM is generated
+            cx, cy, cz = inst.CoM_offset * 1000.0 # to mm
+            inst.label = f"Box {box_id:02d} (Rand CoM: X{cx:+.1f} Y{cy:+.1f} Z{cz:+.1f})"
             sim.add_instance(inst)
             box_id += 1
             
@@ -806,7 +828,7 @@ def run_testcase_B():
             com[r] = val_m
             
             axis_name = ["X", "Y", "Z"][r]
-            label_str = f"{axis_name}: {val_mm:+}mm"
+            label_str = f"Sweep {axis_name}-Axis: {val_mm:+}mm Offset"
             
             inst = BoxDropInstance(
                 uid=box_id,
@@ -814,7 +836,7 @@ def run_testcase_B():
                 drop_type="corner",
                 box_params={},
                 com_offset=com,
-                label=label_str # "X: -50mm" 형태
+                label=label_str # "Sweep X-Axis: -50mm Offset" 형태
             )
             sim.add_instance(inst)
             box_id += 1
@@ -899,66 +921,64 @@ def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
     plot_detailed_singleton_results(inst)
 
 def plot_detailed_singleton_results(inst):
-    """mujoco_boxdrop_analysis.py 스타일의 상세 그래프 생성"""
+    """mujoco_boxdrop_analysis.py 스타일의 상세 그래프 생성 (Center + 8 Corners)"""
     print(f"\n📈 Generating Detailed Analysis Plots for {inst.label}...")
     
     h = inst.history
     times = np.array(h['time'])
     if not times.size: return
     
-    # 1. Figure: 3x3 (Pos, Vel, Acc) x (X, Y, Z)
-    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
-    fig.suptitle(f'Detailed Analysis: {inst.label} (Center & 8 Corners)', fontsize=15, fontweight='bold')
+    # Figure 1: 위치, 속도, 가속도 (3x3)
+    fig, axes = plt.subplots(3, 3, figsize=(16, 12))
+    fig.suptitle(f'Box Drop Detailed Analysis: {inst.label}', fontsize=16, fontweight='bold')
     
-    labels = ['X', 'Y', 'Z']
+    labels = ['X axis', 'Y axis', 'Z axis']
     row_titles = ['Position (mm)', 'Velocity (mm/s)', 'Acceleration (mm/s²)']
     data_keys = ['pos', 'vel', 'acc']
-    scales = [1000, 1000, 1000] # m to mm
+    corner_keys = ['corner_pos', 'corner_vel', 'corner_acc']
     
-    colors = plt.cm.tab10(np.linspace(0, 1, 9))
+    colors = plt.cm.tab10(np.linspace(0, 1, 9)) # Center + 8 Corners colors
     
-    for row, (key, row_title, scale) in enumerate(zip(data_keys, row_titles, scales)):
-        data_arr = np.array(h[key])
-        for col, axis_label in enumerate(labels):
+    for row in range(3):
+        center_data = np.array(h[data_keys[row]])
+        for col in range(3):
             ax = axes[row, col]
             
-            # Center Data
-            ax.plot(times, data_arr[:, col] * scale, label='Center', color='black', linewidth=2, zorder=10)
+            # 1. Plot Center Data (Thick line)
+            ax.plot(times, center_data[:, col] * 1000, label='Center', color='black', linewidth=2.5, zorder=10)
             
-            # Corner Data
+            # 2. Plot 8 Corners
+            corner_data_list = h[corner_keys[row]]
             for i in range(8):
-                c_data = np.array(h['corner_pos'][i])
-                if row == 0: # Position
-                    val = c_data[:, col] * scale
-                elif row == 1: # Velocity (Numerical)
-                    val = np.gradient(c_data[:, col], 0.001) * scale
-                else: # Acceleration (Numerical)
-                    val = np.gradient(np.gradient(c_data[:, col], 0.001), 0.001) * scale
+                c_arr = np.array(corner_data_list[i])
+                ax.plot(times, c_arr[:, col] * 1000, label=f'Corner {i+1}', color=colors[i], linewidth=1.0, alpha=0.6)
+            
+            ax.set_ylabel(row_titles[row])
+            ax.set_title(f"{row_titles[row]} - {labels[col]}", fontsize=11, fontweight='bold')
+            ax.grid(True, alpha=0.3, linestyle='--')
+            if row == 0 and col == 2:
+                ax.legend(loc='upper right', fontsize=8, ncol=2)
                 
-                ax.plot(times, val, color=colors[i], alpha=0.5, linewidth=1, label=f'C{i+1}' if row==0 and col==2 else "")
-            
-            ax.set_title(f"{row_title} - {axis_label}")
-            ax.grid(True, alpha=0.3)
-            if row == 0 and col == 2: ax.legend(fontsize='x-small', ncol=2)
-            
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
     
-    # 2. Figure: Impact & Cushion Forces
-    plt.figure(figsize=(10, 5))
-    plt.plot(times, h['impact_force'], color='red', label='Impact Force (N)')
-    plt.plot(times, h['cushion_force'], color='blue', alpha=0.6, label='Air Cushion (N)')
+    # Figure 2: Impact Force & Cushion Force
+    plt.figure(figsize=(10, 6))
+    plt.plot(times, h['impact_force'], color='red', linewidth=1.8, label='Impact Force (Normal)')
+    plt.plot(times, h['cushion_force'], color='blue', linewidth=1.5, linestyle='--', label='Air Cushion Force', alpha=0.7)
     
     max_f = np.max(h['impact_force'])
     max_t = times[np.argmax(h['impact_force'])]
-    plt.annotate(f'Peak: {max_f:.1f}N @ {max_t:.3f}s', xy=(max_t, max_f), xytext=(max_t+0.1, max_f),
+    plt.scatter(max_t, max_f, color='black', zorder=10)
+    plt.annotate(f'Peak: {max_f:.1f} N @ {max_t:.3f} s', xy=(max_t, max_f), xytext=(max_t + 0.2, max_f),
                  arrowprops=dict(facecolor='black', shrink=0.05))
                  
-    plt.title(f"Forces Analysis: {inst.label}")
-    plt.xlabel("Time (s)")
+    plt.title(f"Forces Analysis: {inst.label}", fontsize=14, fontweight='bold')
+    plt.xlabel("Time (seconds)")
     plt.ylabel("Force (N)")
-    plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
@@ -976,16 +996,21 @@ if __name__ == "__main__":
     # Physics Settings storage for singleton re-run
     use_ac = manager.enable_air_cushion
     use_pl = manager.enable_plasticity
-    solver_mode = manager.solver_mode # We might need to store this in manager
+    solver_mode = manager.solver_mode 
 
     while True:
-        # 1. Print Case List
-        print("\n📋 Available Cases:")
+        # 1. Case List Output
+        print("\n" + "="*60)
+        print("📋 ANALYSIS MENU: Select Case for Detailed Mapping")
+        print("-" * 60)
         for inst in manager.instances:
+            # Display descriptive name along with ID
             print(f"  [{inst.uid:2d}] {inst.label}")
+        print("="*60)
+        print("  [Enter] Quit Simulation")
             
         try:
-            choice = input(f"\n📊 Enter Box ID to run detailed analysis (0-{len(manager.instances)-1}) or Enter to quit: ").strip()
+            choice = input(f"\n📊 Enter ID to analyze (0-{len(manager.instances)-1}): ").strip()
             if choice == "": break
             idx = int(choice)
             
@@ -993,9 +1018,9 @@ if __name__ == "__main__":
                 selected = manager.instances[idx]
                 run_detailed_singleton_analysis(selected, solver_mode, use_ac, use_pl)
             else:
-                print("Out of range.")
+                print("⚠️ Out of range. Please select valid ID.")
                 
         except ValueError:
-            print("Invalid input.")
+            print("⚠️ Invalid input. Enter numeric ID.")
     
     print("Test Complete.")
