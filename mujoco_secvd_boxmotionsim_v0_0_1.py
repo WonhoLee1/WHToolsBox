@@ -117,7 +117,7 @@ class BoxDropInstance:
                 rot = R.from_rotvec(angle * rotation_axis)
             
             # Recalculate lowest point
-            rotated_corners = corners_local @ rot.as_matrix().T
+            rotated_corners = self.corners_local @ rot.as_matrix().T
             min_z_local = np.min(rotated_corners[:, 2])
 
         elif self.drop_type == "edge":
@@ -142,15 +142,9 @@ class BoxDropInstance:
         pad_z_half = pad_h_actual / 2.0
         
         vertical_edges = [(0, 1), (2, 3), (4, 5), (6, 7)]
-        corners_local = np.array([
-            [x, y, z] for x in [-self.L/2, self.L/2]
-            for y in [-self.W/2, self.W/2]
-            for z in [-self.H/2, self.H/2]
-        ])
-        
         for edge_idx, (idx_bottom, idx_top) in enumerate(vertical_edges):
-            c_bottom = corners_local[idx_bottom]
-            c_top = corners_local[idx_top]
+            c_bottom = self.corners_local[idx_bottom]
+            c_top = self.corners_local[idx_top]
             
             sign_x = np.sign(c_bottom[0])
             sign_y = np.sign(c_bottom[1])
