@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import time
 import copy
 import msvcrt
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 # ==========================================
 # Global Constants & Configuration
@@ -35,21 +38,33 @@ AIR_VISCOSITY = 1.8e-5
 BOX_FRICTION_PARAMS = "0.3 0.005 0.0001"
 
 # Pad Configuration
-CORNER_PADS_NUMS = 5
-GAP_RATIO = 0.05
-PAD_XY = 0.1
-BOX_PAD_OFFSET = 0.00001
-PLASTIC_DEFORMATION_RATIO = 0.5
+CORNER_PADS_NUMS = 5    # Number of pads along height (Z)
+CORNER_SPLIT_XY = 3     # Number of pads along L and W within each corner (M)
+GAP_RATIO = 0.05        # 패드와 패드 사이의 간격 비율 (분할된 조각들이 서로 겹치지 않게 함)
+PAD_XY = 0.1           # 코너 패드 한 변의 '반폭' 길이 (0.1m = 전체 폭 200mm)
+BOX_PAD_OFFSET = 0.00001 # 상자 본체와 패드 사이의 물리적 이격 거리 (불필요한 초기 접촉 방지)
+PLASTIC_DEFORMATION_RATIO = 0.5 # 소성 변형율 (최대 압축량의 몇 %를 영구 변형으로 남길지 설정)
+ENABLE_PAD_CONTACT = True # 패드 조각 상호 간의 충격/접촉 계산 여부
+
+# Flexible Body Configuration
+FLEX_STIFFNESS = 8000.0 # 굽힘 강성 (높을수록 단단함)
+FLEX_DAMPING = 200.0   # 굽힘 감쇠 (진동 억제)
 
 # ==========================================
 # Class: BoxDropInstance
 # ==========================================
 class BoxDropInstance:
-    def __init__(self, uid, position_offset, drop_type="corner", box_params=None, com_random=False, com_offset=None, label=""):
+    def __init__(self, uid, position_offset, drop_type="corner", box_params=None, com_random=False, com_offset=None, 
+                 label="", enable_pad_contact=ENABLE_PAD_CONTACT, use_flex=False, 
+                 flex_stiffness=FLEX_STIFFNESS, flex_damping=FLEX_DAMPING):
         self.uid = uid
         self.base_pos = np.array(position_offset)  # Grid position (x, y, 0)
-        self.drop_type = drop_type # "corner", "edge", "face" (Prepared for future)
-        self.label = label # 텍스트 라벨
+        self.drop_type = drop_type 
+        self.label = label 
+        self.enable_pad_contact = enable_pad_contact
+        self.use_flex = use_flex 
+        self.flex_stiffness = flex_stiffness
+        self.flex_damping = flex_damping
         
         # Default Box Parameters
         self.L = box_params.get('L', 1.8)
@@ -75,7 +90,12 @@ class BoxDropInstance:
             'cushion_force': [],
             'corner_pos': [[] for _ in range(8)], # Site positions (x,y,z)
             'corner_vel': [[] for _ in range(8)], # Site velocities
-            'corner_acc': [[] for _ in range(8)]  # Site accelerations
+            'corner_acc': [[] for _ in range(8)], # Site accelerations
+            'bending': [],       # Max joint angle (rad)
+            'deflection': [],    # Max tip displacement (mm)
+            'joint_angles': {},  # Individual joint angles over time
+            'corner_comp': {},   # Avg compression per corner (8 locations)
+            'final_pad_comp': {} # Final compression for EVERY pad (name: value)
         }
         self.prev_vel = np.zeros(3)
         self.prev_corner_vels = [np.zeros(3) for _ in range(8)]
@@ -135,34 +155,114 @@ class BoxDropInstance:
         self.initial_z_offset = 0.5 - min_z_local
 
     def _generate_pad_configs(self):
-        """Generate N-split pad configurations (Local coords)"""
+        """Generate 3D split pad configurations at corners (Local coords)"""
         configs = []
+        
+        # 1. Corner Pads (Split in 3D: Z stack of X-Y grids)
         pad_segment_h = self.H / CORNER_PADS_NUMS
         pad_h_actual = pad_segment_h / (1.0 + GAP_RATIO)
         pad_z_half = pad_h_actual / 2.0
+        
+        # Sub-split in X-Y plane
+        # Original single pad size was 2*PAD_XY (since PAD_XY was half-length)
+        total_pad_full_width = 2.0 * PAD_XY
+        pad_sub_full_width = total_pad_full_width / CORNER_SPLIT_XY
+        pad_sub_half = (pad_sub_full_width / (1.0 + GAP_RATIO)) / 2.0
         
         vertical_edges = [(0, 1), (2, 3), (4, 5), (6, 7)]
         for edge_idx, (idx_bottom, idx_top) in enumerate(vertical_edges):
             c_bottom = self.corners_local[idx_bottom]
             c_top = self.corners_local[idx_top]
-            
             sign_x = np.sign(c_bottom[0])
             sign_y = np.sign(c_bottom[1])
             
+            # Base corner position (Inner corner of the pad footprint: 200mm inward)
+            base_corner_x = c_bottom[0] - sign_x * (total_pad_full_width + BOX_PAD_OFFSET)
+            base_corner_y = c_bottom[1] - sign_y * (total_pad_full_width + BOX_PAD_OFFSET)
+            
             for i in range(CORNER_PADS_NUMS):
-                t = (i + 0.5) / CORNER_PADS_NUMS
-                pos = c_bottom + (c_top - c_bottom) * t
+                # Z-position
+                t_z = (i + 0.5) / CORNER_PADS_NUMS
+                z_pos = c_bottom[2] + (c_top[2] - c_bottom[2]) * t_z
                 
-                pos_x = pos[0] - sign_x * (PAD_XY + BOX_PAD_OFFSET)
-                pos_y = pos[1] - sign_y * (PAD_XY + BOX_PAD_OFFSET)
-                pos_z = pos[2]
-                
+                for ix in range(CORNER_SPLIT_XY):
+                    for iy in range(CORNER_SPLIT_XY):
+                        t_x = (ix + 0.5) / CORNER_SPLIT_XY
+                        t_y = (iy + 0.5) / CORNER_SPLIT_XY
+                        
+                        # Color logic: Outer (Green) to Inner (Gray)
+                        layer = max(ix, iy)
+                        if layer >= 2: 
+                            rgba = "0.2 0.7 0.3 1.0"  # Green (Outer)
+                        elif layer == 1:
+                            rgba = "0.2 0.4 0.8 1.0"  # Blue (Middle)
+                        else:
+                            rgba = "0.5 0.5 0.5 1.0"  # Gray (Inner)
+
+                        # Local offsets within the total_pad_full_width box
+                        offset_x = sign_x * (total_pad_full_width * t_x)
+                        offset_y = sign_y * (total_pad_full_width * t_y)
+                        
+                        configs.append({
+                            'name_suffix': f"v_corner_{edge_idx}_z{i}_x{ix}_y{iy}",
+                            'pos': [base_corner_x + offset_x, base_corner_y + offset_y, z_pos],
+                            'size': [pad_sub_half, pad_sub_half, pad_z_half],
+                            'rgba': rgba
+                        })
+
+        # 2. Horizontal Edge Blocks
+        blk_z = self.H / 2.0
+        total_pad_full_width = 2.0 * PAD_XY
+        fb_sx = max(self.L/2.0 - total_pad_full_width - BOX_PAD_OFFSET, 0.001)
+        fb_pos_y = self.W/2.0 - PAD_XY - BOX_PAD_OFFSET
+        lr_sy = max(self.W/2.0 - total_pad_full_width - BOX_PAD_OFFSET, 0.001)
+        lr_pos_x = self.L/2.0 - PAD_XY - BOX_PAD_OFFSET
+        
+        # Front/Back Edges
+        for side in [-1, 1]:
+            name_base = 'back' if side == 1 else 'front'
+            if self.use_flex:
+                num_seg = 3
+                seg_len = (fb_sx * 2.0) / num_seg
+                for s in range(num_seg):
+                    pos_x = -fb_sx + (s + 0.5) * seg_len
+                    configs.append({
+                        'name_suffix': f"h_edge_{name_base}_seg{s}",
+                        'pos': [pos_x, side * fb_pos_y, 0],
+                        'size': [seg_len/2, PAD_XY, blk_z],
+                        'rgba': "0.9 0.9 0.2 1.0"
+                    })
+            else:
                 configs.append({
-                    'name_suffix': f"edge_{edge_idx}_pad_{i}",
-                    'pos': [pos_x, pos_y, pos_z],
-                    'size': [PAD_XY, PAD_XY, pad_z_half],
-                    'rgba': "0.8 0.8 0.2 1.0" # Yellow
+                    'name_suffix': f"h_edge_{name_base}_solid",
+                    'pos': [0, side * fb_pos_y, 0],
+                    'size': [fb_sx, PAD_XY, blk_z],
+                    'rgba': "0.9 0.9 0.2 1.0"
                 })
+
+        # Left/Right Edges
+        for side in [-1, 1]:
+            name_base = 'right' if side == 1 else 'left'
+            if self.use_flex:
+                num_seg = 3
+                seg_len = (lr_sy * 2.0) / num_seg
+                for s in range(num_seg):
+                    pos_y = -lr_sy + (s + 0.5) * seg_len
+                    configs.append({
+                        'name_suffix': f"h_edge_{name_base}_seg{s}",
+                        'pos': [side * lr_pos_x, pos_y, 0],
+                        'size': [PAD_XY, seg_len/2, blk_z],
+                        'rgba': "0.9 0.9 0.2 1.0"
+                    })
+            else:
+                configs.append({
+                    'name_suffix': f"h_edge_{name_base}_solid",
+                    'pos': [side * lr_pos_x, 0, 0],
+                    'size': [PAD_XY, lr_sy, blk_z],
+                    'rgba': "0.9 0.9 0.2 1.0"
+                })
+        return configs
+        
         return configs
 
     def get_xml(self):
@@ -170,16 +270,21 @@ class BoxDropInstance:
         # Collision Bitmask Logic: 
         # Each instance gets a unique bit (0~31). 
         # Only geoms with matching bitmask collide.
-        bit = 1 << (self.uid % 31)
-        
         # 1. Floor for this instance
+        # Bit pairs for toggling inter-box contact
+        # Group i: bits 2i and 2i+1
+        idx = self.uid % 15
+        bit_floor = 1 << (2 * idx)
+        bit_box = 1 << (2 * idx + 1)
+        
+        # Floor: contype = floor_bit, conaffinity = box_bit
         f_half = max(self.L, self.W) * 0.8
         floor_xml = f"""
         <geom name="floor_{self.uid}" type="plane" 
               pos="{self.base_pos[0]} {self.base_pos[1]} 0" zaxis="0 0 1" 
               size="{f_half} {f_half} 1" material="grid" 
               friction="{BOX_FRICTION_PARAMS}" solref="0.01 1"
-              contype="{bit}" conaffinity="{bit}"/>
+              contype="{bit_floor}" conaffinity="{bit_box}"/>
         """
         
         # 2. Body Definition
@@ -190,60 +295,116 @@ class BoxDropInstance:
         Iyy = (1/12) * self.MASS * (self.L**2 + self.H**2)
         Izz = (1/12) * self.MASS * (self.L**2 + self.W**2)
         
-        # Pads Geometry (Shared bit with floor)
-        pads_xml = ""
+        # Pads Geometry
+        # Box: contype = box_bit, conaffinity = floor_bit (| box_bit if contact enabled)
+        affinity_box = bit_floor
+        if self.enable_pad_contact:
+            affinity_box |= bit_box
+            
         solref_str = f"{DEFAULT_SOLREF[0]:.5f} {DEFAULT_SOLREF[1]:.5f}"
         solimp_str = " ".join(map(str, DEFAULT_SOLIMP))
-        
-        for pad in self.pad_configs:
-            p_name = f"box_{self.uid}_{pad['name_suffix']}"
-            pads_xml += f"""
-            <geom name="{p_name}" type="box" size="{pad['size'][0]} {pad['size'][1]} {pad['size'][2]}"
-                  pos="{pad['pos'][0]} {pad['pos'][1]} {pad['pos'][2]}"
-                  rgba="{pad['rgba']}" solref="{solref_str}" solimp="{solimp_str}"
-                  friction="{BOX_FRICTION_PARAMS}" contype="{bit}" conaffinity="{bit}"/>
-            """
-            
-        # Protection Blocks (Edge Pads - Yellow)
-        blk_z = self.H / 2.0
-        fb_sx = max(self.L/2.0 - 2.0*PAD_XY - BOX_PAD_OFFSET, 0.001)
-        fb_pos_y = self.W/2.0 - PAD_XY - BOX_PAD_OFFSET
-        lr_sy = max(self.W/2.0 - 2.0*PAD_XY - BOX_PAD_OFFSET, 0.001)
-        lr_pos_x = self.L/2.0 - PAD_XY - BOX_PAD_OFFSET
-        
-        pads_xml += f"""
-            <geom name="box_{self.uid}_g_front" type="box" size="{fb_sx} {PAD_XY} {blk_z}" 
-                  pos="0 -{fb_pos_y} 0" rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
-                  mass="0.001" contype="{bit}" conaffinity="{bit}"/>
-            <geom name="box_{self.uid}_g_back" type="box" size="{fb_sx} {PAD_XY} {blk_z}" 
-                  pos="0 {fb_pos_y} 0" rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
-                  mass="0.001" contype="{bit}" conaffinity="{bit}"/>
-            <geom name="box_{self.uid}_g_left" type="box" size="{PAD_XY} {lr_sy} {blk_z}" 
-                  pos="-{lr_pos_x} 0 0" rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
-                  mass="0.001" contype="{bit}" conaffinity="{bit}"/>
-            <geom name="box_{self.uid}_g_right" type="box" size="{PAD_XY} {lr_sy} {blk_z}" 
-                  pos="{lr_pos_x} 0 0" rgba="0.9 0.9 0.2 1.0" solref="0.005 1.0" friction="{BOX_FRICTION_PARAMS}" 
-                  mass="0.001" contype="{bit}" conaffinity="{bit}"/>
-        """
 
-        body_xml = f"""
-        <body name="box_{self.uid}" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" 
-              quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
-            <freejoint name="joint_{self.uid}"/>
-            <inertial pos="{self.CoM_offset[0]} {self.CoM_offset[1]} {self.CoM_offset[2]}" mass="{self.MASS}" diaginertia="{Ixx} {Iyy} {Izz}"/>
+        # --- Sub-Body Generation for Flex Mode ---
+        def get_geoms_in_range(x_range, y_range, offset_x=0, offset_y=0):
+            """Filter pads that belong to a specific XY segment and convert to LOCAL segment coords"""
+            xml = ""
+            for pad in self.pad_configs:
+                px, py = pad['pos'][0], pad['pos'][1]
+                if x_range[0] <= px <= x_range[1] and y_range[0] <= py <= y_range[1]:
+                    p_name = f"box_{self.uid}_{pad['name_suffix']}"
+                    # Convert global box pos to local segment pos
+                    lx, ly = px - offset_x, py - offset_y
+                    xml += f"""
+                    <geom name="{p_name}" type="box" size="{pad['size'][0]} {pad['size'][1]} {pad['size'][2]}"
+                          pos="{lx} {ly} {pad['pos'][2]}"
+                          rgba="{pad['rgba']}" solref="{solref_str}" solimp="{solimp_str}"
+                          friction="{BOX_FRICTION_PARAMS}" contype="{bit_box}" conaffinity="{affinity_box}"/>
+                    """
+            return xml
+
+        if self.use_flex:
+            # 3x3 Grid (9 Bodies)
+            body_xml = ""
+            sl, sw = self.L / 3.0, self.W / 3.0
+            sm = self.MASS / 9.0
+            six, siy, siz = Ixx/9.0, Iyy/9.0, Izz/9.0
             
-            <!-- Main Visual -->
-            <geom name="box_{self.uid}_visual" type="box" size="{self.L/2} {self.W/2} {self.H/2}" 
-                  rgba="0.8 0.6 0.3 0.3" contype="0" conaffinity="0"
-                  fluidshape="ellipsoid" fluidcoef="0.5 0.25 1.5 1.0 1.0"/>
-            
-            {pads_xml}
-            
-            <!-- Sites for Sensing -->
-            <site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
-            {self._get_corner_sites_xml()}
-        </body>
-        """
+            # Helper to generate a segment body
+            def make_seg(name, grid_x, grid_y):
+                # Local coords for the segment center
+                lx, ly = grid_x * sl, grid_y * sw
+                # Range for geom filtering
+                rx = [lx - sl/2 - 0.01, lx + sl/2 + 0.01]
+                ry = [ly - sw/2 - 0.01, ly + sw/2 + 0.01]
+                
+                content = f'<inertial pos="0 0 0" mass="{sm}" diaginertia="{six} {siy} {siz}"/>\n'
+                # Visual Box Piece
+                content += f'<geom name="box_{self.uid}_vis_{name}" type="box" size="{sl/2} {sw/2} {self.H/2}" rgba="0.8 0.6 0.3 0.2" contype="0" conaffinity="0"/>\n'
+                
+                # Distribution of pads/brands
+                if grid_x == 0 and grid_y == 0:
+                    content += f'<geom name="box_{self.uid}_brand" type="box" size="{sl*0.4} {sw*0.4} 0.002" pos="0 0 {self.H/2 + 0.001}" rgba="0.1 0.2 0.6 1.0" mass="0.001"/>\n'
+                    content += f'<site name="box_{self.uid}_label" pos="0 0 {self.H/2 + 0.01}" size="0.01" rgba="0 0 0 0"/>\n'
+                
+                content += get_geoms_in_range(rx, ry, lx, ly)
+                
+                if name == "c": # Root
+                    return f"""
+                    <body name="box_{self.uid}_c" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
+                        <freejoint name="joint_{self.uid}"/>
+                        {content}
+                    """
+                else: # Child connected via spring
+                    return f"""
+                    <body name="box_{self.uid}_{name}" pos="{lx} {ly} 0">
+                        <joint name="j_{self.uid}_{name}_x" type="hinge" axis="1 0 0" stiffness="{self.flex_stiffness}" damping="{self.flex_damping}"/>
+                        <joint name="j_{self.uid}_{name}_y" type="hinge" axis="0 1 0" stiffness="{self.flex_stiffness}" damping="{self.flex_damping}"/>
+                        {content}
+                    </body>"""
+
+            # Combine 9 segments
+            body_xml += make_seg("c", 0, 0)
+            for gx in [-1, 0, 1]:
+                for gy in [-1, 0, 1]:
+                    if gx == 0 and gy == 0: continue
+                    name = f"{'s' if gy < 0 else ('n' if gy > 0 else '')}{'w' if gx < 0 else ('e' if gx > 0 else '')}"
+                    body_xml += make_seg(name, gx, gy)
+            body_xml += "</body>"
+        else:
+            # Original Rigid Body logic
+            pads_xml = ""
+            for pad in self.pad_configs:
+                p_name = f"box_{self.uid}_{pad['name_suffix']}"
+                pads_xml += f"""
+                <geom name="{p_name}" type="box" size="{pad['size'][0]} {pad['size'][1]} {pad['size'][2]}"
+                      pos="{pad['pos'][0]} {pad['pos'][1]} {pad['pos'][2]}"
+                      rgba="{pad['rgba']}" solref="{solref_str}" solimp="{solimp_str}"
+                      friction="{BOX_FRICTION_PARAMS}" contype="{bit_box}" conaffinity="{affinity_box}"/>
+                """
+                
+            body_xml = f"""
+            <body name="box_{self.uid}" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" 
+                  quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
+                <freejoint name="joint_{self.uid}"/>
+                <inertial pos="{self.CoM_offset[0]} {self.CoM_offset[1]} {self.CoM_offset[2]}" mass="{self.MASS}" diaginertia="{Ixx} {Iyy} {Izz}"/>
+                
+                <!-- Samsung Branding Block -->
+                <geom name="box_{self.uid}_brand" type="box" size="{self.L*0.3} {self.W*0.3} 0.002" 
+                      pos="0 0 {self.H/2 + 0.001}" rgba="0.1 0.2 0.6 1.0" mass="0.001"/>
+                <site name="box_{self.uid}_label" pos="0 0 {self.H/2 + 0.01}" size="0.01" rgba="0 0 0 0"/>
+    
+                <!-- Main Visual -->
+                <geom name="box_{self.uid}_visual" type="box" size="{self.L/2} {self.W/2} {self.H/2}" 
+                      rgba="0.8 0.6 0.3 0.3" contype="0" conaffinity="0"
+                      fluidshape="ellipsoid" fluidcoef="0.5 0.25 1.5 1.0 1.0"/>
+                
+                {pads_xml}
+                
+                <!-- Sites for Sensing -->
+                <site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>
+                {self._get_corner_sites_xml()}
+            </body>
+            """
         return floor_xml + body_xml
 
     def _get_corner_sites_xml(self):
@@ -252,6 +413,22 @@ class BoxDropInstance:
         for i, c in enumerate(self.corners_local):
             xml += f'<site name="s_corner_{self.uid}_{i}" pos="{c[0]} {c[1]} {c[2]}" size="0.005" rgba="0.5 0.5 0.5 0.2"/>\n'
         return xml
+
+def _run_single_instance_worker(args):
+    """Worker function for parallel simulation (runs in separate process)"""
+    inst, use_ac, use_pl, solver_mode, duration, record_details = args
+    
+    # Each process needs its own Manager and Model
+    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
+    
+    # We want to simulate this instance at its designated position
+    sim.add_instance(inst)
+    sim.init_simulation()
+    
+    # Run simulation (this will update inst.history)
+    sim.run_headless(duration=duration, record_details=record_details)
+    
+    return inst
 
 
 # ==========================================
@@ -345,7 +522,11 @@ class SimulationManager:
                 angvel = np.random.uniform(-0.003, 0.003, 3)
                 self.data.qvel[qvel_adr+3 : qvel_adr+6] = angvel
 
-        # 4. RE-REGISTER callback after model/data are ready
+        # 4. Store initial state for reset (DEEP COPY for geometry reset)
+        self.initial_geom_pos = np.array(self.model.geom_pos).copy()
+        self.initial_geom_size = np.array(self.model.geom_size).copy()
+        
+        # 5. RE-REGISTER callback after model/data are ready
         mujoco.set_mjcb_control(self._cb_control_wrapper)
         print(f"✅ Simulation Initialized ({len(self.instances)} instances)")
 
@@ -465,7 +646,8 @@ class SimulationManager:
         # 2. Logic (Iterate all tracked)
         for gid, state in self.geom_state_tracker.items():
             g_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid)
-            if not g_name or ("pad" not in g_name and "g_front" not in g_name): 
+            # Filter for deformable components: corner pads and edge blocks
+            if not g_name or ("v_corner" not in g_name and "h_edge" not in g_name and "pad" not in g_name): 
                 continue
                 
             curr_p = current_penetrations.get(gid, 0.0)
@@ -570,8 +752,12 @@ class SimulationManager:
             self.reset_sim()
             
             with mujoco.viewer.launch_passive(self.model, self.data, key_callback=key_callback) as viewer:
-                viewer.cam.distance = 25.0
-                viewer.cam.lookat = [10, 8, 0]
+                if len(self.instances) <= 1:
+                    viewer.cam.distance = 2.5
+                    viewer.cam.lookat = [0, 0, 0.2] # Slightly above ground
+                else:
+                    viewer.cam.distance = 25.0
+                    viewer.cam.lookat = [10, 8, 0]
                 viewer.sync()
                 
                 step_start = time.time()
@@ -581,7 +767,40 @@ class SimulationManager:
                     try:
                         viewer.user_scn.ngeom = 0 # Reset user geoms each frame
                         for inst in self.instances:
-                            if inst.label and viewer.user_scn.ngeom < 100:
+                            # --- Real-time Stats Calculation ---
+                            # 1. Bending
+                            curr_flex = 0.0
+                            if inst.use_flex:
+                                sl, sw = inst.L/3.0, inst.W/3.0
+                                seg_dists = {
+                                    'n': sw, 's': sw, 'e': sl, 'w': sl,
+                                    'ne': np.sqrt(sl**2+sw**2), 'nw': np.sqrt(sl**2+sw**2),
+                                    'se': np.sqrt(sl**2+sw**2), 'sw': np.sqrt(sl**2+sw**2)
+                                }
+                                for sfx, dist in seg_dists.items():
+                                    for axis in ['x', 'y']:
+                                        jname = f"j_{inst.uid}_{sfx}_{axis}"
+                                        jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+                                        if jid != -1:
+                                            angle = abs(self.data.qpos[self.model.jnt_qposadr[jid]])
+                                            defl = dist * np.sin(angle) * 1000.0
+                                            if defl > curr_flex: curr_flex = defl
+                            
+                            # 2. Avg Pad Compression
+                            total_comp, count = 0.0, 0
+                            prefix = f"box_{inst.uid}_v_corner"
+                            for i in range(self.model.ngeom):
+                                name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i)
+                                if name and name.startswith(prefix):
+                                    comp = (self.initial_geom_size[i, 2] - self.model.geom_size[i, 2]) * 1000.0
+                                    total_comp += max(0, comp)
+                                    count += 1
+                            avg_comp = total_comp / count if count > 0 else 0.0
+                            
+                            # Update Label string
+                            display_text = f"{inst.label}\n[Flex: {curr_flex:.1f}mm | Comp: {avg_comp:.1f}mm]"
+
+                            if viewer.user_scn.ngeom < 100:
                                 f_half = max(inst.L, inst.W) * 0.8
                                 l_pos = [inst.base_pos[0], inst.base_pos[1] - f_half - 0.4, 0.1]
                                 
@@ -595,7 +814,7 @@ class SimulationManager:
                                     mat=np.eye(3).flatten(),
                                     rgba=[1, 1, 1, 0] 
                                 )
-                                viewer.user_scn.geoms[idx].label = inst.label
+                                viewer.user_scn.geoms[idx].label = display_text
                     except:
                         pass # Ignore errors if viewer is closing
 
@@ -641,9 +860,20 @@ class SimulationManager:
                         time.sleep(0.01)
 
     def reset_sim(self):
+        """Reset simulation state and Restore original geometry (Moved pads)"""
+        # 1. Reset Physics State
         mujoco.mj_resetData(self.model, self.data)
+        
+        # 2. Restore Geometry (Reset plasticity effects)
+        if hasattr(self, 'initial_geom_pos'):
+            # Use np.copyto for direct memory update in MuJoCo structs
+            np.copyto(self.model.geom_pos, self.initial_geom_pos)
+            np.copyto(self.model.geom_size, self.initial_geom_size)
+            
+        # 3. Clear trackers
         self.geom_state_tracker = {}
-        # Random Vel again
+        
+        # 4. Re-apply Initial Perturbation (Angular Velocity)
         np.random.seed(42)
         for i, inst in enumerate(self.instances):
             joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"joint_{inst.uid}")
@@ -651,7 +881,10 @@ class SimulationManager:
                 qvel_adr = self.model.jnt_dofadr[joint_id]
                 angvel = np.random.uniform(-0.003, 0.003, 3)
                 self.data.qvel[qvel_adr+3 : qvel_adr+6] = angvel
+        
+        # 5. Force update of collision/visual structures
         mujoco.mj_forward(self.model, self.data)
+        print("   [GEOMETRY RESTORED]")
 
     def run_headless(self, duration=2.5, record_details=False):
         print(f"🚀 Running Headless Simulation for {duration}s... (Record Details: {record_details})")
@@ -719,17 +952,121 @@ class SimulationManager:
                                 c_acc = (c_vel - inst.prev_corner_vels[i]) / 0.001
                                 inst.history['corner_acc'][i].append(c_acc)
                                 inst.prev_corner_vels[i] = c_vel.copy()
+                        
+                        # 3. Flexible Bending/Deflection & Joint Recording
+                        if inst.use_flex:
+                            max_angle = 0.0
+                            max_defl_mm = 0.0
+                            sl, sw = inst.L/3.0, inst.W/3.0
+                            seg_dists = {
+                                'n': sw, 's': sw, 'e': sl, 'w': sl,
+                                'ne': np.sqrt(sl**2+sw**2), 'nw': np.sqrt(sl**2+sw**2),
+                                'se': np.sqrt(sl**2+sw**2), 'sw': np.sqrt(sl**2+sw**2)
+                            }
+                            
+                            for sfx, dist in seg_dists.items():
+                                for axis in ['x', 'y']:
+                                    jname = f"j_{inst.uid}_{sfx}_{axis}"
+                                    jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+                                    if jid != -1:
+                                        angle = abs(self.data.qpos[self.model.jnt_qposadr[jid]])
+                                        if angle > max_angle: max_angle = angle
+                                        
+                                        # Record individual joint
+                                        j_key = f"{sfx}_{axis}"
+                                        if j_key not in inst.history['joint_angles']:
+                                            inst.history['joint_angles'][j_key] = []
+                                        inst.history['joint_angles'][j_key].append(angle * 180.0 / np.pi)
+                                        
+                                        defl = dist * np.sin(angle) * 1000.0
+                                        if defl > max_defl_mm: max_defl_mm = defl
+                                        
+                            inst.history['bending'].append(max_angle)
+                            inst.history['deflection'].append(max_defl_mm)
+                        else:
+                            inst.history['bending'].append(0.0)
+                            inst.history['deflection'].append(0.0)
+                            
+                        # 4. Detailed Pad Compression Recording
+                        for edge_idx in range(4):
+                            prefix = f"box_{inst.uid}_v_corner_{edge_idx}_"
+                            total_c, count = 0.0, 0
+                            for i in range(self.model.ngeom):
+                                gname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i)
+                                if gname and gname.startswith(prefix):
+                                    initial_sz = self.initial_geom_size[i, 2]
+                                    current_sz = self.model.geom_size[i, 2]
+                                    comp = (initial_sz - current_sz) * 1000.0
+                                    total_c += max(0, comp)
+                                    count += 1
+                            c_key = f"Corner_{edge_idx}"
+                            if c_key not in inst.history['corner_comp']:
+                                inst.history['corner_comp'][c_key] = []
+                            inst.history['corner_comp'][c_key].append(total_c / count if count > 0 else 0)
+
+            # Record final state for all pads at the very end
+            if step_idx == steps - 1:
+                for inst in self.instances:
+                    for i in range(self.model.ngeom):
+                        gname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i)
+                        if gname and f"box_{inst.uid}_v_corner" in gname:
+                            initial_sz = self.initial_geom_size[i, 2]
+                            current_sz = self.model.geom_size[i, 2]
+                            inst.history['final_pad_comp'][gname] = (initial_sz - current_sz) * 1000.0
 
         print("\n✅ Simulation Complete.")
 
+    def run_headless_parallel(self, duration=2.5, record_details=False, max_workers=None):
+        """Run all instances in parallel using multiple CPU cores"""
+        if max_workers is None:
+            max_workers = min(multiprocessing.cpu_count(), len(self.instances))
+        
+        print(f"🚀 Running Parallel Headless Simulation ({len(self.instances)} instances on {max_workers} cores)...")
+        start_t = time.time()
+        
+        # Prepare arguments for workers
+        tasks = []
+        for inst in self.instances:
+            tasks.append((inst, self.enable_air_cushion, self.enable_plasticity, self.solver_mode, duration, record_details))
+            
+        new_instances = []
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_run_single_instance_worker, task) for task in tasks]
+            
+            completed = 0
+            for future in as_completed(futures):
+                inst_result = future.result()
+                new_instances.append(inst_result)
+                completed += 1
+                if completed % 1 == 0:
+                    print(f"\r   Progress: {completed}/{len(self.instances)} tasks finished...", end="", flush=True)
+        
+        # Sort back by UID to maintain order
+        new_instances.sort(key=lambda x: x.uid)
+        self.instances = new_instances
+        
+        print(f"\n✅ All Parallel Tasks Complete. (Elapsed: {time.time() - start_t:.2f}s)")
+
 # ==========================================
-# TESTCASE A
+# TESTCASE: Helper to ask for common configs
 # ==========================================
-def run_testcase_A():
-    # 1. Physics & Solver Configuration
+def ask_common_configs():
     print("\n🔧 Physics Configuration:")
     ac_in = input("Enable Air Cushion (y/n, default y): ").strip().lower()
     pl_in = input("Enable Plastic Deformation (y/n, default y): ").strip().lower()
+    pc_in = input("Enable Pad-to-Pad Contact (y/n, default y): ").strip().lower()
+    fx_in = input("Enable Flexible Body (y/n, default n): ").strip().lower()
+    use_fx = (fx_in == 'y')
+    
+    fs_val = FLEX_STIFFNESS
+    fd_val = FLEX_DAMPING
+    if use_fx:
+        fs_in = input(f"   - Set Stiffness (default {FLEX_STIFFNESS}): ").strip()
+        fd_in = input(f"   - Set Damping (default {FLEX_DAMPING}): ").strip()
+        if fs_in: fs_val = float(fs_in)
+        if fd_in: fd_val = float(fd_in)
+
+    mc_in = input("Enable Multi-core (y/n, default y): ").strip().lower()
     
     print("\n🚀 Solver Configuration:")
     print("1. Accurate (정확 - Newton, Elliptic, Iter 100)")
@@ -739,128 +1076,150 @@ def run_testcase_A():
     solver_mode = input("Select Solver Mode (1-4, default 3): ").strip()
     if not solver_mode: solver_mode = "3"
     
-    use_ac = (ac_in != 'n')
-    use_pl = (pl_in != 'n')
+    print("\n📺 Viewer Configuration:")
+    print("1. Standard Viewer")
+    print("2. Passive Viewer (Custom Control, Recommended)")
+    view_mode_in = input("Select Viewer Mode (1/2, default 2): ").strip()
+    view_mode = 'standard' if view_mode_in == '1' else 'passive'
     
-    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
+    return {
+        'use_ac': (ac_in != 'n'),
+        'use_pl': (pl_in != 'n'),
+        'use_pc': (pc_in != 'n'),
+        'use_fx': use_fx,
+        'flex_stiffness': fs_val,
+        'flex_damping': fd_val,
+        'use_mc': (mc_in != 'n'),
+        'solver_mode': solver_mode,
+        'view_mode': view_mode
+    }
+
+# ==========================================
+# TESTCASE: One Box Drop
+# ==========================================
+def run_testcase_OneBox():
+    print("\n📦 Running Testcase: One Box Drop")
+    cfg = ask_common_configs()
+    
+    sim = SimulationManager(enable_air_cushion=cfg['use_ac'], enable_plasticity=cfg['use_pl'], solver_mode=cfg['solver_mode'])
+    sim.use_mc = cfg['use_mc']
+    
+    inst = BoxDropInstance(
+        uid=0,
+        position_offset=[0, 0, 0],
+        drop_type="corner",
+        box_params={}, 
+        com_offset=[0, 0, 0],
+        label="Single Box Drop",
+        enable_pad_contact=cfg['use_pc'],
+        use_flex=cfg['use_fx'],
+        flex_stiffness=cfg['flex_stiffness'],
+        flex_damping=cfg['flex_damping']
+    )
+    sim.add_instance(inst)
+    sim.init_simulation()
+    
+    sim.run_simulation_loop(mode=cfg['view_mode'])
+    
+    print("\n� Starting Headless Data Collection...")
+    sim.init_simulation()
+    sim.run_headless(duration=2.5, record_details=True)
+    
+    plot_detailed_singleton_results(inst)
+    return sim
+
+# ==========================================
+# TESTCASE: Random CoM Grid
+# ==========================================
+def run_testcase_CoM_Random():
+    print("\n🎲 Running Testcase: Random CoM Grid (4x5)")
+    cfg = ask_common_configs()
+    
+    sim = SimulationManager(enable_air_cushion=cfg['use_ac'], enable_plasticity=cfg['use_pl'], solver_mode=cfg['solver_mode'])
+    sim.use_mc = cfg['use_mc']
     
     rows, cols = 4, 5
     spacing_x, spacing_y = 4.0, 4.0
     
-    print(f"📦 Generating {rows*cols} Box Instances (Grid {rows}x{cols})...")
-    
+    print(f"📦 Generating {rows*cols} Box Instances...")
     box_id = 0
     for r in range(rows):
         for c in range(cols):
-            x = c * spacing_x
-            y = r * spacing_y
-            
             inst = BoxDropInstance(
                 uid=box_id,
-                position_offset=[x, y, 0],
+                position_offset=[c * spacing_x, r * spacing_y, 0],
                 drop_type="corner",
-                box_params={}, # Use defaults
-                com_random=True
+                box_params={},
+                com_random=True,
+                enable_pad_contact=cfg['use_pc'],
+                use_flex=cfg['use_fx'],
+                flex_stiffness=cfg['flex_stiffness'],
+                flex_damping=cfg['flex_damping']
             )
-            # Assign descriptive name after random CoM is generated
-            cx, cy, cz = inst.CoM_offset * 1000.0 # to mm
+            cx, cy, cz = inst.CoM_offset * 1000.0
             inst.label = f"Box {box_id:02d} (Rand CoM: X{cx:+.1f} Y{cy:+.1f} Z{cz:+.1f})"
             sim.add_instance(inst)
             box_id += 1
             
     sim.init_simulation()
+    sim.run_simulation_loop(mode=cfg['view_mode'])
     
-    # 1. Preview
-    print("Select Mode:")
-    print("1. Standard Viewer")
-    print("2. Passive Viewer (Custom Control, Optimized)")
-    mode_in = input("Enter mode (1/2, default 2): ").strip()
-    
-    if mode_in == "1":
-        sim.run_simulation_loop(mode='standard')
-    else:
-        sim.run_simulation_loop(mode='passive')
-    
-    # 2. Data Collection (Reset and Run Headless)
     print("\n📊 Starting Headless Data Collection...")
-    sim.init_simulation() # Simply rebuild/reinit for clean state
-    sim.run_headless(duration=2.5)
-    
-    # 3. Visualization Loop
+    if sim.use_mc:
+        sim.run_headless_parallel(duration=2.5)
+    else:
+        sim.init_simulation()
+        sim.run_headless(duration=2.5)
     return sim
 
 # ==========================================
-# TESTCASE B: Parametric COM Sweep
+# TESTCASE: Parametric CoM Sweep
 # ==========================================
-def run_testcase_B():
-    print("\n🧪 Running Testcase B: Parametric CoM Sweep (3 rows x 5 columns)")
+def run_testcase_CoM_Mov():
+    print("\n🧪 Running Testcase: Parametric CoM Sweep")
+    cfg = ask_common_configs()
     
-    # 1. Physics & Solver Configuration
-    print("\n🔧 Physics Configuration:")
-    ac_in = input("Enable Air Cushion (y/n, default y): ").strip().lower()
-    pl_in = input("Enable Plastic Deformation (y/n, default y): ").strip().lower()
+    sim = SimulationManager(enable_air_cushion=cfg['use_ac'], enable_plasticity=cfg['use_pl'], solver_mode=cfg['solver_mode'])
+    sim.use_mc = cfg['use_mc']
     
-    print("\n🚀 Solver Configuration:")
-    print("1. Accurate, 2. Normal, 3. Fast, 4. Very Fast")
-    solver_mode = input("Select Solver Mode (1-4, default 3): ").strip()
-    if not solver_mode: solver_mode = "3"
-    
-    use_ac = (ac_in != 'n')
-    use_pl = (pl_in != 'n')
-    
-    sim = SimulationManager(enable_air_cushion=use_ac, enable_plasticity=use_pl, solver_mode=solver_mode)
-    
-    # Grid Config: 3 axis x 5 offsets
     rows, cols = 3, 5
     spacing_x, spacing_y = 4.0, 4.0
     offsets_mm = [-50, -25, 0, 25, 50]
     
-    print(f"📦 Generating 15 Box Instances (Rows: Axis X,Y,Z | Cols: Offsets -50 to +50mm)...")
-    
     box_id = 0
-    for r in range(rows): # r=0:X, r=1:Y, r=2:Z
+    for r in range(rows):
         for c in range(cols):
-            x = c * spacing_x
-            y = r * spacing_y
-            
-            # Create Specific CoM Offset
-            val_mm = offsets_mm[c]
-            val_m = val_mm / 1000.0 # to meters
             com = [0.0, 0.0, 0.0]
-            com[r] = val_m
-            
+            com[r] = offsets_mm[c] / 1000.0
             axis_name = ["X", "Y", "Z"][r]
-            label_str = f"Sweep {axis_name}-Axis: {val_mm:+}mm Offset"
+            label_str = f"Sweep {axis_name}-Axis: {offsets_mm[c]:+}mm Offset"
             
             inst = BoxDropInstance(
                 uid=box_id,
-                position_offset=[x, y, 0],
+                position_offset=[c * spacing_x, r * spacing_y, 0],
                 drop_type="corner",
                 box_params={},
                 com_offset=com,
-                label=label_str # "Sweep X-Axis: -50mm Offset" 형태
+                label=label_str,
+                enable_pad_contact=cfg['use_pc'],
+                use_flex=cfg['use_fx'],
+                flex_stiffness=cfg['flex_stiffness'],
+                flex_damping=cfg['flex_damping']
             )
             sim.add_instance(inst)
             box_id += 1
             
     sim.init_simulation()
+    sim.run_simulation_loop(mode=cfg['view_mode'])
     
-    # 1. Preview
-    print("\nSelect Viewer Mode (1. Standard, 2. Passive): ")
-    mode_in = input("Enter mode (default 2): ").strip()
-    sim.run_simulation_loop(mode='standard' if mode_in == "1" else 'passive')
-    
-    # Wait for viewer resources to settle
-    time.sleep(0.5)
-    
-    # 2. Data Collection
     print("\n📊 Starting Headless Data Collection...")
-    sim.init_simulation()
-    sim.run_headless(duration=2.5)
+    if sim.use_mc:
+        sim.run_headless_parallel(duration=2.5)
+    else:
+        sim.init_simulation()
+        sim.run_headless(duration=2.5)
     
-    # 3. Summary Plot
     plot_testcase_B_summary(sim)
-    
     return sim
 
 def plot_testcase_B_summary(sim):
@@ -911,7 +1270,8 @@ def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
         drop_type=original_inst.drop_type,
         box_params={'L': original_inst.L, 'W': original_inst.W, 'H': original_inst.H, 'MASS': original_inst.MASS},
         com_offset=original_inst.CoM_offset,
-        label=original_inst.label
+        label=original_inst.label,
+        enable_pad_contact=original_inst.enable_pad_contact
     )
     sim.add_instance(inst)
     sim.init_simulation()
@@ -964,7 +1324,7 @@ def plot_detailed_singleton_results(inst):
                 ax.legend(loc='upper right', fontsize=8, ncol=2)
                 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
+    # plt.show() # Removed to show all at once
     
     # Figure 2: Impact Force & Cushion Force
     plt.figure(figsize=(10, 6))
@@ -983,24 +1343,105 @@ def plot_detailed_singleton_results(inst):
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    # plt.show() # Removed to show all at once
+
+    # Figure 3: Bending / Flexing Analysis (Deflection)
+    if h.get('deflection') and any(np.array(h['deflection']) > 1e-3):
+        plt.figure(figsize=(10, 5))
+        defl_mm = np.array(h['deflection'])
+        bending_deg = np.array(h['bending']) * (180.0 / np.pi)
+        
+        plt.plot(times, defl_mm, color='purple', linewidth=2.0, label='Max Tip Deflection (mm)')
+        
+        peak_d = np.max(defl_mm)
+        peak_a = bending_deg[np.argmax(defl_mm)]
+        peak_t = times[np.argmax(defl_mm)]
+        
+        plt.axhline(peak_d, color='gray', linestyle=':', alpha=0.5)
+        plt.annotate(f'Peak Flex: {peak_d:.2f}mm ({peak_a:.2f}°)\nat {peak_t:.3f}s', 
+                     xy=(peak_t, peak_d), xytext=(peak_t + 0.1, peak_d * 0.8),
+                     arrowprops=dict(facecolor='purple', shrink=0.05, width=1, headwidth=5),
+                     fontsize=10, fontweight='bold', color='purple')
+        
+        plt.title(f"Bending Analysis (Deflection): {inst.label}\n[Stiffness: {inst.flex_stiffness} | Damping: {inst.flex_damping}]", fontsize=14, fontweight='bold')
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Max Vertical Deflection (mm)")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        # plt.show() # Removed to show all at once
+
+    # Figure 4: Detailed Joint Rotations (Flexible Body Only)
+    if inst.use_flex and h.get('joint_angles'):
+        # 16 Joints (8 bodies x 2 axes) -> 4x4 Grid
+        fig, axes = plt.subplots(4, 4, figsize=(16, 14), sharex=True)
+        fig.suptitle(f"Individual Joint Rotations: {inst.label}\n[K={inst.flex_stiffness}, D={inst.flex_damping}]", fontsize=16, fontweight='bold')
+        keys = sorted(h['joint_angles'].keys())
+        for i, key in enumerate(keys):
+            if i >= 16: break
+            ax = axes[i // 4, i % 4]
+            ax.plot(times, h['joint_angles'][key], color='blue', alpha=0.8)
+            ax.set_title(f"Joint: {key}", fontsize=10)
+            ax.set_ylabel("Angle (Deg)")
+            ax.grid(True, alpha=0.2)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        # plt.show() # Removed to show all at once
+
+    # Figure 5: Final Pad Compression (All Split Pads)
+    if h.get('final_pad_comp'):
+        # Filter and sort pads (v_corner)
+        pad_items = sorted([(k, v) for k, v in h['final_pad_comp'].items() if 'v_corner' in k])
+        if pad_items:
+            names = [item[0].split('_v_corner_')[-1] for item in pad_items]
+            values = [item[1] for item in pad_items]
+            
+            # Since there are many pads (e.g., 360), we only show pads with significant compression
+            # Or group them by the 4 major corners for a clearer view
+            corners_data = {f"Corner {i}": [] for i in range(4)}
+            for k, v in h['final_pad_comp'].items():
+                if 'v_corner' in k:
+                    try: corner_id = int(k.split('_v_corner_')[1].split('_')[0])
+                    except: continue
+                    corners_data[f"Corner {corner_id}"].append(v)
+            
+            plt.figure(figsize=(10, 6))
+            corner_labels = list(corners_data.keys())
+            max_vals = [max(v) if v else 0 for v in corners_data.values()]
+            avg_vals = [np.mean(v) if v else 0 for v in corners_data.values()]
+            
+            x = np.arange(len(corner_labels))
+            width = 0.35
+            plt.bar(x - width/2, max_vals, width, label='Max Compression (mm)', color='salmon')
+            plt.bar(x + width/2, avg_vals, width, label='Avg Compression (mm)', color='skyblue')
+            
+            plt.ylabel('Compression (mm)')
+            plt.title(f'Final Pad Compression Distribution: {inst.label}', fontsize=14, fontweight='bold')
+            plt.xticks(x, corner_labels)
+            plt.legend()
+            plt.grid(axis='y', alpha=0.3)
+            plt.tight_layout()
+            plt.show()
 
 if __name__ == "__main__":
     print("--- WonhoLee Multi-Box Simulation System ---")
     print("Select Testcase:")
-    print("A. Random Grid (4x5, Randomized CoM)")
-    print("B. Parametric Sweep (3x5, Sweeping X,Y,Z CoM)")
-    tc_choice = input("Enter selection (A/B, default B): ").strip().upper()
+    print("1. One Box Drop (Detail Recording)")
+    print("2. CoG_Random   (Grid 4x5)")
+    print("3. CoG_Mov      (Parametric Sweep 3x5)")
+    tc_choice = input("Enter selection (1/2/3, default 1): ").strip()
     
-    if tc_choice == "A":
-        manager = run_testcase_A()
+    if tc_choice == "2":
+        manager = run_testcase_CoM_Random()
+    elif tc_choice == "3":
+        manager = run_testcase_CoM_Mov()
     else:
-        manager = run_testcase_B()
+        manager = run_testcase_OneBox()
     
     # Physics Settings storage for singleton re-run
     use_ac = manager.enable_air_cushion
     use_pl = manager.enable_plasticity
     solver_mode = manager.solver_mode 
+    use_pc = ENABLE_PAD_CONTACT # Simplified for loop
 
     while True:
         # 1. Case List Output

@@ -44,6 +44,10 @@ PLASTIC_DEFORMATION_RATIO를 사용한 코너 패드 내측 이동 알고리즘 
 이 구성은 새로운 py파일로 작성하자. mujoco_secvd_boxmotionsim_v0_0_1.py로 해서 작성하자.
 
 
+기존 방법(mujoco_boxdrop_analysis.py)에서와 마찬가지로 viewer를 기본 viewer와 custom viewer를 모두 지원하게 하자. custom에서는 정의해준 키 매핑 방법들이 있었다. 이걸 적용해달라.
+
+
+
 # 2026-02-08
 
 mujoco_boxdrop_analysis 의 내용을 분석하고 동일한 내용으로 pychrono를 이용해서 새로운 소스파일을 만들어서 구현해보자.
