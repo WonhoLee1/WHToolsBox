@@ -94,8 +94,8 @@ class BoxDropInstance:
             'bending': [],       # Max joint angle (rad)
             'deflection': [],    # Max tip displacement (mm)
             'joint_angles': {},  # Individual joint angles over time
-            'corner_comp': {},   # Avg compression per corner (8 locations)
-            'final_pad_comp': {} # Final compression for EVERY pad (name: value)
+            'corner_comp': {},   # Time-series avg compression per corner
+            'final_pad_comp': {} # Final compression for EVERY pad
         }
         self.prev_vel = np.zeros(3)
         self.prev_corner_vels = [np.zeros(3) for _ in range(8)]
@@ -345,7 +345,16 @@ class BoxDropInstance:
                 if grid_x == 0 and grid_y == 0:
                     content += f'<geom name="box_{self.uid}_brand" type="box" size="{sl*0.4} {sw*0.4} 0.002" pos="0 0 {self.H/2 + 0.001}" rgba="0.1 0.2 0.6 1.0" mass="0.001"/>\n'
                     content += f'<site name="box_{self.uid}_label" pos="0 0 {self.H/2 + 0.01}" size="0.01" rgba="0 0 0 0"/>\n'
+                    content += f'<site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>\n'
                 
+                # Distribution of Corner Sites
+                for i, c in enumerate(self.corners_local):
+                    # Check if corner belongs to this segment's grid range
+                    if grid_x == np.sign(c[0]) and grid_y == np.sign(c[1]):
+                        # Local pos relative to segment center
+                        lx, ly = grid_x * sl, grid_y * sw
+                        content += f'<site name="s_corner_{self.uid}_{i}" pos="{c[0]-lx} {c[1]-ly} {c[2]}" size="0.005" rgba="0.5 0.5 0.5 0.2"/>\n'
+
                 content += get_geoms_in_range(rx, ry, lx, ly)
                 
                 if name == "c": # Root
@@ -903,7 +912,9 @@ class SimulationManager:
             if step_idx % 250 == 0: print(".", end="", flush=True)
 
             for inst in self.instances:
-                bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"box_{inst.uid}")
+                # For flex body, the "main" body is the root segment named 'box_uid_c'
+                bname = f"box_{inst.uid}_c" if inst.use_flex else f"box_{inst.uid}"
+                bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bname)
                 if bid != -1:
                     # 1. Basic Recording
                     inst.history['time'].append(t)
@@ -987,32 +998,29 @@ class SimulationManager:
                             inst.history['bending'].append(0.0)
                             inst.history['deflection'].append(0.0)
                             
-                        # 4. Detailed Pad Compression Recording
+                        # 4. Detailed Pad Compression Recording (Time-series)
                         for edge_idx in range(4):
                             prefix = f"box_{inst.uid}_v_corner_{edge_idx}_"
                             total_c, count = 0.0, 0
                             for i in range(self.model.ngeom):
                                 gname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i)
                                 if gname and gname.startswith(prefix):
-                                    initial_sz = self.initial_geom_size[i, 2]
-                                    current_sz = self.model.geom_size[i, 2]
-                                    comp = (initial_sz - current_sz) * 1000.0
+                                    comp = (self.initial_geom_size[i, 2] - self.model.geom_size[i, 2]) * 1000.0
                                     total_c += max(0, comp)
                                     count += 1
+                            
                             c_key = f"Corner_{edge_idx}"
                             if c_key not in inst.history['corner_comp']:
                                 inst.history['corner_comp'][c_key] = []
-                            inst.history['corner_comp'][c_key].append(total_c / count if count > 0 else 0)
+                            inst.history['corner_comp'][c_key].append(total_c / count if count > 0 else 0.0)
 
-            # Record final state for all pads at the very end
+            # Record final state at the very end
             if step_idx == steps - 1:
                 for inst in self.instances:
                     for i in range(self.model.ngeom):
                         gname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i)
                         if gname and f"box_{inst.uid}_v_corner" in gname:
-                            initial_sz = self.initial_geom_size[i, 2]
-                            current_sz = self.model.geom_size[i, 2]
-                            inst.history['final_pad_comp'][gname] = (initial_sz - current_sz) * 1000.0
+                            inst.history['final_pad_comp'][gname] = (self.initial_geom_size[i, 2] - self.model.geom_size[i, 2]) * 1000.0
 
         print("\n✅ Simulation Complete.")
 
@@ -1056,7 +1064,11 @@ def ask_common_configs():
     pl_in = input("Enable Plastic Deformation (y/n, default y): ").strip().lower()
     pc_in = input("Enable Pad-to-Pad Contact (y/n, default y): ").strip().lower()
     fx_in = input("Enable Flexible Body (y/n, default n): ").strip().lower()
-    use_fx = (fx_in == 'y')
+    
+    use_ac = (ac_in not in ['n', 'ㅜ']) # Default is True, only False if 'n' or 'ㅜ'
+    use_pl = (pl_in not in ['n', 'ㅜ'])
+    use_pc = (pc_in not in ['n', 'ㅜ'])
+    use_fx = (fx_in in ['y', 'ㅛ'])      # Default is False, only True if 'y' or 'ㅛ'
     
     fs_val = FLEX_STIFFNESS
     fd_val = FLEX_DAMPING
@@ -1067,6 +1079,7 @@ def ask_common_configs():
         if fd_in: fd_val = float(fd_in)
 
     mc_in = input("Enable Multi-core (y/n, default y): ").strip().lower()
+    use_mc = (mc_in not in ['n', 'ㅜ'])
     
     print("\n🚀 Solver Configuration:")
     print("1. Accurate (정확 - Newton, Elliptic, Iter 100)")
@@ -1083,13 +1096,13 @@ def ask_common_configs():
     view_mode = 'standard' if view_mode_in == '1' else 'passive'
     
     return {
-        'use_ac': (ac_in != 'n'),
-        'use_pl': (pl_in != 'n'),
-        'use_pc': (pc_in != 'n'),
+        'use_ac': use_ac,
+        'use_pl': use_pl,
+        'use_pc': use_pc,
         'use_fx': use_fx,
         'flex_stiffness': fs_val,
         'flex_damping': fd_val,
-        'use_mc': (mc_in != 'n'),
+        'use_mc': use_mc,
         'solver_mode': solver_mode,
         'view_mode': view_mode
     }
@@ -1271,7 +1284,10 @@ def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
         box_params={'L': original_inst.L, 'W': original_inst.W, 'H': original_inst.H, 'MASS': original_inst.MASS},
         com_offset=original_inst.CoM_offset,
         label=original_inst.label,
-        enable_pad_contact=original_inst.enable_pad_contact
+        enable_pad_contact=original_inst.enable_pad_contact,
+        use_flex=original_inst.use_flex,
+        flex_stiffness=original_inst.flex_stiffness,
+        flex_damping=original_inst.flex_damping
     )
     sim.add_instance(inst)
     sim.init_simulation()
@@ -1363,64 +1379,73 @@ def plot_detailed_singleton_results(inst):
                      arrowprops=dict(facecolor='purple', shrink=0.05, width=1, headwidth=5),
                      fontsize=10, fontweight='bold', color='purple')
         
-        plt.title(f"Bending Analysis (Deflection): {inst.label}\n[Stiffness: {inst.flex_stiffness} | Damping: {inst.flex_damping}]", fontsize=14, fontweight='bold')
+        plt.title(f"Bending Analysis (Deflection): {inst.label}", fontsize=14, fontweight='bold')
         plt.xlabel("Time (seconds)")
         plt.ylabel("Max Vertical Deflection (mm)")
+        
+        # Add Parameter Info Box
+        param_text = f"Flex Parameters:\nK = {inst.flex_stiffness:.0f}\nD = {inst.flex_damping:.0f}"
+        plt.gca().text(0.02, 0.95, param_text, transform=plt.gca().transAxes, 
+                      verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(loc='upper right')
         plt.tight_layout()
         # plt.show() # Removed to show all at once
 
-    # Figure 4: Detailed Joint Rotations (Flexible Body Only)
+    # Figure 4: Unified Joint Rotation Analysis (Flexible Body Only)
     if inst.use_flex and h.get('joint_angles'):
-        # 16 Joints (8 bodies x 2 axes) -> 4x4 Grid
-        fig, axes = plt.subplots(4, 4, figsize=(16, 14), sharex=True)
-        fig.suptitle(f"Individual Joint Rotations: {inst.label}\n[K={inst.flex_stiffness}, D={inst.flex_damping}]", fontsize=16, fontweight='bold')
-        keys = sorted(h['joint_angles'].keys())
-        for i, key in enumerate(keys):
-            if i >= 16: break
-            ax = axes[i // 4, i % 4]
-            ax.plot(times, h['joint_angles'][key], color='blue', alpha=0.8)
-            ax.set_title(f"Joint: {key}", fontsize=10)
-            ax.set_ylabel("Angle (Deg)")
-            ax.grid(True, alpha=0.2)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        # plt.show() # Removed to show all at once
+        plt.figure(figsize=(12, 6))
+        
+        all_angles = []
+        x_angles, y_angles = [], []
+        
+        for key, angles in h['joint_angles'].items():
+            arr = np.array(angles)
+            plt.plot(times, arr, alpha=0.15, linewidth=0.8, color='gray') # Individual trances
+            all_angles.append(arr)
+            if key.endswith('_x'): x_angles.append(arr)
+            elif key.endswith('_y'): y_angles.append(arr)
+            
+        if all_angles:
+            # Calculate Averages
+            avg_all = np.mean(all_angles, axis=0)
+            plt.plot(times, avg_all, color='black', linewidth=2.5, label='Overall Average (RMS-like)')
+            
+            if x_angles:
+                plt.plot(times, np.mean(x_angles, axis=0), color='blue', linewidth=1.5, linestyle='--', label='X-Axis Avg (NS Bending)')
+            if y_angles:
+                plt.plot(times, np.mean(y_angles, axis=0), color='red', linewidth=1.5, linestyle='--', label='Y-Axis Avg (EW Bending)')
+                
+        plt.title(f"Unified Joint Rotation Analysis: {inst.label}", fontsize=14, fontweight='bold')
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Angle (Degrees)")
+        
+        # Add Parameter Info Box
+        param_text = f"Flex Parameters:\nK = {inst.flex_stiffness:.0f}\nD = {inst.flex_damping:.0f}"
+        plt.gca().text(0.02, 0.95, param_text, transform=plt.gca().transAxes, 
+                      verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-    # Figure 5: Final Pad Compression (All Split Pads)
-    if h.get('final_pad_comp'):
-        # Filter and sort pads (v_corner)
-        pad_items = sorted([(k, v) for k, v in h['final_pad_comp'].items() if 'v_corner' in k])
-        if pad_items:
-            names = [item[0].split('_v_corner_')[-1] for item in pad_items]
-            values = [item[1] for item in pad_items]
+        plt.grid(True, alpha=0.3)
+        plt.legend(loc='upper right', fontsize='small')
+        plt.tight_layout()
+
+    # Figure 5: Pad Compression Analysis (Time-series)
+    if h.get('corner_comp'):
+        plt.figure(figsize=(12, 6))
+        for c_name, comp_data in h['corner_comp'].items():
+            plt.plot(times, comp_data, label=f'{c_name} Compression', linewidth=1.5)
             
-            # Since there are many pads (e.g., 360), we only show pads with significant compression
-            # Or group them by the 4 major corners for a clearer view
-            corners_data = {f"Corner {i}": [] for i in range(4)}
-            for k, v in h['final_pad_comp'].items():
-                if 'v_corner' in k:
-                    try: corner_id = int(k.split('_v_corner_')[1].split('_')[0])
-                    except: continue
-                    corners_data[f"Corner {corner_id}"].append(v)
-            
-            plt.figure(figsize=(10, 6))
-            corner_labels = list(corners_data.keys())
-            max_vals = [max(v) if v else 0 for v in corners_data.values()]
-            avg_vals = [np.mean(v) if v else 0 for v in corners_data.values()]
-            
-            x = np.arange(len(corner_labels))
-            width = 0.35
-            plt.bar(x - width/2, max_vals, width, label='Max Compression (mm)', color='salmon')
-            plt.bar(x + width/2, avg_vals, width, label='Avg Compression (mm)', color='skyblue')
-            
-            plt.ylabel('Compression (mm)')
-            plt.title(f'Final Pad Compression Distribution: {inst.label}', fontsize=14, fontweight='bold')
-            plt.xticks(x, corner_labels)
-            plt.legend()
-            plt.grid(axis='y', alpha=0.3)
-            plt.tight_layout()
-            plt.show()
+        plt.title(f"Dynamic Pad Compression Analysis: {inst.label}", fontsize=14, fontweight='bold')
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Average Compression Depth (mm)")
+        plt.legend(loc='upper right', fontsize='small')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+
+    # --- FINAL SHOW ---
+    print("   [PLOT] Displaying all analysis windows...")
+    plt.show()
 
 if __name__ == "__main__":
     print("--- WonhoLee Multi-Box Simulation System ---")
