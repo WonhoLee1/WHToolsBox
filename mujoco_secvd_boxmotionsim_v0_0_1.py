@@ -923,6 +923,40 @@ class SimulationManager:
                     curr_vel = self.data.cvel[bid][3:6].copy()
                     inst.history['vel'].append(curr_vel)
                     
+                    # 3. Flexible Bending/Deflection & Joint Recording (Core Flex Metrics)
+                    if inst.use_flex:
+                        max_angle = 0.0
+                        max_defl_mm = 0.0
+                        sl, sw = inst.L/3.0, inst.W/3.0
+                        seg_dists = {
+                            'n': sw, 's': sw, 'e': sl, 'w': sl,
+                            'ne': np.sqrt(sl**2+sw**2), 'nw': np.sqrt(sl**2+sw**2),
+                            'se': np.sqrt(sl**2+sw**2), 'sw': np.sqrt(sl**2+sw**2)
+                        }
+                        
+                        for sfx, dist in seg_dists.items():
+                            for axis in ['x', 'y']:
+                                jname = f"j_{inst.uid}_{sfx}_{axis}"
+                                jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+                                if jid != -1:
+                                    angle = abs(self.data.qpos[self.model.jnt_qposadr[jid]])
+                                    if angle > max_angle: max_angle = angle
+                                    
+                                    # Record individual joint (Always record if flex enabled for consistent plots)
+                                    j_key = f"{sfx}_{axis}"
+                                    if j_key not in inst.history['joint_angles']:
+                                        inst.history['joint_angles'][j_key] = []
+                                    inst.history['joint_angles'][j_key].append(angle * 180.0 / np.pi)
+                                    
+                                    defl = dist * np.sin(angle) * 1000.0
+                                    if defl > max_defl_mm: max_defl_mm = defl
+                                    
+                        inst.history['bending'].append(max_angle)
+                        inst.history['deflection'].append(max_defl_mm)
+                    else:
+                        inst.history['bending'].append(0.0)
+                        inst.history['deflection'].append(0.0)
+
                     # 2. Detailed Recording (if requested)
                     if record_details:
                         # Acceleration (Numerical Diff)
@@ -963,40 +997,6 @@ class SimulationManager:
                                 c_acc = (c_vel - inst.prev_corner_vels[i]) / 0.001
                                 inst.history['corner_acc'][i].append(c_acc)
                                 inst.prev_corner_vels[i] = c_vel.copy()
-                        
-                        # 3. Flexible Bending/Deflection & Joint Recording
-                        if inst.use_flex:
-                            max_angle = 0.0
-                            max_defl_mm = 0.0
-                            sl, sw = inst.L/3.0, inst.W/3.0
-                            seg_dists = {
-                                'n': sw, 's': sw, 'e': sl, 'w': sl,
-                                'ne': np.sqrt(sl**2+sw**2), 'nw': np.sqrt(sl**2+sw**2),
-                                'se': np.sqrt(sl**2+sw**2), 'sw': np.sqrt(sl**2+sw**2)
-                            }
-                            
-                            for sfx, dist in seg_dists.items():
-                                for axis in ['x', 'y']:
-                                    jname = f"j_{inst.uid}_{sfx}_{axis}"
-                                    jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
-                                    if jid != -1:
-                                        angle = abs(self.data.qpos[self.model.jnt_qposadr[jid]])
-                                        if angle > max_angle: max_angle = angle
-                                        
-                                        # Record individual joint
-                                        j_key = f"{sfx}_{axis}"
-                                        if j_key not in inst.history['joint_angles']:
-                                            inst.history['joint_angles'][j_key] = []
-                                        inst.history['joint_angles'][j_key].append(angle * 180.0 / np.pi)
-                                        
-                                        defl = dist * np.sin(angle) * 1000.0
-                                        if defl > max_defl_mm: max_defl_mm = defl
-                                        
-                            inst.history['bending'].append(max_angle)
-                            inst.history['deflection'].append(max_defl_mm)
-                        else:
-                            inst.history['bending'].append(0.0)
-                            inst.history['deflection'].append(0.0)
                             
                         # 4. Detailed Pad Compression Recording (Time-series)
                         for edge_idx in range(4):
@@ -1073,10 +1073,18 @@ def ask_common_configs():
     fs_val = FLEX_STIFFNESS
     fd_val = FLEX_DAMPING
     if use_fx:
-        fs_in = input(f"   - Set Stiffness (default {FLEX_STIFFNESS}): ").strip()
-        fd_in = input(f"   - Set Damping (default {FLEX_DAMPING}): ").strip()
-        if fs_in: fs_val = float(fs_in)
-        if fd_in: fd_val = float(fd_in)
+        # User might type 'ㅛ' or 'ㅜ' by mistake (y/n keys in Korean mode)
+        fs_in = input(f"   - Set Stiffness (default {FLEX_STIFFNESS}): ").strip().lower()
+        fd_in = input(f"   - Set Damping (default {FLEX_DAMPING}): ").strip().lower()
+        
+        # Helper to convert input, treating Korean 'ㅛ'/'ㅜ' as empty (defaults)
+        def robust_float(val, default):
+            if not val or val in ['y', 'n', 'ㅛ', 'ㅜ']: return default
+            try: return float(val)
+            except: return default
+            
+        fs_val = robust_float(fs_in, FLEX_STIFFNESS)
+        fd_val = robust_float(fd_in, FLEX_DAMPING)
 
     mc_in = input("Enable Multi-core (y/n, default y): ").strip().lower()
     use_mc = (mc_in not in ['n', 'ㅜ'])
@@ -1179,10 +1187,10 @@ def run_testcase_CoM_Random():
     
     print("\n📊 Starting Headless Data Collection...")
     if sim.use_mc:
-        sim.run_headless_parallel(duration=2.5)
+        sim.run_headless_parallel(duration=2.5, record_details=True)
     else:
         sim.init_simulation()
-        sim.run_headless(duration=2.5)
+        sim.run_headless(duration=2.5, record_details=True)
     return sim
 
 # ==========================================
@@ -1227,10 +1235,10 @@ def run_testcase_CoM_Mov():
     
     print("\n📊 Starting Headless Data Collection...")
     if sim.use_mc:
-        sim.run_headless_parallel(duration=2.5)
+        sim.run_headless_parallel(duration=2.5, record_details=True)
     else:
         sim.init_simulation()
-        sim.run_headless(duration=2.5)
+        sim.run_headless(duration=2.5, record_details=True)
     
     plot_testcase_B_summary(sim)
     return sim
@@ -1267,6 +1275,57 @@ def plot_testcase_B_summary(sim):
         
     axes[2].set_xlabel("Time (seconds)")
     plt.tight_layout()
+    plt.show()
+
+def plot_bending_doe_comparison(sim):
+    """Testcase B 전용: 모든 DOE 케이스의 휨 변량(Bending Deflection) 비교 그래프"""
+    print("\n📈 Generating DOE Bending Comparison Charts...")
+    instances = sim.instances
+    if not instances or not instances[0].history['time']:
+        print("No data recorded.")
+        return
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 13), sharex=True)
+    axis_names = ["X-Axis CoM Sweep", "Y-Axis CoM Sweep", "Z-Axis CoM Sweep"]
+    colors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6'] 
+    offset_labels = ["-50mm", "-25mm", "0mm", "+25mm", "+50mm"]
+
+    for r in range(3):
+        ax = axes[r]
+        ax.set_title(f"{axis_names[r]} - Max Bending Deflection", fontsize=12, fontweight='bold')
+        
+        plotted_count = 0
+        for c in range(5):
+            idx = r * 5 + c
+            if idx >= len(instances): break
+            inst = instances[idx]
+            
+            time_arr = np.array(inst.history.get('time', []))
+            if not time_arr.size: continue
+
+            # Try to get deflection or bending data
+            defl_mm = np.array(inst.history.get('deflection', []))
+            if defl_mm.size > 0 and any(defl_mm > 0):
+                ax.plot(time_arr, defl_mm, color=colors[c], label=offset_labels[c], linewidth=1.5, alpha=0.9)
+                plotted_count += 1
+            else:
+                # Fallback: maybe just show bending angle if deflection lacks
+                bend_deg = np.array(inst.history.get('bending', [])) * (180.0/np.pi)
+                if bend_deg.size > 0:
+                    ax.plot(time_arr, bend_deg, color=colors[c], label=f"{offset_labels[c]} (deg)", linewidth=1.0, linestyle=':')
+                    plotted_count += 1
+            
+        ax.set_ylabel("Deflection (mm) / Angle (deg)")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        if plotted_count > 0:
+            ax.legend(loc='upper right', title="Offset", fontsize='x-small', ncol=2)
+        else:
+            ax.text(0.5, 0.5, "No Bending Data Recorded\n(Is Flex Mode Enabled?)", 
+                    transform=ax.transAxes, ha='center', va='center', color='gray')
+        
+    axes[2].set_xlabel("Time (seconds)")
+    fig.suptitle(f"DOE Bending Comparison (K={instances[0].flex_stiffness}, D={instances[0].flex_damping})", fontsize=15, fontweight='bold')
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt.show()
 
 def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
@@ -1476,12 +1535,23 @@ if __name__ == "__main__":
         for inst in manager.instances:
             # Display descriptive name along with ID
             print(f"  [{inst.uid:2d}] {inst.label}")
+        
+        # Add special option for Case 3 (DOE Summary)
+        is_sweep_case = (len(manager.instances) == 15 and tc_choice == "3")
+        if is_sweep_case:
+            print(f"  [99] View DOE Bending Comparison (All {len(manager.instances)} cases)")
+            
         print("="*60)
         print("  [Enter] Quit Simulation")
             
         try:
             choice = input(f"\n📊 Enter ID to analyze (0-{len(manager.instances)-1}): ").strip()
             if choice == "": break
+            
+            if choice == "99" and is_sweep_case:
+                plot_bending_doe_comparison(manager)
+                continue
+                
             idx = int(choice)
             
             if 0 <= idx < len(manager.instances):
