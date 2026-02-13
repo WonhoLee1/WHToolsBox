@@ -1,0 +1,344 @@
+"""
+MuJoCo Sandwich Plate Simulation Framework V2
+=============================================
+Description:
+    사용자 정의 스펙(2000x1400mm, 3-Layer)을 반영한 버전입니다.
+    생성자에서 레이어 이름, 두께, 테이프 두께를 입력받아 동적으로 모델을 생성합니다.
+"""
+
+import mujoco
+import mujoco.viewer
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import time
+import bisect
+from typing import List, Dict, Tuple, Optional
+
+# ==============================================================================
+# [SECTION 1] Material & Geometry (수정 없음, 이전과 동일하나 단위 주의)
+# ==============================================================================
+
+class MaterialDB:
+    """재료 물성 데이터베이스"""
+    PLASTIC = {'E': 2.5e9, 'rho': 1200, 'nu': 0.35}
+    ALUMINUM = {'E': 70e9, 'rho': 2700, 'nu': 0.33}
+    STEEL = {'E': 210e9, 'rho': 7850, 'nu': 0.30}
+    
+    @staticmethod
+    def get_tape_properties(thickness_mm=1.0):
+        """테이프 물성 (두께 입력 가능)"""
+        # 단위 변환: mm -> m
+        t_meter = thickness_mm / 1000.0
+        return {'thickness': t_meter, 'E': 1e6, 'nu': 0.4, 'damping': 0.1}
+
+class PlateSpec:
+    """평판 객체 (이름 포함)"""
+    def __init__(self, name: str, width: float, length: float, thickness: float, 
+                 n_grid: int, m_grid: int, material: dict):
+        self.name = name
+        self.w, self.l, self.t = width, length, thickness
+        self.n, self.m = n_grid, m_grid
+        self.props = material
+        
+        self.dx = width / n_grid
+        self.dy = length / m_grid
+        self.mass = (self.dx * self.dy * self.t) * self.props['rho']
+        
+        # 이론적 굽힘 강성 D 계산
+        D = (self.props['E'] * self.t**3) / (12 * (1 - self.props['nu']**2))
+        self.k_bend_x = D * (self.dy / self.dx)
+        self.k_bend_y = D * (self.dx / self.dy)
+        self.d_bend = self.k_bend_x * 0.01
+
+class TapeSpec:
+    """테이프 객체"""
+    def __init__(self, props: dict):
+        self.t = max(props['thickness'], 1e-6)
+        self.E = props['E']
+        self.nu = props.get('nu', 0.4)
+        self.d_ratio = props.get('damping', 0.1)
+        self.G = self.E / (2 * (1 + self.nu))
+
+    def get_mj_stiffness(self, area: float) -> dict:
+        k_norm = (self.E * area) / self.t
+        k_shear = (self.G * area) / self.t
+        d_norm = k_norm * self.d_ratio * 0.01
+        return {'kn': k_norm, 'ks': k_shear, 'dn': d_norm}
+
+# ==============================================================================
+# [SECTION 2] Model Builder (핵심 로직 유지)
+# ==============================================================================
+
+class SandwichBuilder:
+    """(이전 코드와 동일: 레이어 적층 및 XML 생성)"""
+    def __init__(self):
+        self.layers: List[PlateSpec] = []
+        self.connections = []
+        self.actuators = []
+        self.fixed_nodes = []
+        self.sensors = []
+
+    def add_layer(self, spec: PlateSpec):
+        self.layers.append(spec)
+
+    def connect_layers(self, btm_idx: int, top_idx: int, tape: TapeSpec):
+        self.connections.append({'btm': btm_idx, 'top': top_idx, 'tape': tape})
+
+    def add_boundary_condition(self, layer_idx, region, type='fixed'):
+        spec = self.layers[layer_idx]
+        nodes = self._get_nodes_by_region(spec, region)
+        for nx, ny in nodes:
+            if type == 'fixed':
+                self.fixed_nodes.append((layer_idx, nx, ny))
+
+    def add_actuator(self, layer_idx, region, mode, direction, max_force=100):
+        spec = self.layers[layer_idx]
+        nodes = self._get_nodes_by_region(spec, region)
+        force_per_node = max_force / len(nodes)
+        for nx, ny in nodes:
+            name = f"ACT_L{layer_idx}_{nx}_{ny}_{direction}"
+            self.actuators.append({
+                'name': name,
+                'layer': layer_idx, 'nx': nx, 'ny': ny,
+                'mode': mode, 'dir': direction,
+                'gear': force_per_node
+            })
+
+    def _get_nodes_by_region(self, spec, region):
+        nodes = []
+        if region == 'left': nodes = [(0, j) for j in range(spec.m + 1)]
+        elif region == 'right': nodes = [(spec.n, j) for j in range(spec.m + 1)]
+        elif region == 'center': nodes = [(spec.n//2, j) for j in range(spec.m + 1)]
+        elif region == 'corner_tr': nodes = [(spec.n, spec.m)]
+        elif region == 'corner_br': nodes = [(spec.n, 0)]
+        elif region == 'corner_tl': nodes = [(0, spec.m)]
+        elif region == 'corner_bl': nodes = [(0, 0)]
+        return nodes
+
+    def generate_xml(self) -> str:
+        # (XML 생성 로직은 이전과 동일하므로 지면 관계상 핵심만 유지)
+        xml = """<mujoco model="sandwich_simulation_v2">
+    <option gravity="0 0 -9.81" timestep="0.002" integrator="RK4"/>
+    <visual><global offwidth="1920" offheight="1080"/></visual>
+    <worldbody>
+        <light diffuse=".5 .5 .5" pos="0 0 3" dir="0 0 -1"/>
+        <geom name="floor" type="plane" size="3 3 0.1" rgba=".2 .2 .2 1"/>
+"""
+        current_z = 0.5
+        for idx, layer in enumerate(self.layers):
+            gap = 0.0
+            for conn in self.connections:
+                if conn['btm'] == idx - 1 and conn['top'] == idx:
+                    gap = conn['tape'].t
+            current_z += gap
+            center_z = current_z + layer.t / 2.0
+            
+            # Grid 생성
+            xml += self._generate_grid_xml(idx, layer, center_z)
+            current_z += layer.t
+
+        # BC (Fixed)
+        for (l_idx, nx, ny) in self.fixed_nodes:
+            body_name = f"L{l_idx}_{nx}_{ny}"
+            xml += f'        <weld name="W_FIX_{body_name}" body1="{body_name}" active="true"/>\n'
+
+        xml += "    </worldbody>\n"
+
+        # Tape Connections
+        xml += "    <equality>\n"
+        for conn in self.connections:
+            btm, top = self.layers[conn['btm']], self.layers[conn['top']]
+            tape = conn['tape']
+            area = btm.dx * btm.dy
+            stiff = tape.get_mj_stiffness(area)
+            solref = f"{-stiff['kn']} {-stiff['dn']}" 
+            
+            for i in range(min(btm.n, top.n) + 1):
+                for j in range(min(btm.m, top.m) + 1):
+                    b1 = f"L{conn['btm']}_{i}_{j}"
+                    b2 = f"L{conn['top']}_{i}_{j}"
+                    xml += f'        <weld body1="{b1}" body2="{b2}" solref="{solref}" anchor="0 0 0"/>\n'
+        xml += "    </equality>\n"
+
+        # Actuators
+        xml += "    <actuator>\n"
+        for act in self.actuators:
+            mj_type = "motor" if act['mode'] == 'force' else "position"
+            gear_vec = "0 0 1" # Default Z
+            if act['dir'] == 'x': gear_vec = "1 0 0"
+            elif act['dir'] == 'y': gear_vec = "0 1 0"
+            
+            site_name = f"Site_L{act['layer']}_{act['nx']}_{act['ny']}"
+            xml += f'        <{mj_type} name="{act["name"]}" site="{site_name}" gear="{act["gear"]* (1 if act["dir"]!="z" else 1)} {gear_vec} 0 0"/>\n' 
+            # Note: gear formatting simplified for demo.
+        xml += "    </actuator>\n"
+        
+        # Sensors
+        xml += "    <sensor>\n"
+        for act in self.actuators:
+             site_name = f"Site_L{act['layer']}_{act['nx']}_{act['ny']}"
+             xml += f'        <framepos name="POS_{act["name"]}" objtype="site" objname="{site_name}"/>\n'
+        xml += "    </sensor>\n</mujoco>"
+        return xml
+
+    def _generate_grid_xml(self, layer_idx, spec, z_pos):
+        out = f"        \n"
+        for i in range(spec.n + 1):
+            for j in range(spec.m + 1):
+                x, y = i * spec.dx, j * spec.dy
+                name = f"L{layer_idx}_{i}_{j}"
+                out += f'        <body name="{name}" pos="{x} {y} {z_pos}">\n'
+                out += f'            <geom type="box" size="{spec.dx/2*0.95} {spec.dy/2*0.95} {spec.t/2}" mass="{spec.mass}" rgba=".8 .8 .8 0.5"/>\n'
+                out += f'            <site name="Site_{name}" pos="0 0 0"/>\n'
+                out += '        </body>\n'
+        return out
+
+    def append_grid_internal_constraints(self, xml_str):
+        # 내부 격자 간의 굽힘 강성(Bending Stiffness) 주입
+        add_xml = "    <equality>\n"
+        for l_idx, spec in enumerate(self.layers):
+            solref = f"{-spec.k_bend_x} {-spec.d_bend}"
+            for i in range(spec.n):
+                for j in range(spec.m + 1):
+                    b1 = f"L{l_idx}_{i}_{j}"
+                    b2 = f"L{l_idx}_{i+1}_{j}"
+                    # X방향 굽힘 저항
+                    add_xml += f'        <weld body1="{b1}" body2="{b2}" solref="0.01 1" solimp="0.9 0.95 0.001" />\n'
+        add_xml += "    </equality>\n"
+        return xml_str.replace("</equality>", add_xml + "    </equality>")
+
+# ==============================================================================
+# [SECTION 3] 시나리오 팩토리 (수정된 부분)
+# ==============================================================================
+
+class ScenarioFactory:
+    """사용자 요청 스펙을 반영한 생성자"""
+    
+    @staticmethod
+    def create_custom_3layer_stack(
+        plate_w_mm: float, plate_l_mm: float, 
+        layer_specs: List[Tuple[str, float]], # (Name, Thickness_mm) list
+        tape_t_mm: float,
+        test_type: str = 'bending'
+    ):
+        """
+        [생성자] 사용자가 정의한 3단 샌드위치 평판 모델 생성
+        
+        Args:
+            plate_w_mm: 가로 길이 (mm) -> 2000
+            plate_l_mm: 세로 길이 (mm) -> 1400
+            layer_specs: [('Name', thick_mm), ...] 형태의 리스트
+            tape_t_mm: 부착부(Tape) 두께 (mm)
+            test_type: 'bending' (3-point) or 'twisting'
+        """
+        builder = SandwichBuilder()
+        
+        # 1. 미터 단위 변환
+        w_m = plate_w_mm / 1000.0
+        l_m = plate_l_mm / 1000.0
+        
+        # 2. 격자 밀도 설정 (2m 급이므로 20x14 정도로 설정하여 aspect ratio 유지)
+        n_grid = 20
+        m_grid = 14
+        
+        print(f"Build Info: {w_m}x{l_m}m Plate, Grid({n_grid}x{m_grid})")
+
+        # 3. 레이어 적층 루프
+        for i, (name, th_mm) in enumerate(layer_specs):
+            th_m = th_mm / 1000.0
+            
+            # 재료 선택 (예시로 알루미늄 적용, 필요시 인자로 확장 가능)
+            mat = MaterialDB.ALUMINUM 
+            
+            # PlateSpec 생성
+            p_spec = PlateSpec(name, w_m, l_m, th_m, n_grid, m_grid, mat)
+            builder.add_layer(p_spec)
+            print(f" - Added Layer {i}: {name} (t={th_mm}mm)")
+            
+            # 이전 레이어와 테이프 연결
+            if i > 0:
+                tape_props = MaterialDB.get_tape_properties(thickness_mm=tape_t_mm)
+                tape_spec = TapeSpec(tape_props)
+                builder.connect_layers(i-1, i, tape_spec)
+                print(f"   + Connected L{i-1}-L{i} with Tape (t={tape_t_mm}mm)")
+
+        # 4. 시험 조건(Boundary Conditions & Loads) 설정
+        last_idx = len(layer_specs) - 1
+        
+        if test_type == 'bending':
+            # 3-Point Bending: 양 끝단 고정, 중앙 하중
+            for i in range(len(layer_specs)):
+                builder.add_boundary_condition(i, 'left', 'fixed')
+                builder.add_boundary_condition(i, 'right', 'fixed')
+            
+            # 중앙 라인 하중 (-100N)
+            builder.add_actuator(last_idx, 'center', 'force', 'z', max_force=-100.0)
+            profile = [(0, 0), (2, 1.0)] # 2초 동안 하중 100% 도달
+
+        elif test_type == 'twisting':
+            # Twisting: 왼쪽 고정, 오른쪽 모서리 비틀기
+            for i in range(len(layer_specs)):
+                builder.add_boundary_condition(i, 'left', 'fixed')
+            
+            # 우상단 올리고(+), 우하단 내리고(-)
+            builder.add_actuator(last_idx, 'corner_tr', 'force', 'z', max_force=50.0)
+            builder.add_actuator(last_idx, 'corner_br', 'force', 'z', max_force=-50.0)
+            profile = [(0, 0), (2, 1.0)]
+
+        return builder, profile
+
+# ==============================================================================
+# [SECTION 4] 실행 (Main)
+# ==============================================================================
+
+class SimRunner:
+    """(이전 코드와 동일: 시뮬레이션 루프)"""
+    def __init__(self, builder, control_profile):
+        raw_xml = builder.generate_xml()
+        self.xml = builder.append_grid_internal_constraints(raw_xml)
+        self.profile = control_profile
+        self.model = mujoco.MjModel.from_xml_string(self.xml)
+        self.data = mujoco.MjData(self.model)
+        
+    def run_viewer(self):
+        print(">>> 뷰어 실행 중... (Space: 시작/일시정지)")
+        with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
+            start = time.time()
+            while viewer.is_running():
+                t = self.data.time
+                # Profile Control
+                val = 0
+                if self.profile: # Simple linear ramp for demo
+                    val = self.profile[-1][1] * (t / self.profile[-1][0]) if t < self.profile[-1][0] else self.profile[-1][1]
+                
+                self.data.ctrl[:] = val
+                mujoco.mj_step(self.model, self.data)
+                viewer.sync()
+                if t > 5.0: break
+
+if __name__ == "__main__":
+    # 사용자 정의 스펙 입력 (Constructor Arguments)
+    USER_SPECS = {
+        'plate_w_mm': 2000.0,
+        'plate_l_mm': 1400.0,
+        'layer_specs': [
+            ("Base_Layer", 3.0),  # 3mm
+            ("Mid_Layer",  2.0),  # 2mm
+            ("Top_Layer",  1.0)   # 1mm
+        ],
+        'tape_t_mm': 1.0,         # 부착부 1mm
+        'test_type': 'bending'    # 'bending' or 'twisting'
+    }
+
+    print("="*50)
+    print("      MuJoCo Custom Sandwich Simulation")
+    print(f"      Spec: {USER_SPECS['layer_specs']}")
+    print("="*50)
+
+    # Factory 호출 (수정된 부분)
+    builder, profile = ScenarioFactory.create_custom_3layer_stack(**USER_SPECS)
+    
+    # 실행
+    runner = SimRunner(builder, profile)
+    runner.run_viewer()
