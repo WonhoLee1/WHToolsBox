@@ -120,7 +120,10 @@ def generate_stiffness_test_xml(body_name, test_type="BENDING", cfg=None):
     if test_type == "BENDING" or test_type == "COMPRESSION":
         xml_str.append('    <position name="act_ram" joint="ram_z" kp="200000000" kv="100000"/>')
     elif test_type == "TWIST":
-        xml_str.append('    <position name="act_ram" joint="ram_twist" kp="200000000" kv="100000"/>')
+        # TWIST는 무거운 Ram 블록이 제자리 회전을 해야 하므로 너무 강한 kv(감쇠)를 주면 
+        # 극초반 정지 마찰벽(관성 저항력)이 수십 Nm 단위로 치솟는 기이한 동역학 튀는 현상이 발생합니다.
+        # 회전 관성에 맞도록 위치/감쇠 게인을 대폭 낮추어 순수 대상체(Box)의 강성만 측정되게 세팅합니다.
+        xml_str.append('    <position name="act_ram" joint="ram_twist" kp="2000000" kv="50000"/>')
     xml_str.append('  </actuator>')
     
     xml_str.append('  <equality>')
