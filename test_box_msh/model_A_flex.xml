@@ -1,0 +1,54 @@
+<mujoco model="TV_Packaging">
+  <compiler angle="radian" meshdir="./"/>
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <default>
+    <geom solref=".5e-4 1.0 " solimp="0.9 0.99 1e-4"/>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".8 .8 .8"/>
+    <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+    <mesh name="Disp_mesh" file="Disp.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="CohDisp_mesh" file="CohDisp.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="Chassis_mesh" file="Chassis.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="Cushion_mesh" file="Cushion.stl" scale="0.001 0.001 0.001"/>
+
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 4" dir="0 0 -1" diffuse="1.5 1.5 1.5"/>
+    <geom name="floor" type="plane" size="0 0 0.1" material="grid" group="0" contype="0" conaffinity="1"/>
+
+    <body name="Box" pos="0 0 0.5">
+      <freejoint/>
+      <geom type="box" size="0.75 0.45 0.0025" pos="0 0 0.0975" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+      <geom type="box" size="0.75 0.45 0.0025" pos="0 0 -0.0975" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+      <geom type="box" size="0.75 0.0025 0.095" pos="0 0.4475 0" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+      <geom type="box" size="0.75 0.0025 0.095" pos="0 -0.4475 0" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+      <geom type="box" size="0.0025 0.445 0.095" pos="0.7475 0 0" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+      <geom type="box" size="0.0025 0.445 0.095" pos="-0.7475 0 0" rgba="0.6 0.5 0.4 0.5" mass="1" group="1" contype="1" conaffinity="3"/>
+    </body>
+
+    <flexcomp name="Cushion" type="gmsh" file="Cushion.msh" scale="0.001 0.001 0.001" pos="0 0 0.5" rgba="0.9 0.9 0.9 1.0" mass="0.5" radius="0.001" dim="3" group="1" origin="-0.742 -0.442 -0.092">
+      <elasticity young="1e5" poisson="0.1" damping="0.01"/>
+      <contact selfcollide="none" internal="false" contype="1" conaffinity="3"/>
+    </flexcomp>
+
+    <body name="Disp" pos="0 0 0.5">
+      <freejoint/>
+      <geom type="mesh" mesh="Disp_mesh" rgba="0.1 0.1 0.1 1.0" mass="1" group="2" contype="2" conaffinity="3"/>
+    </body>
+
+    <body name="CohDisp" pos="0 0 0.5">
+      <freejoint/>
+      <geom type="mesh" mesh="CohDisp_mesh" rgba="0.8 0.8 0.2 0.5" mass="1" group="2" contype="2" conaffinity="3"/>
+    </body>
+
+    <body name="Chassis" pos="0 0 0.5">
+      <freejoint/>
+      <geom type="mesh" mesh="Chassis_mesh" rgba="0.7 0.7 0.7 1.0" mass="1" group="2" contype="2" conaffinity="3"/>
+    </body>
+
+  </worldbody>
+</mujoco>

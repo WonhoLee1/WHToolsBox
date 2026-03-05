@@ -1,0 +1,682 @@
+<mujoco model="stiffness_test">
+  <option integrator="implicitfast" timestep="0.001" gravity="0 0 0"><flag contact="enable"/></option>
+  <default>
+    <joint armature="0.01" damping="5.0"/>
+    <geom friction="0.8" solref="0.02 1.0" solimp="0.9 0.95 0.001"/>
+  </default>
+  <worldbody>
+    <light pos="0 0 5" dir="0 0 -1"/>
+    <body name="BChassis">
+      <body name="b_bchassis_0_0_0" pos="-0.82500 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.01500 0.04000" mass="0.002480" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_0_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_0_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_0_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_0_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_0_1_0" pos="-0.82500 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_1_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_1_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_0_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_0_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_0_2_0" pos="-0.82500 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_2_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_2_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_0_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_0_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_0_3_0" pos="-0.82500 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_3_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_3_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_0_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_0_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_0_4_0" pos="-0.82500 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_4_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_4_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_0_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_0_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_0_5_0" pos="-0.82500 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.01500 0.04000" mass="0.002480" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_0_5_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_0_5_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_0_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_0_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_0_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_0_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_0_0" pos="-0.64800 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_0_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_0_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_1_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_1_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_1_0" pos="-0.64800 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_1_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_1_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_1_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_1_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_2_0" pos="-0.64800 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_2_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_2_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_1_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_1_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_3_0" pos="-0.64800 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_3_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_3_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_1_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_1_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_4_0" pos="-0.64800 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_4_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_4_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_1_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_1_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_1_5_0" pos="-0.64800 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_1_5_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_1_5_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_1_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_1_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_1_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_1_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_0_0" pos="-0.32400 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_0_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_0_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_2_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_2_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_1_0" pos="-0.32400 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_1_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_1_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_2_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_2_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_2_0" pos="-0.32400 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_2_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_2_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_2_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_2_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_3_0" pos="-0.32400 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_3_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_3_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_2_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_2_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_4_0" pos="-0.32400 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_4_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_4_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_2_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_2_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_2_5_0" pos="-0.32400 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_2_5_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_2_5_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_2_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_2_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_2_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_2_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_0_0" pos="0.00000 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_0_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_0_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_3_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_3_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_1_0" pos="0.00000 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_1_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_1_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_3_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_3_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_2_0" pos="0.00000 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_2_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_2_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_3_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_3_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_3_0" pos="0.00000 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_3_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_3_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_3_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_3_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_4_0" pos="0.00000 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_4_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_4_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_3_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_3_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_3_5_0" pos="0.00000 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_3_5_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_3_5_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_3_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_3_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_3_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_3_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_0_0" pos="0.32400 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_0_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_0_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_4_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_4_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_1_0" pos="0.32400 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_1_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_1_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_4_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_4_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_2_0" pos="0.32400 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_2_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_2_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_4_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_4_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_3_0" pos="0.32400 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_3_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_3_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_4_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_4_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_4_0" pos="0.32400 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_4_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_4_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_4_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_4_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_4_5_0" pos="0.32400 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_4_5_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_4_5_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_4_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_4_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_4_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_4_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_0_0" pos="0.64800 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_0_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_0_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_5_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_5_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_1_0" pos="0.64800 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_1_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_1_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_5_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_5_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_2_0" pos="0.64800 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_2_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_2_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_5_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_5_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_3_0" pos="0.64800 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_3_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_3_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_5_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_5_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_4_0" pos="0.64800 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.12750 0.04000" mass="0.227679" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_4_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_4_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_5_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_5_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_5_5_0" pos="0.64800 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16200 0.01500 0.04000" mass="0.026786" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_5_5_0_PX" pos="0.16200 0 0"/>
+        <site name="s_BChassis_5_5_0_NX" pos="-0.16200 0 0"/>
+        <site name="s_BChassis_5_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_5_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_5_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_5_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_0_0" pos="0.82500 -0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.01500 0.04000" mass="0.002480" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_0_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_0_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_0_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_6_0_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_6_0_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_0_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_1_0" pos="0.82500 -0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_1_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_1_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_1_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_6_1_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_6_1_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_1_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_2_0" pos="0.82500 -0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_2_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_2_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_2_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_6_2_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_6_2_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_2_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_3_0" pos="0.82500 0.12750 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_3_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_3_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_3_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_6_3_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_6_3_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_3_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_4_0" pos="0.82500 0.38250 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.12750 0.04000" mass="0.021081" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_4_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_4_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_4_0_PY" pos="0 0.12750 0"/>
+        <site name="s_BChassis_6_4_0_NY" pos="0 -0.12750 0"/>
+        <site name="s_BChassis_6_4_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_4_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+      <body name="b_bchassis_6_5_0" pos="0.82500 0.52500 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.01500 0.01500 0.04000" mass="0.002480" rgba="0.1 0.5 0.8 1.0" contype="4" conaffinity="2" friction="0.8" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <site name="s_BChassis_6_5_0_PX" pos="0.01500 0 0"/>
+        <site name="s_BChassis_6_5_0_NX" pos="-0.01500 0 0"/>
+        <site name="s_BChassis_6_5_0_PY" pos="0 0.01500 0"/>
+        <site name="s_BChassis_6_5_0_NY" pos="0 -0.01500 0"/>
+        <site name="s_BChassis_6_5_0_PZ" pos="0 0 0.04000"/>
+        <site name="s_BChassis_6_5_0_NZ" pos="0 0 -0.04000"/>
+      </body>
+    </body>
+    <body name="clamp_L" pos="-0.8909999999999999 0 0"><geom type="box" size="0.05 0.5399999999999999 0.04" rgba="1 0 0 0.5"/></body>
+    <body name="clamp_R" pos="0.8909999999999999 0 0"><geom type="box" size="0.05 0.5399999999999999 0.04" rgba="1 0 0 0.5"/></body>
+    <body name="ram" pos="0 0 0.091">
+      <joint name="ram_z" type="slide" axis="0 0 1"/>
+      <geom type="cylinder" size="0.05 0.5399999999999999" euler="90 0 0" rgba="0 1 0 0.5"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="act_ram" joint="ram_z" kp="200000" kv="1000"/>
+  </actuator>
+  <equality>
+        <weld site1="s_BChassis_0_0_0_PX" site2="s_BChassis_1_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_0_0_PY" site2="s_BChassis_0_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_1_0_PX" site2="s_BChassis_1_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_1_0_PY" site2="s_BChassis_0_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_2_0_PX" site2="s_BChassis_1_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_2_0_PY" site2="s_BChassis_0_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_3_0_PX" site2="s_BChassis_1_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_3_0_PY" site2="s_BChassis_0_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_4_0_PX" site2="s_BChassis_1_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_4_0_PY" site2="s_BChassis_0_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_0_5_0_PX" site2="s_BChassis_1_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_0_0_PX" site2="s_BChassis_2_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_0_0_PY" site2="s_BChassis_1_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_1_0_PX" site2="s_BChassis_2_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_1_0_PY" site2="s_BChassis_1_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_2_0_PX" site2="s_BChassis_2_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_2_0_PY" site2="s_BChassis_1_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_3_0_PX" site2="s_BChassis_2_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_3_0_PY" site2="s_BChassis_1_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_4_0_PX" site2="s_BChassis_2_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_4_0_PY" site2="s_BChassis_1_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_1_5_0_PX" site2="s_BChassis_2_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_0_0_PX" site2="s_BChassis_3_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_0_0_PY" site2="s_BChassis_2_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_1_0_PX" site2="s_BChassis_3_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_1_0_PY" site2="s_BChassis_2_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_2_0_PX" site2="s_BChassis_3_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_2_0_PY" site2="s_BChassis_2_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_3_0_PX" site2="s_BChassis_3_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_3_0_PY" site2="s_BChassis_2_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_4_0_PX" site2="s_BChassis_3_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_4_0_PY" site2="s_BChassis_2_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_2_5_0_PX" site2="s_BChassis_3_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_0_0_PX" site2="s_BChassis_4_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_0_0_PY" site2="s_BChassis_3_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_1_0_PX" site2="s_BChassis_4_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_1_0_PY" site2="s_BChassis_3_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_2_0_PX" site2="s_BChassis_4_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_2_0_PY" site2="s_BChassis_3_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_3_0_PX" site2="s_BChassis_4_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_3_0_PY" site2="s_BChassis_3_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_4_0_PX" site2="s_BChassis_4_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_4_0_PY" site2="s_BChassis_3_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_3_5_0_PX" site2="s_BChassis_4_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_0_0_PX" site2="s_BChassis_5_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_0_0_PY" site2="s_BChassis_4_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_1_0_PX" site2="s_BChassis_5_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_1_0_PY" site2="s_BChassis_4_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_2_0_PX" site2="s_BChassis_5_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_2_0_PY" site2="s_BChassis_4_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_3_0_PX" site2="s_BChassis_5_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_3_0_PY" site2="s_BChassis_4_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_4_0_PX" site2="s_BChassis_5_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_4_0_PY" site2="s_BChassis_4_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_4_5_0_PX" site2="s_BChassis_5_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_0_0_PX" site2="s_BChassis_6_0_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_0_0_PY" site2="s_BChassis_5_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_1_0_PX" site2="s_BChassis_6_1_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_1_0_PY" site2="s_BChassis_5_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_2_0_PX" site2="s_BChassis_6_2_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_2_0_PY" site2="s_BChassis_5_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_3_0_PX" site2="s_BChassis_6_3_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_3_0_PY" site2="s_BChassis_5_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_4_0_PX" site2="s_BChassis_6_4_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_4_0_PY" site2="s_BChassis_5_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_5_5_0_PX" site2="s_BChassis_6_5_0_NX" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_6_0_0_PY" site2="s_BChassis_6_1_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_6_1_0_PY" site2="s_BChassis_6_2_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_6_2_0_PY" site2="s_BChassis_6_3_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_6_3_0_PY" site2="s_BChassis_6_4_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+        <weld site1="s_BChassis_6_4_0_PY" site2="s_BChassis_6_5_0_NY" solref="0.002 1.0" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_0_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_L" body2="b_bchassis_1_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_2_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_3_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="ram" body2="b_bchassis_4_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_5_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_0_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_1_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_2_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_3_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_4_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+    <weld body1="clamp_R" body2="b_bchassis_6_5_0" solref="0.005 1.5" solimp="0.9 0.95 0.001 0.5 2.0"/>
+  </equality>
+</mujoco>

@@ -1,0 +1,30 @@
+<mujoco model="Test_Flex_Cushion">
+  <compiler angle="radian" meshdir="./"/>
+  <!-- Smaller timestep for high-frequency modes in thin parts -->
+  <option timestep="0.0002 " gravity="0 0 -9.81" integrator="implicitfast" iterations="300"/>
+  
+
+
+  <default>
+    <!-- Soft contact to handle initial penetration gracefully -->
+    <geom solref="0.05 1" solimp="0.95 0.99 0.001" friction="0.8 0.005 0.0001"/>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".8 .8 .8"/>
+    <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 4" dir="0 0 -1" diffuse="1.5 1.5 1.5"/>
+    <geom name="floor" type="plane" size="0 0 0.1" material="grid"/>
+    
+    <!-- Lifted to 0.5m -->
+    <flexcomp name="Cushion_Flex" type="gmsh" file="Cushion.msh" scale="0.001 0.001 0.001" 
+              pos="0 0 0.5" rgba="0.9 0.9 0.9 1" mass="1" radius="0.001" dim="2">
+      <contact condim="3" solref="0.001 0.1" solimp=".95 .99 .0001" selfcollide="none" internal="false" vertcollide="false" />
+      <edge damping="1"/>
+      <elasticity poisson="0.2" young="3e3" damping="0.001 "/>
+    </flexcomp>
+  </worldbody>
+</mujoco>

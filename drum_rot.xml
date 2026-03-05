@@ -1,0 +1,102 @@
+<mujoco model="Washing_Machine_Fast_Fat_Nodes">
+    <option timestep="0.002" solver="Newton" iterations="50" tolerance="1e-4" integrator="implicitfast">
+        <flag contact="enable" island="enable"/>
+    </option>
+
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1=".3 .5 .7" rgb2="0 0 0" width="512" height="512"/>
+        <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".1 .2 .3" rgb2=".2 .3 .4"/>
+        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+    </asset>
+
+    <visual>
+        <map force="0.1" zfar="30"/>
+        <rgba haze="0.15 0.25 0.35 1"/>
+        <global offwidth="800" offheight="800"/>
+    </visual>
+
+    <worldbody>
+        <light specular="0 0 0" pos="0 0 3" dir="0 0 -1" diffuse="1 1 1"/>
+        
+        <geom name="floor" size="2 2 .05" type="plane" material="grid" condim="3"/>
+        
+        <body name="drum" pos="0 0 0.5" quat="0.707 0.707 0 0">
+            <joint name="drum_rotation" type="hinge" axis="0 0 1" damping="25"/>
+            
+            <geom type="cylinder" size="0.305 0.25" rgba="0.8 0.8 0.9 0.05" group="1" contype="0" conaffinity="0"/>
+
+            <body name="hollow_walls">
+                <geom type="box" size="0.03 0.1 0.25" pos="0.000 0.400 0" euler="0 0 0" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.069 0.394 0" euler="0 0 -10" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.137 0.376 0" euler="0 0 -20" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.200 0.346 0" euler="0 0 -30" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.257 0.306 0" euler="0 0 -40" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.306 0.257 0" euler="0 0 -50" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.346 0.200 0" euler="0 0 -60" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.376 0.137 0" euler="0 0 -70" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.394 0.069 0" euler="0 0 -80" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.400 0.000 0" euler="0 0 -90" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.394 -0.069 0" euler="0 0 -100" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.376 -0.137 0" euler="0 0 -110" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.346 -0.200 0" euler="0 0 -120" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.306 -0.257 0" euler="0 0 -130" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.257 -0.306 0" euler="0 0 -140" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.200 -0.346 0" euler="0 0 -150" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.137 -0.376 0" euler="0 0 -160" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.069 -0.394 0" euler="0 0 -170" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="0.000 -0.400 0" euler="0 0 -180" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.069 -0.394 0" euler="0 0 -190" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.137 -0.376 0" euler="0 0 -200" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.200 -0.346 0" euler="0 0 -210" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.257 -0.306 0" euler="0 0 -220" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.306 -0.257 0" euler="0 0 -230" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.346 -0.200 0" euler="0 0 -240" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.376 -0.137 0" euler="0 0 -250" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.394 -0.069 0" euler="0 0 -260" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.400 -0.000 0" euler="0 0 -270" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.394 0.069 0" euler="0 0 -280" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.376 0.137 0" euler="0 0 -290" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.346 0.200 0" euler="0 0 -300" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.306 0.257 0" euler="0 0 -310" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.257 0.306 0" euler="0 0 -320" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.200 0.346 0" euler="0 0 -330" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.137 0.376 0" euler="0 0 -340" friction="1 0.05 0.01"/>
+                <geom type="box" size="0.03 0.1 0.25" pos="-0.069 0.394 0" euler="0 0 -350" friction="1 0.05 0.01"/>
+            </body>
+
+            <body name="lifter1" euler="0 0 0"><geom type="box" size="0.02 0.025 0.23" pos="0 0.275 0" rgba="0.4 0.4 0.4 1" friction="1"/></body>
+            <body name="lifter2" euler="0 0 120"><geom type="box" size="0.02 0.025 0.23" pos="0 0.275 0" rgba="0.4 0.4 0.4 1" friction="1"/></body>
+            <body name="lifter3" euler="0 0 240"><geom type="box" size="0.02 0.025 0.23" pos="0 0.275 0" rgba="0.4 0.4 0.4 1" friction="1"/></body>
+        </body>
+
+        <flexcomp name="towel1" type="grid" count="3 3 1" spacing=".17 .17 .1" pos="0.1 -0.1 0.65" radius=".085" mass="0.1" dim="2" rgba="1 0 0 1">
+            <contact internal="true" condim="1" margin="0.005"/>
+            <elasticity young="5e2" poisson="0.1" damping="0.01" thickness="0.01" elastic2d="stretch"/>
+        </flexcomp>
+
+        <flexcomp name="towel2" type="grid" count="3 3 1" spacing=".17 .17 .1" pos="-0.1 -0.1 0.65" radius=".085" mass="0.1" dim="2" rgba="0 1 0 1">
+            <contact internal="true" condim="1" margin="0.005"/>
+            <elasticity young="5e2" poisson="0.1" damping="0.01" thickness="0.01" elastic2d="stretch"/>
+        </flexcomp>
+
+        <flexcomp name="towel3" type="grid" count="3 3 1" spacing=".17 .17 .1" pos="0.0 0.0 0.55" radius=".085" mass="0.1" dim="2" rgba="0 0 1 1">
+            <contact internal="true" condim="1" margin="0.005"/>
+            <elasticity young="5e2" poisson="0.1" damping="0.01" thickness="0.01" elastic2d="stretch"/>
+        </flexcomp>
+
+        <flexcomp name="towel4" type="grid" count="3 3 1" spacing=".17 .17 .1" pos="0.1 0.1 0.45" radius=".085" mass="0.1" dim="2" rgba="1 1 0 1">
+            <contact internal="true" condim="1" margin="0.005"/>
+            <elasticity young="5e2" poisson="0.1" damping="0.01" thickness="0.01" elastic2d="stretch"/>
+        </flexcomp>
+
+        <flexcomp name="towel5" type="grid" count="3 3 1" spacing=".17 .17 .1" pos="-0.1 0.1 0.45" radius=".085" mass="0.1" dim="2" rgba="1 0 1 1">
+            <contact internal="true" condim="1" margin="0.005"/>
+            <elasticity young="5e2" poisson="0.1" damping="0.01" thickness="0.01" elastic2d="stretch"/>
+        </flexcomp>
+
+    </worldbody>
+
+    <actuator>
+        <velocity name="drum_drive" joint="drum_rotation" kv="500"/>
+    </actuator>
+</mujoco>

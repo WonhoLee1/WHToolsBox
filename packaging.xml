@@ -1,0 +1,23 @@
+<mujoco model="packaging">
+    <compiler meshdir="." scale="0.001" autolimits="true"/>
+    
+    <asset>
+        <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".2 .3 .5"/>
+        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+        
+        <!-- Load the mesh. MuJoCo treats MSH as a collection of elements. -->
+        <mesh name="box_mesh" file="packaging_model.msh"/>
+    </asset>
+
+    <worldbody>
+        <light pos="0 0 5" dir="0 0 -1" directional="true"/>
+        <geom name="floor" type="plane" size="5 5 .1" material="grid"/>
+        
+        <!-- Rigid body visualization of the whole mesh -->
+        <!-- Note: Showing 'by body' from a single MSH usually requires separate files or plugins -->
+        <body name="package" pos="0 0 1">
+            <freejoint/>
+            <geom type="mesh" mesh="box_mesh" rgba="0.8 0.8 0.8 1"/>
+        </body>
+    </worldbody>
+</mujoco>

@@ -1,3 +1,235 @@
+# 2026-03-06
+run_drop_simulation.py 개선하고자 한다.
+1. 결과 데이터 생성
+ - 중심, 모서리 8개에 대한 위치, 속도, 가속도의 시간에 대한 데이터 생성
+ - rds-Motion_All.png 
+   . 1열-x축, 2열-y축, 3열-z축
+   . 1행-위치, 2행-속도, 3행-가속도
+   . curves: COG, CORNER_L-T-F, CORNER_R-T-F, CORNER_L-T-B, CORNER_R-T-B, CORNER_L-B-F, CORNER_R-B-F, CORNER_L-B-B, CORNER_R-B-B
+ - rds-Motion_Z.png
+   . rds-Motion_All에서 z축 것들만 별도로 1개 plot으로 생성. 단, 1열 위치, 2열 속도, 3열 가속도로 구성
+ - rds-~_deformation.png가 최대 값을 표시한 것이라면, 모든 블럭 연결부에 대한 개별 값(Angle)들은 rds-~_deformation_all.png로 생성
+   legend로 i-j-k 형태로 legend명 표시
+ - floor에서 충격력 저장. rds-floor_impact.png로 생성
+ - legend가 너무 많아 화면을 초과하지 않도록 처리
+ - i-j-k의 위치가 어디인지 알 수 있도록 가이드 컨셉 그림을 작게 만들어서 legend 옆에 표시
+ - figure layout fitting 기능을 모든 figure 출력에 적용
+ - {bodyname}_deformation.png는 최대값을 가지는 블럭에 대해서 표시하고 있는데, 해당 최대값을 가지는 블럭의 i-j-k를 legend에 표시
+ - 모든 figure의 폰트 크기는 8pt로 설정. 
+ - 
+
+
+
+
+# 2026-02-21
+1. test_block_tension.py: **잘게 분할된 여러 개의 격자 블록(Bodies)이 Soft Weld(스프링 특성을 가진 조인트)로 결합된 이산 구조(Discrete Structure)**
+이 결합 방식을 채택할 것임.
+
+2. 모델 형상의 구성
+  - 모든 아래의 Body로 구성하고, 이산적인 형상들은 Body 내에 Geom으로 구성한다.
+  
+  - 다음의 기본 변수들을 입력받게 한다.
+    : {body_name}_width, {body_name}_height, {body_name}_depth
+    : {body_name}_mass
+    : {body_name}_div = [div_width, div_height, div_depth]
+      이 값은 분할 블록의 방향별 갯수에 해당한다.
+      그러나 각 Body별로 분할의 방법이 다를 수 있다. 각각에 대해서는 아래 설명을 참고한다.
+      
+    : BPaperBox에 한해 _thick를 가진다.
+    : BCushion의 ~_width, ~_height, ~_depth는 BPaperBox의 ~_width, ~_height, ~_depth에서   BPaperBox_thick과 BPaperBox_thick_gap의 합을 뺀 값을 기본으로 한다. 
+
+    : BOpenCellCohesive에 한하여 _ithick을 가지면 이는 테이프의 폭을 의미한다. 즉, width-ithick*2, height-ithick*2의 크기를 가지는 육면체를 제거한 형상을 가지는 형상. 액자 모양이 되겠다.
+    
+    : 각 Body를 구성하는 분할 블럭 간에는 Soft Weld로 연결을 할 것인데, 이에 대한 특성 값은 기본 값은 각 Body별로 정의할 수 있도록 한다. 경우에 따라서, 블럭 개별로 변경을 할 수 있는 함수 또는 dict를 제공한다.
+
+    : 박스 전면 방향으로 BOpenCell이 위치하고 그 뒤로 BOpenCellCohesive, BChassis가 위치한다. BOpenCellCohesive 앞-뒤로 SoftWeld가 각각 정의가 되어 붙이는 방식으로 정의한다. 박스 전면 방향에 대해서는 아래에 ISTA 낙하 조건을 기준으로한 Configuration에서 설명한다.
+
+    : BOpenCell, BOpenCellCohesive, BChassis를 통틀어 AssySet로 명명할 수 있는데, 기본적으로는 박스의 정중앙에 위치하는 것이 맞으나 AssySet_Pos = []로 offset 정의하면 그 위치에 AssySet이 위치한다. 이것은 BCushion의 중앙부에 AssysSet 영역을 gap을 포함해 제거하는 것와 연관이 되는 정보다. 즉, 제거되는 영역이 이것에 의해서 변경되기에 참고하여 처리한다.
+
+  ## BPaperBox
+    : _thick을 가지는 얇은 블럭 6개로 구성한다. 6개면은 모서리에서 강하게 연결시킨다.
+    : 각각의 블럭은 _div 리스트의 분할 갯수에 따라 분할된다.
+    : 초기값 width, height, depth는 2000, 1400, 250이다. _thick은 10이다. ~_div는 [5, 4, 3]이다.
+    : 초기값 mass는 0.04이다.
+    
+  ## BCushion
+    : BPaperBox에서 파생되는 크기의 육면체를 가지는 형상
+    : 이 형상에서 AssySet으로 구성되는 바운딩박스에서 BCushion_inner_gap만큼의 여유공간을 가지는 육면체 형상을 제거한 형상
+    : 이 형상에서 BCushion_cutter (dict변수)에 기록하는 각 key값에 해당하는 value인 [center_x, center_y, center_z, width, height, depth]를 가지는 육면체 형상을 제거한 형상. _cutter의 기본값은 { 'center': [ 0,0,0, {BCushion_width*0.5}, {BCushion_height*0.5}, {BCushion_depth*0.5} ], }
+    : 이렇게 형상된 형상은 직각육면체로 분할이 가능한 구조로 되며, 이를 분할
+    : _div로 정의되는 분할 갯수를 BCushion의 width, height, depth에 대해 나누면, 방향별 분할 길이가 나올텐데, 이 길이보다 기본적으로 분할될 블럭의 길이가 더 길면 방향별 분할 길이보다 작거나 같게 분할 처리
+    : 초기값 ~_div는 [5, 4, 3]이다.
+    : 초기값 mass는 0.01이다.
+    
+  ## BOpenCellCohesive
+    : 액자 모양의 형상으로 생성이 되면, 이를 직각육면체 블럭으로 분할을 하고 BCushion와 유사하게 분할 길이를 정의하여 분할 처리한다.
+    : 초기값 ~_div는 [5, 4, 1]이다.
+    : 초기값 width, height, depth는 2000-300, 1400-300, 250-150 mm이다. _ithick은 30 mm이다.
+    : 초기값 mass는 0.001이다.
+
+  ## BOpenCell
+    : BOpenCellCohesive와 depth 방향을 결합을 해야하므로 BOpenCellCohesive와 유사하게 분할 길이를 정의하여 분할 처리한다. 단, 내부가 비어 있지 않게 된다. 내부도 직각육면체 블럭으로 분할이 가능하다.
+    : 초기값 ~_div는 [5, 4, 1]이다.
+    : 초기값 width, height, depth는 2000-300, 1400-300, 250-150 mm이다.
+    : 초기값 mass는 0.05이다.
+
+  ## BChassis
+    : BOpenCell과 동일한 형태를 가지게 된다.
+    : 초기값 ~_div는 [5, 4, 1]이다.
+    : 초기값 width, height, depth는 2000-300, 1400-300, 250-150 mm이다.
+    : 초기값 mass는 0.05이다.
+
+  - M 단위를 사용해야 하니까 mm 단위의 값은 M로 기입한다.
+  - 각각의 mass를 포함하는 geom이 되는데, body의 COG와 MOI를 알 수 있어야 한다. 
+
+
+3. ISTA 낙하 조건을 기준으로한 Configuration
+  - 낙하의 방향은 -Z방향으로 가정한다.
+  - 위의 형상 초기 생성은 width는 +X방향, height는 +Y방향으로 가정한다.
+  - 그러나, PARCEL이냐 LTL이냐에 따라서, 박스의 전면이 향하는 방향이 달라진다. 이는 ISTA 6A 규정에 있는 내용이다. 따라서, 이 옵션 변수에 따라서, OpenCell 전면 방향이 향하는 방향을 달리 해야한다. 나의 의견은 원점에서 +Z방향으로 OpenCell이 향하도록 모델을 처음에 만들고, PARCEL/LTL 옵션에 따라 회전을 통해서 OpenCell의 전면 방향을 변경하는 방식으로 처리하면 좋겠다. 관련해서 제안 허용.  추후에 ISTA Face Numbering도 Matching이 필요하다. OpenCell 전면 방향을 기준으로 Front로 할 때, Left, Top, Right, Bottom, Back이라는 내부 명칭을 부여한다고 하고, ISTA 6A 규정에 따라서 Face Numbering이 되면, 이 번호가 어느 면인지 연결이 필요하다는 의미다. 왜냐면, LTL과 PARCEL이 Numbering이 다르기 때문이다. 낙하 조건에 따른 병진, 회전 이동을 고려해야 한다. 여기서는 기본 조건으로 0.5 m, 전면의 바닥 방향 낙하를 기본 세팅으로 하겠다. 낙하 조건에 맞춰서 회전, 병진 변환 기능을 준비한다. 
+
+
+여기까지의 내용으로 새로운 파일을 만들어서, MuJuCo 3.5.0에 맞는 xml 파일을 생성하는 단계를 우선 진행해보자.
+xml파일명은 test_box_mujoco라는 폴더를 만들고 그 하위에 test_shapes_check.xml로 하겠다.
+확인이 되면 그 다음 단계로 가자.
+
+
+
+# 2026-02-18
+자 그러면 이제 gmsh로 상자를 먼저 만들어보자. 포장 상자, 포장쿠션, 내용물은 tv 샤시와 디스플레이로 구성. 포장상자 크기늠 width height depth로 구성. 포장상자의 배치상 디스플레이의 노말방향을 전면이라고 부르는데 parcel은 -z방향을 향하고 ltl은 +z방향을 향한다. 
+
+Parcel과 ltl은 ista 6a 낙하 규정에 따른 방향이다. 
+
+샤시는 육면체로 구성하갰다. DispWidth dispheight dispdepth로 포장상자와는 별개로 입력받는다. 디스플레이는 샤시와 width 그리고 height는 동일하다. Depth 는 별개로 입력받는다. 전면기준으로 디스플레이는 샤시 뒤에 위치한다. 기본값은 boxwidth-100mm, boxheight-100mm에 depth 즉 두께는 5 mm이다. 샤시는 depth, 즉 두께는 40 mm 이다. 
+
+디스플레이와 샤시 간에는 4개의 edge에 대해서 dispcoh 점착층이 dispcohwidth 폭과 dispcohthick 두께로 정의해서 구현된다. 
+
+쿠션은 박스 두께만큼 작다. 쿠션은 육면체로 생성 시키고 샤시 및 점착재, 디스플레이 만큼이 내부에서 제거된 형상을 가진다. 즉 이 세개의 바디를 합친 영역에 해당하는 바디로 서브스트랙트 한다. 
+
+샤시 디스플레이 디스플레이점착 볼륨바디는 중심 위치릉 따로 받으면 가본은 0,0,0이다. 박스와 쿠션도 중심은 따로 입력받을 슈 있으몀 0,0,0이다.
+
+상자 두께는 boxthick로 입력받는다. 기본값 5 mm
+
+만들어진 쿠션 형상에서 추가적인 볼륨 삭제를 하는 육면체 정보룰 입력받아 블린 컷을 제공한다. 중심 좌표와 세방향 길이가 리스트로 제공하면 해당 영역의 볼륨을 제거한다.
+
+만들어진 형상의 면들의 정보를 수집한다. 면들로 전체가 욱면체로 분할되도록 aplit하는 기능을 제공받는다. 옵션. 
+
+각각 바디에 대해서 주어진 요소 크기로 테트라 요소가 생성된다. 박스는 두께를 가진 내부는 빈 상자다.
+
+일단 이 요구사항을 너가 정리해주고 추가로 궁금한 부분이 있으면 보충하자
+
+
+ISTA 6A 낙하 시험 규정까지 고려한 TV 포장재 및 제품(샤시, 디스플레이)의 유한요소(FE) 메쉬 생성 자동화 스크립트를 기획하고 계시는군요. 요구사항이 매우 구체적이고 논리적입니다.
+
+말씀해주신 요구사항을 기반으로 Gmsh Python API로 구현할 모델링 파이프라인을 명확히 정리해 보았습니다. 스크립트 작성에 들어가기 전에, 제가 제대로 이해했는지 확인하고 몇 가지 디테일을 조율하기 위한 질문을 드리겠습니다.
+
+< body list >
+Cushion
+Box
+Disp
+CohDisp
+Chassis
+
+만들어진 각 body의 msh파일 정보를 import해서 body를 구성하는 mujoco xml을 만든다.
+flexcomp로 만드는 A 버전과 rigidbody로 만드는 B버전을 준비해보자.
+현재 디렉토리의 하위디렉토리 test_box_msh를 만들고 그 아래에 gmsh파일과 xml파일을 
+저장해달라.
+gmsh파일을 못읽는 경우가 있다면, obj 포맷을 검토하라.
+conda 환경은 vdmc이다.
+
+gmsh에서 한번에 body를 만들고 export하려면 곤란한 상황이 많을 수 있다.
+개별 body 별로 생성하고 export 하는 것이 유리할 수 있다.
+'''the the MSH file with all the nodes in a single block'''
+'''Thank you for your reply!
+I believe that I have saved the MSH file with all the nodes in a single block. I shall list the contents of the ball.msh file below in any case.'''
+
+Box는 cloth와 같은 요소로 표현이 될 수 있다. flexcomp에서 cloth는 2d 요소로 표현할 수 있으면 shell로 만들어야 할 수도 있겠다. 관련해서 검토하여 적용하라.
+
+
+
+---
+
+### 📋 요구사항 정리 (Gmsh 모델링 파이프라인)
+
+**1. 기본 입력 파라미터**
+
+* **포장 상자 (Box):** `boxWidth`, `boxHeight`, `boxDepth`, `boxThick` (기본값 5mm). 중심 좌표 (기본 0,0,0).
+* **내용물 기준 치수:** `dispWidth` (기본 `boxWidth-100`), `dispHeight` (기본 `boxHeight-100`). 중심 좌표 (기본 0,0,0).
+* **샤시 (Chassis):** 폭/높이는 `dispWidth`/`dispHeight`, 두께 40mm.
+* **디스플레이 (Display):** 폭/높이는 `dispWidth`/`dispHeight`, 두께 `dispDepth` (기본값 5mm).
+* **점착층 (DispCoh):** 폭 `dispCohWidth`, 두께 `dispCohThick`. 샤시와 디스플레이 사이의 4개 가장자리(Edge)에 위치.
+
+**2. 방향 및 배치 (Orientation & Placement)**
+
+* **전면(Front)의 정의:** 디스플레이가 바라보는 법선(Normal) 방향.
+* **전후면 배치:** 전면 기준으로 샤시가 앞, 디스플레이가 샤시 뒤에 위치함.
+* **ISTA 6A 기준 지향 방향:**
+* **Parcel (택배):** 전면이 **-Z 방향**을 향함. (디스플레이가 위(+Z), 샤시가 아래(-Z)에 위치하게 됨)
+* **LTL (화물):** 전면이 **+Z 방향**을 향함. (샤시가 위(+Z), 디스플레이가 아래(-Z)에 위치하게 됨)
+
+
+
+**3. 볼륨 생성 및 불린(Boolean) 연산**
+
+* **포장 상자:** `boxThick` 두께를 가진 속이 빈(Hollow) 육면체 쉘(Shell) 형태.
+* **포장 쿠션 (Cushion):**
+* 초기 크기: 상자 내부 크기 (상자 외부 치수 - 상자 두께).
+* **Substract 1:** 쿠션 내부에서 [샤시 + 디스플레이 + 점착층]의 합집합 볼륨을 빼서 제품 형상대로 파냄.
+* **Substract 2:** 추가로 제공받는 리스트 `[중심 좌표, [width, height, depth]]`를 순회하며 쿠션에서 해당 육면체 영역들을 추가로 파냄 (Cushion Cut-out).
+
+
+
+**4. 분할 및 메쉬(Mesh) 생성**
+
+* **볼륨 분할 (Split - 옵션):** 생성된 형상의 면(Surface) 정보를 수집하여 전체 볼륨을 여러 개의 육면체 블록으로 분할 (Gmsh의 `Fragment` 또는 `Intersect` 기능 활용 예상). 기본 옵션은 False로 한다. 
+
+* **요소 생성:** 분할된 각 바디에 대해 사용자가 지정한 요소 크기(Element size)로 3D 테트라(Tetrahedral) 메쉬 생성.
+
+---
+
+### ❓ 추가 확인이 필요한 사항 (Clarification)
+
+코드를 짜기 전에 다음 5가지 사항만 확정해 주시면 완벽할 것 같습니다.
+
+1. **상자 치수 기준:** `boxWidth`, `boxHeight`, `boxDepth`는 상자의 **외부 치수(Outer Dimension)**인가요, 아니면 **내부 치수(Inner Dimension)**인가요? (일반적으로 패키징 설계는 외부 치수를 기준으로 두께를 안쪽으로 뺍니다.)
+: 외부 치수
+
+2. **점착층(DispCoh)의 형태:** 4개의 edge에 위치한다고 하셨는데, 이는 중앙이 텅 빈 **'창틀(Picture Frame)' 모양의 형상**을 의미하나요?
+: 맞다.
+
+3. **디스플레이와 샤시의 전후 관계:** "전면 기준으로 디스플레이는 샤시 뒤에 위치한다"라고 하셨습니다. 전면이 디스플레이의 
+화면 쪽(사용자가 보는 쪽)이라면, 보통 화면(디스플레이)이 가장 앞에 있고 그 뒤를 샤시가 받쳐주는 구조 아닌가요? 제가 "샤시 뒤에 디스플레이가 있다"는 말을 물리적 배치로 반대로 이해한 것인지 확인 부탁드립니다.
+: 맞다.
+
+4. **육면체 분할(Split) 기능의 목적:** 쿠션을 여러 조각의 패드(예: 코너 패드 4개, 엣지 패드 등)로 나누기 위함인가요? Gmsh에서 복잡한 곡면이나 컷아웃이 들어간 쿠션을 육면체 격자망처럼 반듯하게 자르려면 무한 평면(Infinite Plane)들로 슬라이스(Slice)하는 방식을 써야 하는데, 이 자르는 기준면을 상자나 제품의 외곽면을 연장해서 사용하면 될까요?
+
+5. **밀폐된 상자:** 현재 모델링 상 포장 상자는 완전히 밀폐된(Closed) 5mm 두께의 6면 박스입니다. 뚜껑(Flap)이 열린 형태나 틈새는 구현하지 않고 하나의 닫힌 볼륨으로 처리해도 괜찮으신가요?
+: 헥사 메쉬를 위한 것이고, 경우에 따라 코너 패드 엣지 패드를 구분하기도 할 것. 바운딩 박스 영역 내의 평면 생성
+
+이 부분들에 대해 답변해 주시면, 바로 Gmsh Python API를 사용하여 각 바디를 생성하고 불린 연산까지 깔끔하게 수행하는 기초 스크립트를 작성해 드리겠습니다!
+
+msh 파일을 mujoco에서 읽어 바디별로 화면에 보여지도록 추가해보자.
+mujoco는 단위가 m 단위를 선호한다고 한다. 따라서, 단위변환을 하는 mujoco의 옵션을 사용하자.
+
+
+
+# 2026-02-14
+
+mujoko 3.5.0 사용
+
+조인트 x,y,z으로 연결된 n by m by l block으로 포장 상자 내 쿠션을 구성함.
+xy면상의 n by m blocks 중 테두리를 제외한 중앙 blocks 들은 제외함.
+즉, 한글로는 ㅁ자 모양이 될 것
+
+2.0 x 1.4 x 0.25 m로 구성
+
+n = 5
+m = 4
+l = 3
+
+ISTA 낙하 자세 중 코너 낙하 자세로 하고 코너와 지면과의 거리는 500 mm (0.5m)
+
+xml을 제시하라.
 
 # 2026-02-09
 

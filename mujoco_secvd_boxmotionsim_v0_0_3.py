@@ -1,5 +1,8 @@
 import numpy as np
-import mujoco
+# --- Plugin Loading Logic ---
+# Note: MuJoCo 3.x native elasticity does not require manual plugin loading for standard solid bodies.
+# We use <elasticity> tag in XML directly.
+
 import mujoco.viewer
 from scipy.spatial.transform import Rotation as R
 import matplotlib.pyplot as plt
@@ -9,6 +12,7 @@ import msvcrt
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
+from mujoco_material_utils import FlexPlateLayer, MultiLayerPanel, MaterialFitter
 
 # ==========================================
 # Global Constants & Configuration
@@ -41,8 +45,8 @@ AIR_VISCOSITY = 1.8e-5
 BOX_FRICTION_PARAMS = "0.3 0.005 0.0001"
 
 # Pad Configuration
-CORNER_PADS_NUMS = 3    # Number of pads along height (Z)
-CORNER_SPLIT_XY = 2     # Number of pads along L and W within each corner (M)
+CORNER_PADS_NUMS = 1    # Number of pads along height (Z) - Reduced for speed
+CORNER_SPLIT_XY = 1     # Number of pads along L and W within each corner (M)
 GAP_RATIO = 0.05        # 패드와 패드 사이의 간격 비율 (분할된 조각들이 서로 겹치지 않게 함)
 PAD_XY = 0.1           # 코너 패드 한 변의 '반폭' 길이 (0.1m = 전체 폭 200mm)
 BOX_PAD_OFFSET = 0.00001 # 상자 본체와 패드 사이의 물리적 이격 거리 (불필요한 초기 접촉 방지)
@@ -54,18 +58,26 @@ FLEX_STIFFNESS = 300.0 # 굽힘 강성 (높을수록 단단함)
 FLEX_DAMPING = 30.0    # 굽힘 감쇠 (진동 억제)
 
 # ==========================================
+# New Classes: Multi-Layer Plate System
+# ==========================================
+# (Moved to mujoco_material_utils.py)
+
+# ==========================================
 # Class: BoxDropInstance
 # ==========================================
 class BoxDropInstance:
     def __init__(self, uid, position_offset, drop_type="corner", box_params=None, com_random=False, com_offset=None, 
-                 label="", enable_pad_contact=ENABLE_PAD_CONTACT, use_flex=True, 
+                 label="", enable_pad_contact=ENABLE_PAD_CONTACT, 
+                 use_flex=True, flex_type='native', # 'native' or 'hinge'
                  flex_stiffness=FLEX_STIFFNESS, flex_damping=FLEX_DAMPING):
         self.uid = uid
         self.base_pos = np.array(position_offset)  # Grid position (x, y, 0)
         self.drop_type = drop_type 
         self.label = label 
         self.enable_pad_contact = enable_pad_contact
+        self.enable_pad_contact = enable_pad_contact
         self.use_flex = use_flex 
+        self.flex_type = flex_type # 'native' = MuJoCo 3.0 Flex, 'hinge' = 3x3 Grid + Hinge 
         self.flex_stiffness = flex_stiffness
         self.flex_damping = flex_damping
         
@@ -225,48 +237,25 @@ class BoxDropInstance:
         lr_pos_x = self.L/2.0 - PAD_XY - BOX_PAD_OFFSET
         
         # Front/Back Edges
+        # Front/Back Edges - Single Block (Native Flex Handles Deformation)
         for side in [-1, 1]:
             name_base = 'back' if side == 1 else 'front'
-            if self.use_flex:
-                num_seg = 3
-                seg_len = (fb_sx * 2.0) / num_seg
-                for s in range(num_seg):
-                    pos_x = -fb_sx + (s + 0.5) * seg_len
-                    configs.append({
-                        'name_suffix': f"h_edge_{name_base}_seg{s}",
-                        'pos': [pos_x, side * fb_pos_y, 0],
-                        'size': [seg_len/2, PAD_XY, blk_z],
-                        'rgba': "0.9 0.9 0.2 1.0"
-                    })
-            else:
-                configs.append({
-                    'name_suffix': f"h_edge_{name_base}_solid",
-                    'pos': [0, side * fb_pos_y, 0],
-                    'size': [fb_sx, PAD_XY, blk_z],
-                    'rgba': "0.9 0.9 0.2 1.0"
-                })
+            configs.append({
+                'name_suffix': f"h_edge_{name_base}_solid",
+                'pos': [0, side * fb_pos_y, 0],
+                'size': [fb_sx, PAD_XY, blk_z],
+                'rgba': "0.9 0.9 0.2 1.0"
+            })
 
-        # Left/Right Edges
+        # Left/Right Edges - Single Block
         for side in [-1, 1]:
             name_base = 'right' if side == 1 else 'left'
-            if self.use_flex:
-                num_seg = 3
-                seg_len = (lr_sy * 2.0) / num_seg
-                for s in range(num_seg):
-                    pos_y = -lr_sy + (s + 0.5) * seg_len
-                    configs.append({
-                        'name_suffix': f"h_edge_{name_base}_seg{s}",
-                        'pos': [side * lr_pos_x, pos_y, 0],
-                        'size': [PAD_XY, seg_len/2, blk_z],
-                        'rgba': "0.9 0.9 0.2 1.0"
-                    })
-            else:
-                configs.append({
-                    'name_suffix': f"h_edge_{name_base}_solid",
-                    'pos': [side * lr_pos_x, 0, 0],
-                    'size': [PAD_XY, lr_sy, blk_z],
-                    'rgba': "0.9 0.9 0.2 1.0"
-                })
+            configs.append({
+                'name_suffix': f"h_edge_{name_base}_solid",
+                'pos': [side * lr_pos_x, 0, 0],
+                'size': [PAD_XY, lr_sy, blk_z],
+                'rgba': "0.9 0.9 0.2 1.0"
+            })
         return configs
         
         return configs
@@ -328,116 +317,45 @@ class BoxDropInstance:
                     """
             return xml
 
-        if self.use_flex:
-            # 3x3 Grid (9 Bodies)
-            body_xml = ""
-            sl, sw = self.L / 3.0, self.W / 3.0
-            sm = self.MASS / 9.0
-            # Correct Segment Inertia (Local scaling)
-            # Previously Ixx/9.0 was used, but this overestimates total inertia because Parallel Axis Theorem 
-            # adds m*r^2 term automatically. We must use inertia of the small chunk itself.
-            six = (1/12) * sm * (sw**2 + self.H**2)
-            siy = (1/12) * sm * (sl**2 + self.H**2)
-            siz = (1/12) * sm * (sl**2 + sw**2)
+            return xml
+        
+        # === SIMPLIFIED NATIVE FLEX IMPLEMENTATION ===
+        # Resolution: 2x2x2 for maximum speed
+        nx, ny, nz = 2, 2, 2
+        nc_str = f"{nx} {ny} {nz}"
+        
+        # Calculate Spacing - Center the grid so its local CoM is at (0,0,0)
+        sx = self.L / max(nx - 1, 1)
+        sy = self.W / max(ny - 1, 1)
+        sz = self.H / max(nz - 1, 1)
+        spacing_str = f"{sx:.4f} {sy:.4f} {sz:.4f}"
+        
+        # Grid Offset to center the L x W x H box at the body origin
+        grid_pos = f"{-self.L/2:.4f} {-self.W/2:.4f} {-self.H/2:.4f}"
+        
+        # We use a consistent body name for the air cushion and tracking
+        body_name = f"box_{self.uid}"
+        
+        flex_xml = f"""
+        <body name="{body_name}" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
+            <freejoint name="joint_{self.uid}"/>
+            <inertial pos="0 0 0" mass="0.1" diaginertia="0.01 0.01 0.01"/>
             
-            # Helper: Define Interface-Aligned Hinge Segments
-            def make_seg(name, gx, gy):
-                # We move the body pivot to the edge of the center segment (sl/2, sw/2)
-                pivot_x = gx * sl / 2.0
-                pivot_y = gy * sw / 2.0
-                
-                # The visual geom and mass center are offset by another half-segment from the pivot
-                geom_lx = gx * sl / 2.0
-                geom_ly = gy * sw / 2.0
-                
-                # Global range for geom filter
-                world_x = gx * sl
-                world_y = gy * sw
-                rx = [world_x - sl/2 - 0.01, world_x + sl/2 + 0.01]
-                ry = [world_y - sw/2 - 0.01, world_y + sw/2 + 0.01]
-                
-                cx, cy, cz = self.CoM_offset
-                content = f'<inertial pos="{cx + geom_lx} {cy + geom_ly} {cz}" mass="{sm}" diaginertia="{six} {siy} {siz}"/>\n'
-                content += f'<geom name="box_{self.uid}_vis_{name}" type="box" pos="{geom_lx} {geom_ly} 0" size="{sl/2} {sw/2} {self.H/2}" rgba="0.8 0.6 0.3 0.2" contype="0" conaffinity="0"/>\n'
-                
-                # Corner Sites mapping for Flexible Segments
-                # 0,1: SW | 2,3: NW | 4,5: SE | 6,7: NE
-                sites_xml = ""
-                for i, c in enumerate(self.corners_local):
-                    # Check if corner belongs to this segment's corner group
-                    if gx == np.sign(c[0]) and gy == np.sign(c[1]):
-                        # Site pos relative to this segment's pivot
-                        sites_xml += f'<site name="s_corner_{self.uid}_{i}" pos="{c[0]-pivot_x} {c[1]-pivot_y} {c[2]}" size="0.005" rgba="0.5 0.5 0.5 0.2"/>\n'
-
-                if name == "c":
-                    # Center stays at origin
-                    content = f'<inertial pos="{cx} {cy} {cz}" mass="{sm}" diaginertia="{six} {siy} {siz}"/>\n'
-                    content += f'<geom name="box_{self.uid}_vis_c" type="box" size="{sl/2} {sw/2} {self.H/2}" rgba="0.8 0.6 0.3 0.2" contype="0" conaffinity="0"/>\n'
-                    content += f'<site name="box_{self.uid}_label" pos="0 0 {self.H/2 + 0.01}" size="0.01" rgba="0 0 0 0"/>\n'
-                    content += f'<site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/>\n'
-                    content += f'<site name="s_cog_{self.uid}" pos="{cx} {cy} {cz}" size="0.02" rgba="1 0 0 1"/>\n'
-                    return f"""
-                    <body name="box_{self.uid}_c" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
-                        <freejoint name="joint_{self.uid}"/>
-                        {content}
-                    """
-                else:
-                    return f"""
-                    <body name="box_{self.uid}_{name}" pos="{pivot_x} {pivot_y} 0">
-                        <joint name="j_{self.uid}_{name}_x" type="hinge" axis="1 0 0" stiffness="{self.flex_stiffness}" damping="{self.flex_damping}"/>
-                        <joint name="j_{self.uid}_{name}_y" type="hinge" axis="0 1 0" stiffness="{self.flex_stiffness}" damping="{self.flex_damping}"/>
-                        <joint name="j_{self.uid}_{name}_z" type="hinge" axis="0 0 1" stiffness="{self.flex_stiffness}" damping="{self.flex_damping}"/>
-                        {content}
-                        {sites_xml}
-                        {get_geoms_in_range(rx, ry, pivot_x, pivot_y)}
-                    </body>"""
-
-            # Combine 9 segments
-            body_xml += make_seg("c", 0, 0)
-            for gx in [-1, 0, 1]:
-                for gy in [-1, 0, 1]:
-                    if gx == 0 and gy == 0: continue
-                    name = f"{'s' if gy < 0 else ('n' if gy > 0 else '')}{'w' if gx < 0 else ('e' if gx > 0 else '')}"
-                    body_xml += make_seg(name, gx, gy)
-            body_xml += "</body>"
-        else:
-            # Original Rigid Body logic
-            pads_xml = ""
-            for pad in self.pad_configs:
-                p_name = f"box_{self.uid}_{pad['name_suffix']}"
-                pads_xml += f"""
-                <geom name="{p_name}" type="box" size="{pad['size'][0]} {pad['size'][1]} {pad['size'][2]}"
-                      pos="{pad['pos'][0]} {pad['pos'][1]} {pad['pos'][2]}"
-                      rgba="{pad['rgba']}" solref="{solref_str}" solimp="{solimp_str}"
-                      friction="{BOX_FRICTION_PARAMS}" contype="{bit_box}" conaffinity="{affinity_box}"/>
-                """
-                
-            body_xml = f"""
-            <body name="box_{self.uid}" pos="{start_pos[0]} {start_pos[1]} {start_pos[2]}" 
-                  quat="{self.quat_mj[0]} {self.quat_mj[1]} {self.quat_mj[2]} {self.quat_mj[3]}">
-                <freejoint name="joint_{self.uid}"/>
-                <!-- Mass Logic: Inertial tag is present, so Geoms (Pads) are MASSLESS. Total mass is exactly self.MASS. -->
-                <inertial pos="{self.CoM_offset[0]} {self.CoM_offset[1]} {self.CoM_offset[2]}" mass="{self.MASS}" diaginertia="{Ixx} {Iyy} {Izz}"/>
-                
-                <!-- REMOVED: Samsung Branding Block (Blue Plate) -->
-                <!-- <geom name="box_{self.uid}_brand" type="box" size="{self.L*0.3} {self.W*0.3} 0.002" ... /> -->
-                <site name="box_{self.uid}_label" pos="0 0 {self.H/2 + 0.01}" size="0.01" rgba="0 0 0 0"/>
-    
-                <!-- Main Visual -->
-                <geom name="box_{self.uid}_visual" type="box" size="{self.L/2} {self.W/2} {self.H/2}" 
-                      rgba="0.8 0.6 0.3 0.3" contype="0" conaffinity="0"
-                      fluidshape="ellipsoid" fluidcoef="0.5 0.25 1.5 1.0 1.0"/>
-                
-                {pads_xml}
-                
-                <!-- Sites for Sensing -->
-                <!-- Sites for Sensing -->
-                <site name="s_center_{self.uid}" pos="0 0 0" size="0.01" rgba="1 1 0 1"/> <!-- Geometric Center -->
-                <site name="s_cog_{self.uid}" pos="{self.CoM_offset[0]} {self.CoM_offset[1]} {self.CoM_offset[2]}" size="0.02" rgba="1 0 0 1"/> <!-- CoG Marker -->
-                {self._get_corner_sites_xml()}
-            </body>
-            """
-        return floor_xml + body_xml
+            <flexcomp name="flex_{self.uid}" type="grid" dim="3" 
+                      pos="{grid_pos}" spacing="{spacing_str}" count="{nc_str}" 
+                      mass="{self.MASS}" radius="0.01" rgba="0.8 0.6 0.3 0.5">
+                <elasticity young="5e5" poisson="0.3" damping="0.1"/>
+                <contact internal="true" selfcollide="none"/>
+            </flexcomp>
+            
+            <!-- Reference for sensing -->
+            <site name="s_center_{self.uid}" pos="0 0 0" size="0.02" rgba="1 1 0 1"/>
+            {self._get_corner_sites_xml()}
+        </body>
+        """
+        
+        self._extra_equality_xml = ""
+        return floor_xml + flex_xml
 
     def _get_corner_sites_xml(self):
         """Generate XML for 8 sensing sites at the corners"""
@@ -490,6 +408,12 @@ class SimulationManager:
         for inst in self.instances:
             body_str += inst.get_xml()
             
+        # Collect Extra Constraints (Equality) from instances
+        equality_str = ""
+        for inst in self.instances:
+            if hasattr(inst, '_extra_equality_xml') and inst._extra_equality_xml:
+                equality_str += inst._extra_equality_xml
+        
         xml = f"""
         <mujoco>
           <asset>
@@ -497,7 +421,7 @@ class SimulationManager:
             <material name="grid" texture="grid" texrepeat="8 8" texuniform="true"/>
           </asset>
           
-          <option timestep="0.001" gravity="0 0 -{G_ACC}" density="{AIR_DENSITY}" viscosity="{AIR_VISCOSITY}"
+          <option timestep="0.0005" integrator="implicitfast" gravity="0 0 -{G_ACC}" density="{AIR_DENSITY}" viscosity="{AIR_VISCOSITY}"
                   iterations="{self.solver_params['iter']}" 
                   tolerance="{self.solver_params['tol']}" 
                   solver="{self.solver_params['solver']}" 
@@ -505,10 +429,19 @@ class SimulationManager:
             <flag contact="enable"/>
           </option>
           
+          <size memory="4096M"/>
+
+          <default>
+            <!-- Ensure Flexcomp nodes (spheres) collide with the floor bits -->
+            <geom contype="255" conaffinity="255" friction="{BOX_FRICTION_PARAMS}"/>
+          </default>
+
           <worldbody>
             <light pos="10 10 20" dir="-1 -1 -1" diffuse="0.7 0.7 0.7"/>
             {body_str}
           </worldbody>
+          
+          {equality_str} 
         </mujoco>
         """
         return xml
@@ -943,7 +876,12 @@ class SimulationManager:
 
             for inst in self.instances:
                 # For flex body, the "main" body is the root segment named 'box_uid_c'
-                bname = f"box_{inst.uid}_c" if inst.use_flex else f"box_{inst.uid}"
+                # For flex body, the "main" body is the root segment named 'box_uid_c'
+                bname = ""
+                if inst.use_flex:
+                    if inst.flex_type == 'native': bname = f"box_{inst.uid}_flexbasis"
+                    else: bname = f"box_{inst.uid}_c"
+                else: bname = f"box_{inst.uid}"
                 bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, bname)
                 if bid != -1:
                     # 1. Basic Recording
@@ -984,6 +922,37 @@ class SimulationManager:
                                     
                         inst.history['bending'].append(max_angle)
                         inst.history['deflection'].append(max_defl_mm)
+                        inst.history['bending'].append(0.0)
+                        inst.history['deflection'].append(0.0)
+                        
+                    # 3-B. Native Flex Recording
+                    elif inst.use_flex and inst.flex_type == 'native':
+                        flex_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_FLEX, f"flex_{inst.uid}")
+                        if flex_id != -1:
+                            # Access Flex Vertices
+                            adr = self.model.flex_vertadr[flex_id]
+                            num = self.model.flex_vertnum[flex_id]
+                            verts = self.data.flexvert_xpos[adr : adr+num]
+                            
+                            # Center Pos (Avg of verts)
+                            center_pos = np.mean(verts, axis=0)
+                            # Overwrite rigid body pos if needed, or append as new metric
+                            # But standard plotting uses 'pos', so let's update that.
+                            if len(inst.history['pos']) > len(inst.history['time']) - 1:
+                                inst.history['pos'][-1] = center_pos # Replace rigid body pos
+                            
+                            # Deflection (Max Z range relative to mean Z)
+                            z_vals = verts[:, 2]
+                            z_range = np.max(z_vals) - np.min(z_vals)
+                            inst.history['deflection'].append(z_range * 1000.0)
+                            
+                            # Curvature approximation (not hinge angle)
+                            # Bending angle equivalent? Hard to map 1:1.
+                            inst.history['bending'].append(0.0) # Placeholder
+                        else:
+                            inst.history['bending'].append(0.0)
+                            inst.history['deflection'].append(0.0)
+                    
                     else:
                         inst.history['bending'].append(0.0)
                         inst.history['deflection'].append(0.0)
@@ -1155,6 +1124,11 @@ def ask_common_configs():
     use_pc = (pc_in not in ['n', 'ㅜ'])
     use_fx = (fx_in not in ['n', 'ㅜ']) # Default is True
     
+    # New Prompt: Flex Type Selection
+    flex_type = 'native'
+    # Legacy Hinge Option REMOVED. Always Native Flex.
+
+    
     fs_val = FLEX_STIFFNESS
     fd_val = FLEX_DAMPING
     if use_fx:
@@ -1199,7 +1173,9 @@ def ask_common_configs():
         'use_ac': use_ac,
         'use_pl': use_pl,
         'use_pc': use_pc,
+        'use_pc': use_pc,
         'use_fx': use_fx,
+        'flex_type': flex_type,
         'flex_stiffness': fs_val,
         'flex_damping': fd_val,
         'use_mc': use_mc,
@@ -1226,6 +1202,7 @@ def run_testcase_OneBox():
         label="Single Box Drop",
         enable_pad_contact=cfg['use_pc'],
         use_flex=cfg['use_fx'],
+        flex_type=cfg['flex_type'],
         flex_stiffness=cfg['flex_stiffness'],
         flex_damping=cfg['flex_damping']
     )
@@ -1266,6 +1243,7 @@ def run_testcase_CoM_Random():
                 com_random=True,
                 enable_pad_contact=cfg['use_pc'],
                 use_flex=cfg['use_fx'],
+                flex_type=cfg['flex_type'],
                 flex_stiffness=cfg['flex_stiffness'],
                 flex_damping=cfg['flex_damping']
             )
@@ -1316,6 +1294,7 @@ def run_testcase_CoM_Mov():
                 label=label_str,
                 enable_pad_contact=cfg['use_pc'],
                 use_flex=cfg['use_fx'],
+                flex_type=cfg['flex_type'],
                 flex_stiffness=cfg['flex_stiffness'],
                 flex_damping=cfg['flex_damping']
             )
@@ -1740,6 +1719,7 @@ def run_detailed_singleton_analysis(original_inst, solver_mode, use_ac, use_pl):
         label=original_inst.label,
         enable_pad_contact=original_inst.enable_pad_contact,
         use_flex=original_inst.use_flex,
+        flex_type=original_inst.flex_type,
         flex_stiffness=original_inst.flex_stiffness,
         flex_damping=original_inst.flex_damping
     )

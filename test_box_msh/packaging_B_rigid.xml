@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="tv_packaging_rigid">
+
+  <!-- Unit: mm -> m via mesh scale="0.001 0.001 0.001" (MuJoCo 3.5.0+) -->
+  <compiler meshdir="."/>
+
+  <option timestep="0.002" gravity="0 0 -9.81">
+    <flag contact="enable"/>
+  </option>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1"/>
+  </visual>
+
+  <asset>
+    <mesh name="box_mesh" file="box.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="chassis_mesh" file="chassis.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="display_mesh" file="display.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="dispcoh_mesh" file="dispcoh.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="cushion_mesh" file="cushion.stl" scale="0.001 0.001 0.001"/>
+  </asset>
+
+  <worldbody>
+    <geom name="ground" type="plane" size="5 5 0.1" pos="0 0 -1.5"
+          rgba="0.8 0.8 0.8 1" condim="3"/>
+
+    <!-- Box -->
+    <body name="box" pos="0 0 0">
+      <freejoint name="box_joint"/>
+      <inertial pos="0 0 0" mass="2.0"
+               diaginertia="0.1 0.1 0.1"/>
+      <geom type="mesh" mesh="box_mesh"
+            rgba="0.6 0.4 0.2 0.4" mass="2.0"/>
+    </body>
+
+    <!-- Chassis -->
+    <body name="chassis" pos="0 0 0">
+      <freejoint name="chassis_joint"/>
+      <inertial pos="0 0 0" mass="5.0"
+               diaginertia="0.1 0.1 0.1"/>
+      <geom type="mesh" mesh="chassis_mesh"
+            rgba="0.5 0.5 0.5 1.0" mass="5.0"/>
+    </body>
+
+    <!-- Display -->
+    <body name="display" pos="0 0 0">
+      <freejoint name="display_joint"/>
+      <inertial pos="0 0 0" mass="3.0"
+               diaginertia="0.1 0.1 0.1"/>
+      <geom type="mesh" mesh="display_mesh"
+            rgba="0.1 0.1 0.2 0.9" mass="3.0"/>
+    </body>
+
+    <!-- DispCoh -->
+    <body name="dispcoh" pos="0 0 0">
+      <freejoint name="dispcoh_joint"/>
+      <inertial pos="0 0 0" mass="0.1"
+               diaginertia="0.1 0.1 0.1"/>
+      <geom type="mesh" mesh="dispcoh_mesh"
+            rgba="1.0 0.8 0.0 0.8" mass="0.1"/>
+    </body>
+
+    <!-- Cushion -->
+    <body name="cushion" pos="0 0 0">
+      <freejoint name="cushion_joint"/>
+      <inertial pos="0 0 0" mass="1.5"
+               diaginertia="0.1 0.1 0.1"/>
+      <geom type="mesh" mesh="cushion_mesh"
+            rgba="0.2 0.7 0.3 0.6" mass="1.5"/>
+    </body>
+
+  </worldbody>
+
+</mujoco>
