@@ -189,6 +189,17 @@ def get_default_config(user_config=None):
         "light_main_ambient" : "0.21 0.21 0.21", # 주 조명 환경광 
         "light_main_diffuse" : "0.49 0.49 0.49", # 주 조명 확산광
         "light_sub_diffuse"  : "0.21 0.21 0.21", # 보조 조명 확산광
+
+        # 공기 저항 (Air Resistance) 설정
+        # MuJoCo fluidshape 기반 drag/viscous 및 커스텀 squeeze film 효과
+        "air_density"      : 1.225,    # 공기 밀도 (kg/m^3, 20도 1atm)
+        "air_viscosity"    : 1.81e-5,  # 공기 동점성계수 (Pa.s)
+        "air_cd_drag"      : 1.05,     # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
+        "air_cd_viscous"   : 0.0,      # Slender(점성) drag 계수 (박스는 보통 0)
+        "air_coef_squeeze" : 1.0,      # Squeeze Film 효과 강도 배율 (0=비활성화)
+        "air_squeeze_hmax" : 0.20,     # Squeeze Film 활성화 최대 높이 (m)
+        "air_squeeze_hmin" : 0.001,    # Squeeze Film 최소 높이 (분모 안전값, m)
+        "enable_air_resistance": True, # 전체 공기 저항 활성화 여부
     }
     
     # 사용자가 직접 전달한 나머지 설정값들을 최종 병합(덮어쓰기)합니다.

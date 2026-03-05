@@ -117,6 +117,32 @@ def run_simulation(config_or_path, sim_duration=0.5):
     corner_vel_hist = []
     corner_acc_hist = []
     floor_impact_hist = []
+    air_drag_hist = []
+    air_viscous_hist = []
+    air_squeeze_hist = []
+    
+    # Air resistance parameters from config
+    rho      = config.get('air_density', 1.225)
+    mu       = config.get('air_viscosity', 1.81e-5)
+    Cd_blunt = config.get('air_cd_drag', 1.05)
+    Cd_visc  = config.get('air_cd_viscous', 0.0)
+    Csq      = config.get('air_coef_squeeze', 1.0)
+    h_sq_max = config.get('air_squeeze_hmax', 0.20)
+    h_sq_min = config.get('air_squeeze_hmin', 0.001)
+    enable_air = config.get('enable_air_resistance', True)
+    
+    # Box face areas for drag & viscous
+    W_box = config.get('box_w', 2.0)
+    H_box = config.get('box_h', 1.4)
+    D_box = config.get('box_d', 0.25)
+    A_front = W_box * H_box   # ZY face (facing fall direction)
+    A_side  = H_box * D_box   # XZ face
+    A_top   = W_box * D_box   # XY face
+    
+    # Squeeze geometric factor: (L*W / 2*(L+W))^2
+    L_sq, W_sq = W_box, H_box
+    geo_factor_sq = ((L_sq * W_sq) / (2 * (L_sq + W_sq))) ** 2
+    PHYSICS_COEF_SQ = 0.5 * rho * geo_factor_sq * Csq
     
     # Metric histories per component by row (j) and individual blocks
     metrics = {}
@@ -178,6 +204,50 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 mujoco.mj_contactForce(model, data, i_con, forces)
                 floor_f += abs(forces[0])
         floor_impact_hist.append(floor_f)
+        
+        # Air Resistance: Drag, Viscous, Squeeze
+        f_drag = 0.0
+        f_viscous = 0.0
+        f_squeeze = 0.0
+        if enable_air:
+            lin_vel_w = vel[3:6]  # linear velocity [vx, vy, vz] world frame
+            v_z = lin_vel_w[2]    # vertical velocity (downward = negative)
+            v_mag = np.linalg.norm(lin_vel_w)
+            
+            # Drag: F_d = 0.5 * rho * Cd * A * v_z^2  (resists motion)
+            # Use frontal area relative to velocity direction
+            v_vec_n = lin_vel_w / (v_mag + 1e-9)
+            A_eff = abs(v_vec_n[0]) * A_side + abs(v_vec_n[1]) * A_side + abs(v_vec_n[2]) * A_front
+            f_drag = 0.5 * rho * Cd_blunt * A_eff * v_mag**2
+            
+            # Viscous: F_v = mu * Cd_visc * A * v  (linear in v for low Re)
+            A_total_surface = 2 * (W_box*H_box + H_box*D_box + W_box*D_box)
+            f_viscous = mu * Cd_visc * A_total_surface * v_mag
+            
+            # Squeeze Film: grid integration over bottom face when near floor
+            h_body = pos[2]
+            if 0 < h_body < h_sq_max and v_z < 0:
+                N_sq = 8
+                dA_sq = (L_sq * W_sq) / (N_sq * N_sq)
+                grid_steps = np.linspace(-0.5 + 0.5/N_sq, 0.5 - 0.5/N_sq, N_sq)
+                for uu in grid_steps:
+                    for vv in grid_steps:
+                        h_pt = max(h_body, h_sq_min)
+                        dF = PHYSICS_COEF_SQ * dA_sq * (abs(v_z) / h_pt)**2
+                        dF = min(dF, 500.0)
+                        f_squeeze += dF
+            
+            # Apply squeeze as upward external force on root body
+            try:
+                root_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "BPackagingBox")
+                if root_id >= 0:
+                    data.xfrc_applied[root_id][2] += f_squeeze
+            except Exception:
+                pass
+        
+        air_drag_hist.append(f_drag)
+        air_viscous_hist.append(f_viscous)
+        air_squeeze_hist.append(f_squeeze)
         
         # G-Force is now calculated purely from root kinematic differences after simulation
             
@@ -328,14 +398,22 @@ def run_simulation(config_or_path, sim_duration=0.5):
         plt.savefig('rds-impact_gforce.png')
         plt.close()
         
-        # Floor Impact plot
-        plt.figure(figsize=(10, 5))
-        plt.plot(time_history, floor_impact_hist, label='Floor Normal Force (N)', color='red')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Force (N)')
-        plt.title('Floor Impact Force')
-        plt.grid(True)
-        plt.legend()
+        # Floor Impact + Air Resistance combined plot (2 subplots)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+        fig.suptitle('Floor Impact Force & Air Resistance Forces')
+        ax1.plot(time_history, floor_impact_hist, label='Floor Normal Force (N)', color='red')
+        ax1.set_ylabel('Force (N)')
+        ax1.set_title('Floor Impact')
+        ax1.grid(True)
+        ax1.legend()
+        ax2.plot(time_history, air_drag_hist,    label=f'Drag  (Cd={config.get("air_cd_drag",1.05):.2f})', color='blue')
+        ax2.plot(time_history, air_viscous_hist, label=f'Viscous (Cd_v={config.get("air_cd_viscous",0.0):.2f})', color='green')
+        ax2.plot(time_history, air_squeeze_hist, label=f'Squeeze Film (k={config.get("air_coef_squeeze",1.0):.1f})', color='orange')
+        ax2.set_xlabel('Time (s)')
+        ax2.set_ylabel('Force (N)')
+        ax2.set_title('Air Resistance Components')
+        ax2.grid(True)
+        ax2.legend()
         plt.tight_layout()
         plt.savefig('rds-floor_impact.png')
         plt.close()
