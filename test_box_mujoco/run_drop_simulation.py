@@ -79,7 +79,10 @@ def run_simulation(config_or_path, sim_duration=0.5):
         # It's a config dictionary
         config = config_or_path
         print("Generating discrete box model from config...")
-        xml_str = create_model("temp_drop_sim.xml", config=config)
+        xml_file = "temp_drop_sim.xml"
+        xml_str = create_model(xml_file, config=config)
+        xml_abs_path = os.path.abspath(xml_file)
+        print(f"  >> Generated XML: {xml_abs_path}")
         model = mujoco.MjModel.from_xml_string(xml_str)
         # Override sim_duration if provided in config
         sim_duration = config.get('sim_duration', sim_duration)
@@ -237,11 +240,26 @@ def run_simulation(config_or_path, sim_duration=0.5):
                         dF = min(dF, 500.0)
                         f_squeeze += dF
             
-            # Apply squeeze as upward external force on root body
+            # Apply all air forces on root body
+            # IMPORTANT: Reset xfrc_applied first — MuJoCo does NOT auto-reset it between steps
             try:
                 root_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "BPackagingBox")
                 if root_id >= 0:
-                    data.xfrc_applied[root_id][2] += f_squeeze
+                    data.xfrc_applied[root_id, :] = 0.0  # reset each step
+                    # Drag force opposes velocity direction
+                    if v_mag > 1e-6:
+                        f_drag_vec = -f_drag * (lin_vel_w / v_mag)
+                        data.xfrc_applied[root_id, 0] += f_drag_vec[0]
+                        data.xfrc_applied[root_id, 1] += f_drag_vec[1]
+                        data.xfrc_applied[root_id, 2] += f_drag_vec[2]
+                    # Viscous force also opposes velocity
+                    if v_mag > 1e-6:
+                        f_visc_vec = -f_viscous * (lin_vel_w / v_mag)
+                        data.xfrc_applied[root_id, 0] += f_visc_vec[0]
+                        data.xfrc_applied[root_id, 1] += f_visc_vec[1]
+                        data.xfrc_applied[root_id, 2] += f_visc_vec[2]
+                    # Squeeze film: upward force (Z+)
+                    data.xfrc_applied[root_id, 2] += f_squeeze
             except Exception:
                 pass
         
@@ -567,4 +585,14 @@ if __name__ == "__main__":
     cfg["drop_height"] = 0.5    
     cfg["plot_results"] = True
     cfg['sim_duration'] = 2.0
+
+    cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
+    cfg["air_viscosity"]    = 1.81e-5   # 공기 동점성계수 (Pa.s)
+    cfg["air_cd_drag"]      = 1.05      # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
+    cfg["air_cd_viscous"]   = 0.0       # Slender(점성) drag 계수 (박스는 보통 0)
+    cfg["air_coef_squeeze"] = 0.0       # Squeeze Film 효과 강도 배율 (0=비활성화)
+    cfg["air_squeeze_hmax"] = 0.20      # Squeeze Film 활성화 최대 높이 (m)
+    cfg["air_squeeze_hmin"] = 0.001     # Squeeze Film 최소 높이 (분모 안전값, m)
+    cfg["enable_air_resistance"]= False  # 전체 공기 저항 활성화 여부
+        
     run_simulation(cfg)

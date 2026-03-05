@@ -88,8 +88,8 @@ def get_default_config(user_config=None):
     tv_solimp_power = user_config.get("tv_solimp_power", 2.0)    # 구조물 임피던스 거듭제곱
     
     # gorund contact    
-    ground_solref_stiff =  user_config.get("ground_solref_stiff", 0.01) # 바닥 timeconst (0.002 미만시 폭발 위험)
-    ground_solref_damp = user_config.get("ground_solref_damp", 1.0) # 바닥 dampratio
+    ground_solref_stiff =  user_config.get("ground_solref_stiff", 0.001) # 바닥 timeconst (0.002 미만시 폭발 위험)
+    ground_solref_damp = user_config.get("ground_solref_damp", 0.1) # 바닥 dampratio
 
     # solref: 오리지널 (timeconst, dampratio) 방식
     cush_solref = f"{cush_solref_stiff} {cush_solref_damp}"
@@ -196,7 +196,7 @@ def get_default_config(user_config=None):
         "air_viscosity"    : 1.81e-5,  # 공기 동점성계수 (Pa.s)
         "air_cd_drag"      : 1.05,     # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
         "air_cd_viscous"   : 0.0,      # Slender(점성) drag 계수 (박스는 보통 0)
-        "air_coef_squeeze" : 1.0,      # Squeeze Film 효과 강도 배율 (0=비활성화)
+        "air_coef_squeeze" : 0.0,      # Squeeze Film 효과 강도 배율 (0=비활성화)
         "air_squeeze_hmax" : 0.20,     # Squeeze Film 활성화 최대 높이 (m)
         "air_squeeze_hmin" : 0.001,    # Squeeze Film 최소 높이 (분모 안전값, m)
         "enable_air_resistance": True, # 전체 공기 저항 활성화 여부
