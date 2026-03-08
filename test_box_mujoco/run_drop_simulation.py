@@ -55,7 +55,8 @@ def calc_mujoco_stiffness(solref_str, mass=1.0):
 def apply_aerodynamics(model, data, config):
     """
     공기 저항(Drag, Viscous) 및 지면 근접 시 압축 공기 효과(Squeeze Film)를 계산하여 적용합니다.
-    Torque 계산을 포함하며, 박스의 분할 상태를 고려한 격자 적산을 수행합니다.
+    [개선] 특정 한 면만 계산하는 방식에서 모든 하향 면(Downward Faces)을 체크하는 방식으로 변경하여 
+    Corner/Edge 낙하 시에도 공기 쿠션 효과가 누락되지 않도록 합니다.
     """
     rho      = config.get('air_density', 1.225)
     mu       = config.get('air_viscosity', 1.81e-5)
@@ -65,19 +66,13 @@ def apply_aerodynamics(model, data, config):
     h_sq_max = config.get('air_squeeze_hmax', 0.20)
     h_sq_min = config.get('air_squeeze_hmin', 0.001)
     
-    if not config.get('enable_air_squeeze', True):
-        return 0.0, 0.0, 0.0
-
     # 적용 대상 바디 (최상위 박스)
     body_name = "BPackagingBox"
     body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
     if body_id == -1:
         return 0.0, 0.0, 0.0
 
-    # 1. MuJoCo 기본 공기 저항 (Drag, Viscous)은 XML <option>의 density/viscosity 설정에 의해 자동 처리됩니다.
-    # 여기서는 MuJoCo가 자체적으로 지원하지 않는 Squeeze Film 효과만 수동으로 계산하여 추가합니다.
-    
-    # 외력 초기화 (MuJoCo는 m_step 마다 자동 초기화를 하지 않으므로 매번 리셋)
+    # 외력 초기화 (MuJoCo는 제어 콜백에서 직접 xfrc_applied를 설정하면 해당 스텝에 반영됨)
     data.xfrc_applied[body_id, :] = 0.0
 
     # CoM 상태 정보 추출
@@ -86,65 +81,68 @@ def apply_aerodynamics(model, data, config):
     ang_vel  = data.cvel[body_id, 0:3] 
     lin_vel  = data.cvel[body_id, 3:6] 
 
-    # 2. Squeeze Film 효과 (그리드 적산 + 토크)
     f_sq_total = 0.0
-    if Csq > 0:
-        W_box, H_box, D_box = config.get('box_w', 2.0), config.get('box_h', 1.4), config.get('box_d', 0.25)
-        # 하향 면(Face) 판별
-        xaxis, yaxis, zaxis = mat[:, 0], mat[:, 1], mat[:, 2]
-        dots = [xaxis[2], yaxis[2], zaxis[2]]
-        axis_idx = np.argmax(np.abs(dots))
-        
-        if axis_idx == 0:   # X-face
-            u_len, v_len = H_box, D_box
-            u_vec, v_vec = yaxis, zaxis
-            L_sq, W_sq = H_box, D_box
-            l_norm = np.sign(dots[axis_idx]) * np.array([W_box/2, 0, 0])
-        elif axis_idx == 1: # Y-face
-            u_len, v_len = W_box, D_box
-            u_vec, v_vec = xaxis, zaxis
-            L_sq, W_sq = W_box, D_box
-            l_norm = np.sign(dots[axis_idx]) * np.array([0, H_box/2, 0])
-        else:               # Z-face
-            u_len, v_len = W_box, H_box
-            u_vec, v_vec = xaxis, yaxis
-            L_sq, W_sq = W_box, H_box
-            l_norm = np.sign(dots[axis_idx]) * np.array([0, 0, D_box/2])
+    total_torque = np.zeros(3)
 
-        # 법선이 위를 향하면 반대편 면 선택
-        if dots[axis_idx] > 0: l_norm = -l_norm
-        
-        face_center_rel = mat @ l_norm
-        geo_factor = ((L_sq * W_sq) / (2 * (L_sq + W_sq))) ** 2
-        P_COEF = 0.5 * rho * geo_factor * Csq
-        
-        # 격자 분할 (N x N)
-        N = 8 
-        dA = (u_len * v_len) / (N * N)
-        grid_steps = np.linspace(-0.5+0.5/N, 0.5-0.5/N, N)
-        
-        total_torque = np.zeros(3)
-        for u in grid_steps:
-            for v in grid_steps:
-                rel_p = face_center_rel + (u * u_len) * u_vec + (v * v_len) * v_vec
-                h = pos[2] + rel_p[2]
-                
-                if h_sq_min < h < h_sq_max:
-                    v_p = lin_vel + np.cross(ang_vel, rel_p)
-                    v_z = v_p[2]
+    # [1] Squeeze Film 효과 계산 (모든 면에 대해)
+    if config.get('enable_air_squeeze', True) and Csq > 0:
+        dims = [config.get('box_w', 2.0), config.get('box_h', 1.4), config.get('box_d', 0.25)]
+        # 각 로컬 축(X, Y, Z)에 대하여
+        for axis_idx in range(3):
+            axis_vec = mat[:, axis_idx]  # 로컬 축의 월드 벡터
+            dot_z = axis_vec[2]          # 월드 Z축 투영 성분
+            
+            if abs(dot_z) < 1e-3: continue # 지면과 수직인 면은 스퀴즈 없음
+            
+            # 하향 방향의 법선 설정
+            local_norm = np.zeros(3)
+            local_norm[axis_idx] = -np.sign(dot_z) * (dims[axis_idx] / 2.0)
+            
+            # 해당 면의 가로/세로 길이 결정
+            other_indices = [i for i in range(3) if i != axis_idx]
+            u_len = dims[other_indices[0]]
+            v_len = dims[other_indices[1]]
+            u_vec = mat[:, other_indices[0]]
+            v_vec = mat[:, other_indices[1]]
+            
+            # 형상 계수 계산
+            geo_factor = ((u_len * v_len) / (2 * (u_len + v_len))) ** 2
+            P_COEF = 0.5 * rho * geo_factor * Csq
+            
+            face_center_rel = mat @ local_norm
+            
+            # 격자 적산 (N x N)
+            N = 6 # 성능을 위해 약간 조정
+            dA = (u_len * v_len) / (N * N)
+            grid_steps = np.linspace(-0.5+0.5/N, 0.5-0.5/N, N)
+            
+            for u in grid_steps:
+                for v in grid_steps:
+                    rel_p = face_center_rel + (u * u_len) * u_vec + (v * v_len) * v_vec
+                    h = pos[2] + rel_p[2]
                     
-                    if v_z < 0:
-                        dF = P_COEF * dA * (v_z / h)**2
-                        dF = min(dF, 500.0)
-                        f_sq_total += dF
-                        # Torque: r x F. dF 가 위쪽(+Z)이므로 F = [0, 0, dF]
-                        total_torque += np.cross(rel_p, np.array([0, 0, dF]))
-        
-        # 힘(Z) 및 토크(XYZ) 반영
+                    if h_sq_min < h < h_sq_max:
+                        # 점 속도 계산
+                        p_vel = lin_vel + np.cross(ang_vel, rel_p)
+                        vz = p_vel[2]
+                        if vz < 0:
+                            dF = P_COEF * dA * (vz / h)**2
+                            dF = min(dF, 500.0 / (N*N/64)) # 포인트당 캡
+                            f_sq_total += dF
+                            total_torque += np.cross(rel_p, np.array([0, 0, dF]))
+
+        # 물리 엔진에 힘 적용
         data.xfrc_applied[body_id, 2] += f_sq_total
         data.xfrc_applied[body_id, 3:6] += total_torque
 
-    return 0.0, 0.0, f_sq_total
+    # [2] 로깅용 에어로다이나믹 추정값 (Drag/Viscous)
+    # MuJoCo가 계산하는 값을 근사하여 반환 (시각화용)
+    total_area = 2*(dims[0]*dims[1] + dims[1]*dims[2] + dims[2]*dims[0]) if 'dims' in locals() else 5.0
+    v_mag = np.linalg.norm(lin_vel)
+    f_drag_est = 0.5 * rho * v_mag**2 * Cd_blunt * (total_area/6.0) if config.get('enable_air_drag', True) else 0.0
+    f_visc_est = mu * v_mag * Cd_visc * total_area if config.get('enable_air_drag', True) else 0.0
+
+    return f_drag_est, f_visc_est, f_sq_total
 
 
 
@@ -844,7 +842,7 @@ if __name__ == "__main__":
     # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
     # ground_solref: [timeconst, dampratio] -> timeconst가 작을수록 딱딱함. (0.002 미만은 비권장)
     cfg["ground_solref_stiff"] = 0.005  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
-    cfg["ground_solref_damp"]  = 0.01    # Critical Damping
+    cfg["ground_solref_damp"]  = 2.00    # Critical Damping
     
     # ground_solimp: [dmin, dmax, width, midpoint, power] 
     # dmax를 0.999로 높여 최대 압축 시 반발력을 극대화하고, width를 줄여 즉각 반응하게 함
@@ -860,15 +858,15 @@ if __name__ == "__main__":
     cfg["sim_nthread"]    = 4              # [NEW] 멀티코어 사용 (코어 수에 맞춰 조절)
     
     # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    cfg["cush_solref_stiff"] = 0.02 # 쿠션 timeconst
-    cfg["cush_solref_damp"]  = 1.0 # 쿠션 dampratio
+    cfg["cush_solref_stiff"] = 0.1 # 쿠션 timeconst
+    cfg["cush_solref_damp"]  = 2.0 # 쿠션 dampratio
 
     # air fluidic force
     cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
     cfg["air_viscosity"]    = 1.81e-5   # 공기 동점성계수 (Pa.s)
     cfg["air_cd_drag"]      = 1.05      # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
-    cfg["air_cd_viscous"]   = 0.0       # Slender(점성) drag 계수 (박스는 보통 0)
-    cfg["air_coef_squeeze"] = 0.0       # Squeeze Film 효과 강도 배율 (0=비활성화)
+    cfg["air_cd_viscous"]   = 0.01      # Slender(점성) drag 계수 (박스는 보통 0)
+    cfg["air_coef_squeeze"] = 1.0       # Squeeze Film 효과 강도 배율 (0=비활성화)
     cfg["air_squeeze_hmax"] = 0.20      # Squeeze Film 활성화 최대 높이 (m)
     cfg["air_squeeze_hmin"] = 0.001     # Squeeze Film 최소 높이 (분모 안전값, m)
     cfg["enable_air_drag"]    = True   # MuJoCo 빌트인 Drag/Viscous 활성화 여부
