@@ -6,9 +6,146 @@ from mpl_toolkits.mplot3d import Axes3D
 import os
 import json
 import time
+import shutil
+from datetime import datetime
 from run_discrete_builder import create_model, get_default_config
 
 plt.rcParams.update({'font.size': 8})
+
+
+def ask_use_viewer():
+    """사용자에게 GUI 뷰어(Passive Viewer) 사용 여부를 묻습니다."""
+    try:
+        # 5초 내에 입력이 없으면 기본값(True) 사용 (선택 사항, 여기서는 단순 input 사용)
+        ans = input("\n>> MuJoCo GUI 뷰어를 실행하시겠습니까? (Y/n, 기본값=Y): ").strip().lower()
+        if ans == 'n':
+            return False
+        return True
+    except EOFError:
+        return True
+
+
+def calc_mujoco_stiffness(solref_str, mass=1.0):
+    """
+    MuJoCo solref (timeconst, dampratio)를 기반으로 유효 강성 K와 감쇠 C를 계산합니다.
+    MuJoCo 공식: 
+      K = 1 / (timeconst^2 * dampratio^2)
+      C = 2 / timeconst
+    물질의 질량(mass)을 곱하여 최종 차원(N/m, Ns/m)을 반환합니다.
+    """
+    try:
+        parts = [float(x) for x in str(solref_str).split()]
+        if len(parts) < 2:
+            return 0.0, 0.0
+        tc, dr = parts[0], parts[1]
+        
+        # tc 또는 dr 이 0이면 수치적 발산 방지
+        if tc <= 0 or dr <= 0:
+            return 0.0, 0.0
+            
+        k_unit = 1.0 / (tc**2 * dr**2)
+        c_unit = 2.0 / tc
+        
+        return k_unit * mass, c_unit * mass
+    except Exception:
+        return 0.0, 0.0
+
+
+
+def apply_aerodynamics(model, data, config):
+    """
+    공기 저항(Drag, Viscous) 및 지면 근접 시 압축 공기 효과(Squeeze Film)를 계산하여 적용합니다.
+    Torque 계산을 포함하며, 박스의 분할 상태를 고려한 격자 적산을 수행합니다.
+    """
+    rho      = config.get('air_density', 1.225)
+    mu       = config.get('air_viscosity', 1.81e-5)
+    Cd_blunt = config.get('air_cd_drag', 1.05)
+    Cd_visc  = config.get('air_cd_viscous', 0.0)
+    Csq      = config.get('air_coef_squeeze', 0.0)
+    h_sq_max = config.get('air_squeeze_hmax', 0.20)
+    h_sq_min = config.get('air_squeeze_hmin', 0.001)
+    
+    if not config.get('enable_air_squeeze', True):
+        return 0.0, 0.0, 0.0
+
+    # 적용 대상 바디 (최상위 박스)
+    body_name = "BPackagingBox"
+    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+    if body_id == -1:
+        return 0.0, 0.0, 0.0
+
+    # 1. MuJoCo 기본 공기 저항 (Drag, Viscous)은 XML <option>의 density/viscosity 설정에 의해 자동 처리됩니다.
+    # 여기서는 MuJoCo가 자체적으로 지원하지 않는 Squeeze Film 효과만 수동으로 계산하여 추가합니다.
+    
+    # 외력 초기화 (MuJoCo는 m_step 마다 자동 초기화를 하지 않으므로 매번 리셋)
+    data.xfrc_applied[body_id, :] = 0.0
+
+    # CoM 상태 정보 추출
+    pos      = data.xpos[body_id]
+    mat      = data.xmat[body_id].reshape(3, 3)
+    ang_vel  = data.cvel[body_id, 0:3] 
+    lin_vel  = data.cvel[body_id, 3:6] 
+
+    # 2. Squeeze Film 효과 (그리드 적산 + 토크)
+    f_sq_total = 0.0
+    if Csq > 0:
+        W_box, H_box, D_box = config.get('box_w', 2.0), config.get('box_h', 1.4), config.get('box_d', 0.25)
+        # 하향 면(Face) 판별
+        xaxis, yaxis, zaxis = mat[:, 0], mat[:, 1], mat[:, 2]
+        dots = [xaxis[2], yaxis[2], zaxis[2]]
+        axis_idx = np.argmax(np.abs(dots))
+        
+        if axis_idx == 0:   # X-face
+            u_len, v_len = H_box, D_box
+            u_vec, v_vec = yaxis, zaxis
+            L_sq, W_sq = H_box, D_box
+            l_norm = np.sign(dots[axis_idx]) * np.array([W_box/2, 0, 0])
+        elif axis_idx == 1: # Y-face
+            u_len, v_len = W_box, D_box
+            u_vec, v_vec = xaxis, zaxis
+            L_sq, W_sq = W_box, D_box
+            l_norm = np.sign(dots[axis_idx]) * np.array([0, H_box/2, 0])
+        else:               # Z-face
+            u_len, v_len = W_box, H_box
+            u_vec, v_vec = xaxis, yaxis
+            L_sq, W_sq = W_box, H_box
+            l_norm = np.sign(dots[axis_idx]) * np.array([0, 0, D_box/2])
+
+        # 법선이 위를 향하면 반대편 면 선택
+        if dots[axis_idx] > 0: l_norm = -l_norm
+        
+        face_center_rel = mat @ l_norm
+        geo_factor = ((L_sq * W_sq) / (2 * (L_sq + W_sq))) ** 2
+        P_COEF = 0.5 * rho * geo_factor * Csq
+        
+        # 격자 분할 (N x N)
+        N = 8 
+        dA = (u_len * v_len) / (N * N)
+        grid_steps = np.linspace(-0.5+0.5/N, 0.5-0.5/N, N)
+        
+        total_torque = np.zeros(3)
+        for u in grid_steps:
+            for v in grid_steps:
+                rel_p = face_center_rel + (u * u_len) * u_vec + (v * v_len) * v_vec
+                h = pos[2] + rel_p[2]
+                
+                if h_sq_min < h < h_sq_max:
+                    v_p = lin_vel + np.cross(ang_vel, rel_p)
+                    v_z = v_p[2]
+                    
+                    if v_z < 0:
+                        dF = P_COEF * dA * (v_z / h)**2
+                        dF = min(dF, 500.0)
+                        f_sq_total += dF
+                        # Torque: r x F. dF 가 위쪽(+Z)이므로 F = [0, 0, dF]
+                        total_torque += np.cross(rel_p, np.array([0, 0, dF]))
+        
+        # 힘(Z) 및 토크(XYZ) 반영
+        data.xfrc_applied[body_id, 2] += f_sq_total
+        data.xfrc_applied[body_id, 3:6] += total_torque
+
+    return 0.0, 0.0, f_sq_total
+
 
 
 def get_body_kinematics(model, data, body_name):
@@ -86,7 +223,27 @@ def run_simulation(config_or_path, sim_duration=0.5):
         model = mujoco.MjModel.from_xml_string(xml_str)
         # Override sim_duration if provided in config
         sim_duration = config.get('sim_duration', sim_duration)
+        xml_path = xml_abs_path
+
+    # [NEW] 결과 저장을 위한 타임스탬프 폴더 생성
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"rds-{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    report_file_path = os.path.join(output_dir, "summary_report.txt")
+
+    # [NEW] 모델 생성만 수행하고 시뮬레이션은 건너뛰는 옵션 처리
+    if config.get("only_generate_xml", False):
+        if xml_path and os.path.exists(xml_path):
+            shutil.copy(xml_path, os.path.join(output_dir, os.path.basename(xml_path)))
+            print(f"  >> [XML Mode] XML saved to {output_dir}. Skipping simulation.")
+        return None
+    
     data = mujoco.MjData(model)
+    
+    # [INFO] MuJoCo 3.0+ 멀티코어 연산은 XML의 <option npoolthread="N"> 설정을 통해 활성화됩니다.
+    nthread = config.get("sim_nthread", 4)
+    if nthread > 1:
+        print(f"  >> Multicore requested: {nthread} threads (via npoolthread).")
     
     # Identify bodies for structural metrics
     # Group by component name -> dict of (i,j,k) -> body_id
@@ -97,14 +254,24 @@ def run_simulation(config_or_path, sim_duration=0.5):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
         if name and name.startswith("b_"):
             parts = name.split("_")
+            # 최소 'b_{comp}_{i}_{j}_{k}' 형식을 갖추기 위해 5개 이상의 토큰이 필요함
             if len(parts) >= 5:
-                comp_name = parts[1]
-                idx_i, idx_j, idx_k = int(parts[2]), int(parts[3]), int(parts[4])
-                
-                if comp_name not in components:
-                    components[comp_name] = {}
-                components[comp_name][(idx_i, idx_j, idx_k)] = i
-                nominal_local_pos[i] = model.body_pos[i].copy()
+                # 인덱스 (i, j, k)는 마지막 3개 세그먼트에서 추출
+                try:
+                    idx_i = int(parts[-3])
+                    idx_j = int(parts[-2])
+                    idx_k = int(parts[-1])
+                    
+                    # 컴포넌트 이름은 첫 'b_'와 인덱스 사이의 모든 세그먼트를 결합
+                    comp_name = "_".join(parts[1:-3])
+                    
+                    if comp_name not in components:
+                        components[comp_name] = {}
+                    components[comp_name][(idx_i, idx_j, idx_k)] = i
+                    nominal_local_pos[i] = model.body_pos[i].copy()
+                except ValueError:
+                    # 인덱스 변환 실패 시 (이산 블록 형식이 아님) 건너뜀
+                    continue
 
     # Time setup
     dt = model.opt.timestep
@@ -119,35 +286,61 @@ def run_simulation(config_or_path, sim_duration=0.5):
     corner_pos_hist = []
     corner_vel_hist = []
     corner_acc_hist = []
-    floor_impact_hist = []
+    ground_impact_hist = []
     air_drag_hist = []
     air_viscous_hist = []
     air_squeeze_hist = []
     
-    # Air resistance parameters from config
-    rho      = config.get('air_density', 1.225)
-    mu       = config.get('air_viscosity', 1.81e-5)
-    Cd_blunt = config.get('air_cd_drag', 1.05)
-    Cd_visc  = config.get('air_cd_viscous', 0.0)
-    Csq      = config.get('air_coef_squeeze', 1.0)
-    h_sq_max = config.get('air_squeeze_hmax', 0.20)
-    h_sq_min = config.get('air_squeeze_hmin', 0.001)
-    enable_air = config.get('enable_air_resistance', True)
-    
-    # Box face areas for drag & viscous
-    W_box = config.get('box_w', 2.0)
-    H_box = config.get('box_h', 1.4)
-    D_box = config.get('box_d', 0.25)
-    A_front = W_box * H_box   # ZY face (facing fall direction)
-    A_side  = H_box * D_box   # XZ face
-    A_top   = W_box * D_box   # XY face
-    
-    # Squeeze geometric factor: (L*W / 2*(L+W))^2
-    L_sq, W_sq = W_box, H_box
-    geo_factor_sq = ((L_sq * W_sq) / (2 * (L_sq + W_sq))) ** 2
-    PHYSICS_COEF_SQ = 0.5 * rho * geo_factor_sq * Csq
-    
     # Metric histories per component by row (j) and individual blocks
+    # [NEW] MuJoCo 물리 파라미터 (Stiffness K, Damping C) 사전 계산 및 출력
+    cush_tc = config.get("cush_solref_stiff", 0.02)
+    cush_dr = config.get("cush_solref_damp", 1.0)
+    cush_solref = f"{cush_tc} {cush_dr}"
+    
+    # 쿠션 블록 한 개의 질량 (에너지 계산용)
+    cush_div = config.get("cush_div", [5, 4, 3])
+    num_cush_blocks = np.prod(cush_div)
+    m_cush_block = config.get("mass_cushion", 1.0) / num_cush_blocks
+    
+    k_cush, c_cush = calc_mujoco_stiffness(cush_solref, m_cush_block)
+    
+    # [NEW] 탄성 계수 (Young's Modulus, E) 근사 계산
+    # E = (K * L) / A  (K: 강성, L: 블록 두께, A: 단면적)
+    cush_w = config.get("box_w", 2.0) - 2*config.get("box_thick", 0.01)
+    cush_h = config.get("box_h", 1.4) - 2*config.get("box_thick", 0.01)
+    cush_d = config.get("box_d", 0.25) - 2*config.get("box_thick", 0.01)
+
+    avg_dx = cush_w / cush_div[0]
+    avg_dy = cush_h / cush_div[1]
+    avg_dz = cush_d / cush_div[2]
+    
+    # 단면적 (xy 평면 기준) 및 두께 (z 방향)
+    area_avg = avg_dx * avg_dy
+    E_estimated = (k_cush * avg_dz) / area_avg if area_avg > 0 else 0.0
+    E_mpa = E_estimated / 1e6 # Pa -> MPa
+    E_kpa = E_estimated / 1e3 # Pa -> kPa
+
+    # 에너지 계산용 프록시 강성을 실제 물리값으로 업데이트
+    k_spring_proxy = k_cush
+
+    # 바닥 및 테이프 정보 (참조용 전역 질량 기준)
+    k_ground, c_ground = calc_mujoco_stiffness(config.get("ground_solref", "0.01 1.0"), config.get("mass_cushion", 1.0))
+    k_tape,   c_tape   = calc_mujoco_stiffness(config.get("tape_solref", "0.005 1.0"), config.get("mass_occ", 0.1))
+
+    print("\n" + "="*80)
+    print(f"[MuJoCo Solver Parameters (Calculated K & C)]")
+    print(f" - Ground (Global) : K = {k_ground:10.1f} N/m, C = {c_ground:8.1f} Ns/m")
+    print(f"   (Used: mass={config.get('mass_cushion', 1.0):.3f}kg, solref={config.get('ground_solref', '0.01 1.0')})")
+    
+    print(f" - Tape (Global)   : K = {k_tape:10.1f} N/m, C = {c_tape:8.1f} Ns/m")
+    print(f"   (Used: mass={config.get('mass_occ', 0.1):.3f}kg, solref={config.get('tape_solref', '0.005 1.0')})")
+    
+    print(f" - Cushion (Block) : K = {k_cush:10.1f} N/m, C = {c_cush:8.1f} Ns/m (per block)")
+    print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_solref})")
+    print(f"   (Geom: Avg_Area={area_avg:.6f} m^2, Avg_Depth={avg_dz:.4f} m)")
+    print(f"   >> Est. Young's Modulus (E): {E_mpa:.4e} MPa ({E_kpa:.2f} kPa)")
+    print("="*80 + "\n")
+
     metrics = {}
     for comp in components:
         metrics[comp] = {}
@@ -167,20 +360,102 @@ def run_simulation(config_or_path, sim_duration=0.5):
             
     print(f"Starting simulation for {duration} seconds with {steps} steps...")
     
-    max_g_force = 0.0
-    k_spring_proxy = 1e4 # N/m proxy for strain energy calculation
+    # k_spring_proxy is now calculated from MuJoCo parameters above
     
     prev_vel_z = 0.0
     
     mujoco.mj_forward(model, data)
     
-    for step in range(steps):
-        try:
-            mujoco.mj_step(model, data)
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"\n[Drop Sim Error] Simulation unstable or crashed (mujoco.mj_step): {e}\n")
+    # [NEW] Control Callback 등록 (mjcb_control)
+    def mjcb_aerodynamics(model, data):
+        apply_aerodynamics(model, data, config)
+    mujoco.set_mjcb_control(mjcb_aerodynamics)
+    
+    # [NEW] Keyboard Control State & Callback (Reference: boxmotionsim_v0_0_2)
+    class ControlState:
+        def __init__(self):
+            self.paused = False
+            self.step_request = False
+            self.reset_request = False
+            self.quit_request = False
+    
+    ctrl = ControlState()
+    
+    def key_callback(keycode):
+        if keycode == 32: # Space
+            ctrl.paused = not ctrl.paused
+            print(f"   >> [VIEWER] {'PAUSED' if ctrl.paused else 'RUNNING'}")
+        elif keycode == 262: # Right Arrow
+            ctrl.step_request = True
+        elif keycode == 256: # ESC
+            ctrl.quit_request = True
+            print("   >> [VIEWER] Quit requested.")
+        elif keycode == 259 or keycode == 82: # Backspace (259) or R (82)
+            ctrl.reset_request = True
+    
+    use_viewer = config.get("use_viewer", False)
+    viewer = None
+    if use_viewer:
+        viewer = mujoco.viewer.launch_passive(model, data, key_callback=key_callback)
+        print("\n" + "-"*40)
+        print("🎮 [Passive Viewer Interactive Controls]")
+        print(" - [Space]     : Pause / Resume")
+        print(" - [Right]     : Single Step (when paused)")
+        print(" - [Backspace] : Reset Simulation")
+        print(" - [Esc]       : Stop & Show Results")
+        print("-"*40 + "\n")
+
+    start_real_time = time.time()
+    last_reported_interval = -1
+    
+    step = 0
+    while step < steps:
+        if ctrl.quit_request:
             break
+            
+        if ctrl.reset_request:
+            print("   >> [VIEWER] Resetting simulation...")
+            mujoco.mj_resetData(model, data)
+            # Re-initialize histories
+            time_history.clear(); z_hist.clear(); pos_hist.clear(); vel_hist.clear(); acc_hist.clear()
+            ground_impact_hist.clear(); air_drag_hist.clear(); air_viscous_hist.clear(); air_squeeze_hist.clear()
+            corner_pos_hist.clear(); corner_vel_hist.clear(); corner_acc_hist.clear()
+            for c in metrics:
+                for k in metrics[c]:
+                    if isinstance(metrics[c][k], dict):
+                        for b in metrics[c][k]: metrics[c][k][b].clear()
+                    elif isinstance(metrics[c][k], list):
+                        metrics[c][k].clear()
+            step = 0
+            ctrl.reset_request = False
+            ctrl.paused = True
+            continue
+
+        if not ctrl.paused or ctrl.step_request:
+            try:
+                mujoco.mj_step(model, data)
+                ctrl.step_request = False
+                step += 1
+            except Exception as e:
+                import sys
+                sys.stderr.write(f"\n[Drop Sim Error] Simulation unstable: {e}\n")
+                break
+        else:
+            # Paused state: Just sync viewer and sleep a bit to save CPU
+            if viewer:
+                viewer.sync()
+            time.sleep(0.01)
+            continue
+
+        if viewer and viewer.is_running():
+            viewer.sync()
+            
+        # [INFO] Progress Reporting
+        sim_interval = int(data.time / 0.05)
+        if sim_interval > last_reported_interval:
+            real_elapsed = time.time() - start_real_time
+            print(f"Step Index: {step:6d} | Sim Time: {data.time:6.3f}s | Real Time: {real_elapsed:7.2f}s")
+            last_reported_interval = sim_interval
             
         time_history.append(data.time)
         
@@ -196,8 +471,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
         corner_vel_hist.append([c['vel'] for c in corners])
         corner_acc_hist.append([c['acc'] for c in corners])
         
-        # Floor Impact (Sum of normal forces from worldbody contacts)
-        floor_f = 0.0
+        # Ground Impact (Sum of normal forces from worldbody contacts)
+        ground_f = 0.0
         for i_con in range(data.ncon):
             contact = data.contact[i_con]
             body1 = model.geom_bodyid[contact.geom1]
@@ -205,63 +480,11 @@ def run_simulation(config_or_path, sim_duration=0.5):
             if body1 == 0 or body2 == 0:
                 forces = np.zeros(6, dtype=np.float64)
                 mujoco.mj_contactForce(model, data, i_con, forces)
-                floor_f += abs(forces[0])
-        floor_impact_hist.append(floor_f)
+                ground_f += abs(forces[0])
+        ground_impact_hist.append(ground_f)
         
-        # Air Resistance: Drag, Viscous, Squeeze
-        f_drag = 0.0
-        f_viscous = 0.0
-        f_squeeze = 0.0
-        if enable_air:
-            lin_vel_w = vel[3:6]  # linear velocity [vx, vy, vz] world frame
-            v_z = lin_vel_w[2]    # vertical velocity (downward = negative)
-            v_mag = np.linalg.norm(lin_vel_w)
-            
-            # Drag: F_d = 0.5 * rho * Cd * A * v_z^2  (resists motion)
-            # Use frontal area relative to velocity direction
-            v_vec_n = lin_vel_w / (v_mag + 1e-9)
-            A_eff = abs(v_vec_n[0]) * A_side + abs(v_vec_n[1]) * A_side + abs(v_vec_n[2]) * A_front
-            f_drag = 0.5 * rho * Cd_blunt * A_eff * v_mag**2
-            
-            # Viscous: F_v = mu * Cd_visc * A * v  (linear in v for low Re)
-            A_total_surface = 2 * (W_box*H_box + H_box*D_box + W_box*D_box)
-            f_viscous = mu * Cd_visc * A_total_surface * v_mag
-            
-            # Squeeze Film: grid integration over bottom face when near floor
-            h_body = pos[2]
-            if 0 < h_body < h_sq_max and v_z < 0:
-                N_sq = 8
-                dA_sq = (L_sq * W_sq) / (N_sq * N_sq)
-                grid_steps = np.linspace(-0.5 + 0.5/N_sq, 0.5 - 0.5/N_sq, N_sq)
-                for uu in grid_steps:
-                    for vv in grid_steps:
-                        h_pt = max(h_body, h_sq_min)
-                        dF = PHYSICS_COEF_SQ * dA_sq * (abs(v_z) / h_pt)**2
-                        dF = min(dF, 500.0)
-                        f_squeeze += dF
-            
-            # Apply all air forces on root body
-            # IMPORTANT: Reset xfrc_applied first — MuJoCo does NOT auto-reset it between steps
-            try:
-                root_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "BPackagingBox")
-                if root_id >= 0:
-                    data.xfrc_applied[root_id, :] = 0.0  # reset each step
-                    # Drag force opposes velocity direction
-                    if v_mag > 1e-6:
-                        f_drag_vec = -f_drag * (lin_vel_w / v_mag)
-                        data.xfrc_applied[root_id, 0] += f_drag_vec[0]
-                        data.xfrc_applied[root_id, 1] += f_drag_vec[1]
-                        data.xfrc_applied[root_id, 2] += f_drag_vec[2]
-                    # Viscous force also opposes velocity
-                    if v_mag > 1e-6:
-                        f_visc_vec = -f_viscous * (lin_vel_w / v_mag)
-                        data.xfrc_applied[root_id, 0] += f_visc_vec[0]
-                        data.xfrc_applied[root_id, 1] += f_visc_vec[1]
-                        data.xfrc_applied[root_id, 2] += f_visc_vec[2]
-                    # Squeeze film: upward force (Z+)
-                    data.xfrc_applied[root_id, 2] += f_squeeze
-            except Exception:
-                pass
+        # Air Resistance Logging (Already applied via callback)
+        f_drag, f_viscous, f_squeeze = apply_aerodynamics(model, data, config)
         
         air_drag_hist.append(f_drag)
         air_viscous_hist.append(f_viscous)
@@ -368,40 +591,44 @@ def run_simulation(config_or_path, sim_duration=0.5):
     # The actual physics simulation tracks relative to earth freefall, so we pull max impact
     root_acc_history = np.abs(a_z) / 9.81
     max_g_force = float(np.max(root_acc_history))
-    
-    print("-" * 50)
-    print(f"Peak Assembly G-Force: {max_g_force:.2f} G")
-    print("-" * 50)
-    
-    # Generate Terminal Summary Report
-    for comp, j_data in metrics.items():
-        print("=" * 83)
-        print(f"[최대 구조 변형 지표 로컬라이징 리포트] - Body: {comp}")
-        print("-" * 83)
-        print(f"{'Row Index':<9} | {'Max Bending (deg) / Loc':<23} | {'Max Twist (deg) / Loc':<21} | {'Peak Energy (J) / Loc':<21}")
-        print("-" * 83)
-        
-        j_keys = [k for k in j_data.keys() if isinstance(k, int)]
-        for j in sorted(j_keys):
-            hist = j_data[j]
-            max_b = max(hist['bending'])
-            idx_b = hist['bending'].index(max_b)
-            loc_b = hist['loc_b'][idx_b]
+    # Generate Terminal Summary Report and save to file
+    with open(report_file_path, "w", encoding="utf-8") as rf:
+        def log_and_print(s):
+            print(s)
+            rf.write(s + "\n")
+
+        log_and_print("-" * 50)
+        log_and_print(f"Peak Assembly G-Force: {max_g_force:.2f} G")
+        log_and_print("-" * 50)
+
+        for comp, j_data in metrics.items():
+            log_and_print("=" * 83)
+            log_and_print(f"[최대 구조 변형 지표 로컬라이징 리포트] - Body: {comp}")
+            log_and_print("-" * 83)
+            log_and_print(f"{'Row Index':<9} | {'Max Bending (deg) / Loc':<23} | {'Max Twist (deg) / Loc':<21} | {'Peak Energy (J) / Loc':<21}")
+            log_and_print("-" * 83)
             
-            max_t = max(hist['twist'])
-            idx_t = hist['twist'].index(max_t)
-            loc_t = hist['loc_t'][idx_t]
-            
-            max_e = max(hist['energy'])
-            idx_e = hist['energy'].index(max_e)
-            loc_e = hist['loc_e'][idx_e]
-            
-            str_b = f"{max_b:>6.2f} (@ {loc_b:<7})"
-            str_t = f"{max_t:>6.2f} (@ {loc_t:<7})"
-            str_e = f"{max_e:>6.2f} (@ {loc_e:<7})"
-            print(f"y = {j:<5} | {str_b:<23} | {str_t:<21} | {str_e:<21}")
-        print("=" * 83)
-        print()
+            j_keys = [k for k in j_data.keys() if isinstance(k, int)]
+            for j in sorted(j_keys):
+                hist = j_data[j]
+                max_b = max(hist['bending'])
+                idx_b = hist['bending'].index(max_b)
+                loc_b = hist['loc_b'][idx_b]
+                
+                max_t = max(hist['twist'])
+                idx_t = hist['twist'].index(max_t)
+                loc_t = hist['loc_t'][idx_t]
+                
+                max_e = max(hist['energy'])
+                idx_e = hist['energy'].index(max_e)
+                loc_e = hist['loc_e'][idx_e]
+                
+                str_b = f"{max_b:>6.2f} (@ {loc_b:<7})"
+                str_t = f"{max_t:>6.2f} (@ {loc_t:<7})"
+                str_e = f"{max_e:>6.2f} (@ {loc_e:<7})"
+                log_and_print(f"y = {j:<5} | {str_b:<23} | {str_t:<21} | {str_e:<21}")
+            log_and_print("=" * 83)
+            log_and_print("")
         
     # Plotting (only if requested)
     if config.get("plot_results", True):
@@ -413,15 +640,15 @@ def run_simulation(config_or_path, sim_duration=0.5):
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
-        plt.savefig('rds-impact_gforce.png')
+        plt.savefig(os.path.join(output_dir, 'rds-impact_gforce.png'))
         plt.close()
         
-        # Floor Impact + Air Resistance combined plot (2 subplots)
+        # Ground Impact + Air Resistance combined plot (2 subplots)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
-        fig.suptitle('Floor Impact Force & Air Resistance Forces')
-        ax1.plot(time_history, floor_impact_hist, label='Floor Normal Force (N)', color='red')
+        fig.suptitle('Ground Impact Force & Air Resistance Forces')
+        ax1.plot(time_history, ground_impact_hist, label='Ground Normal Force (N)', color='red')
         ax1.set_ylabel('Force (N)')
-        ax1.set_title('Floor Impact')
+        ax1.set_title('Ground Impact')
         ax1.grid(True)
         ax1.legend()
         ax2.plot(time_history, air_drag_hist,    label=f'Drag  (Cd={config.get("air_cd_drag",1.05):.2f})', color='blue')
@@ -433,7 +660,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
         ax2.grid(True)
         ax2.legend()
         plt.tight_layout()
-        plt.savefig('rds-floor_impact.png')
+        plt.savefig(os.path.join(output_dir, 'rds-ground_impact.png'))
         plt.close()
         
         # Motion All & Motion Z Setup
@@ -475,7 +702,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 ax.grid(True)
         axs[0, 2].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
         plt.tight_layout(rect=[0, 0, 0.9, 1])
-        plt.savefig('rds-Motion_All.png')
+        plt.savefig(os.path.join(output_dir, 'rds-Motion_All.png'))
         plt.close()
         
         # rds-Motion_Z.png
@@ -491,7 +718,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
             ax.grid(True)
         axs[2].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
         plt.tight_layout(rect=[0, 0, 0.9, 1])
-        plt.savefig('rds-Motion_Z.png')
+        plt.savefig(os.path.join(output_dir, 'rds-Motion_Z.png'))
         plt.close()
 
         # Plot metric per component max over time
@@ -524,7 +751,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 plt.grid(True)
                 plt.legend()
                 plt.tight_layout()
-                plt.savefig(f'rds-{comp}_deformation.png')
+                plt.savefig(os.path.join(output_dir, f'rds-{comp}_deformation.png'))
                 plt.close()
             
             # New: All Blocks Angle Plot
@@ -570,9 +797,17 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 ax_inset.set_yticks([])
                 ax_inset.set_zticks([])
                 
-                plt.savefig(f'rds-{comp}_deformation_all.png')
+                plt.savefig(os.path.join(output_dir, f'rds-{comp}_deformation_all.png'))
                 plt.close()
             
+    # Copy the XML file used for simulation to the output directory
+    if xml_path and os.path.exists(xml_path):
+        shutil.copy(xml_path, os.path.join(output_dir, os.path.basename(xml_path)))
+        print(f"  >> Results saved to: {os.path.basename(output_dir)}")
+    
+    # [Important] Callback 해제 (메모리 릭 및 충돌 방지)
+    mujoco.set_mjcb_control(None)
+    
     return time_history, z_hist, vel_hist, root_acc_history, corner_acc_hist, max_g_force, metrics
 
 if __name__ == "__main__":
@@ -584,8 +819,51 @@ if __name__ == "__main__":
     cfg["include_paperbox"] = False # 로컬 테스트용 오버라이드
     cfg["drop_height"] = 0.5    
     cfg["plot_results"] = True
-    cfg['sim_duration'] = 2.0
+    cfg['sim_duration'] = 2.4
+    cfg["only_generate_xml"] = False # [NEW] True 설정 시 시뮬레이션을 돌리지 않고 XML 모델 생성 및 저장만 수행
 
+    # [COMPONENTS OPTIONS] 부품별 해상도(div) 및 결합 방식(use_weld) 설정
+    # use_weld=False 설정 시, 해당 부품은 내부 구속조건이 없는 '단일 강체'로 취급되어 연산 속도가 비약적으로 향상됩니다.
+    cfg["chassis_div"]      = [4, 4, 1]    # 샤시 분할 수
+    cfg["chassis_use_weld"] = False        # 샤시는 강체로 취급 (속도 향상)
+    
+    cfg["oc_div"]           = [4, 4, 1]    # 오픈셀(패널) 분할 수
+    cfg["oc_use_weld"]      = False         # 오픈셀은 강체로 취급 (속도 향상)
+    
+    cfg["occ_div"]          = [4, 4, 1]    # 테이프(Cohesive) 분할 수
+    cfg["occ_use_weld"]     = False         # 테이프는 유연성 유지를 위해 Weld 사용
+    
+    cfg["cush_div"]         = [5, 4, 3]    # 쿠션 분할 수
+    cfg["cush_use_weld"]    = True         # 쿠션은 변형이 중요하므로 Weld 사용
+    
+    cfg["box_div"]          = [5, 4, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
+    cfg["box_use_weld"]     = False        # 박스는 강체로 취급
+    
+    cfg["ground_friction"] = 0.02 # 바닥 마찰계수 기본값 0.2
+    
+    # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
+    # ground_solref: [timeconst, dampratio] -> timeconst가 작을수록 딱딱함. (0.002 미만은 비권장)
+    cfg["ground_solref_stiff"] = 0.005  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
+    cfg["ground_solref_damp"]  = 0.01    # Critical Damping
+    
+    # ground_solimp: [dmin, dmax, width, midpoint, power] 
+    # dmax를 0.999로 높여 최대 압축 시 반발력을 극대화하고, width를 줄여 즉각 반응하게 함
+    cfg["ground_solimp"] = "0.9 0.999 0.001 0.5 2"
+    
+    # [SIMULATION OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sim_*)
+    cfg["sim_integrator"] = "Euler" # 통합기 (Euler, RK4, implicit, implicitfast 등)
+    cfg["sim_timestep"]   = 0.001          # 시뮬레이션 타임스텝 (s)
+    cfg["sim_iterations"] = 50             # 솔버 최대 반복 횟수 (1~200)
+    cfg["sim_noslip_iterations"] = 0       # 마찰 고정(미끄러짐 방지)을 위한 추가 반복 횟수
+    cfg["sim_tolerance"]  = 1e-4           # 솔버 수렴 오차 허용치 (속도를 위해 약간 완화)
+    cfg["sim_gravity"]    = [0, 0, -9.81]  # 중력 가속도 [x, y, z]
+    cfg["sim_nthread"]    = 4              # [NEW] 멀티코어 사용 (코어 수에 맞춰 조절)
+    
+    # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
+    cfg["cush_solref_stiff"] = 0.02 # 쿠션 timeconst
+    cfg["cush_solref_damp"]  = 1.0 # 쿠션 dampratio
+
+    # air fluidic force
     cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
     cfg["air_viscosity"]    = 1.81e-5   # 공기 동점성계수 (Pa.s)
     cfg["air_cd_drag"]      = 1.05      # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
@@ -593,6 +871,60 @@ if __name__ == "__main__":
     cfg["air_coef_squeeze"] = 0.0       # Squeeze Film 효과 강도 배율 (0=비활성화)
     cfg["air_squeeze_hmax"] = 0.20      # Squeeze Film 활성화 최대 높이 (m)
     cfg["air_squeeze_hmin"] = 0.001     # Squeeze Film 최소 높이 (분모 안전값, m)
-    cfg["enable_air_resistance"]= False  # 전체 공기 저항 활성화 여부
-        
+    cfg["enable_air_drag"]    = True   # MuJoCo 빌트인 Drag/Viscous 활성화 여부
+    cfg["enable_air_squeeze"] = True   # 수동 Squeeze Film 활성화 여부
+
+    # [EXAMPLE] 섀시 하단 양쪽(Bottom Left/Right)에 3kg 스피커를 부착하는 예제입니다 (필요시 주석 해제)
+    # cfg["chassis_aux_masses"] = [
+    #     {
+    #         "name": "Speaker_Left", 
+    #         "pos" : [-0.6, -0.4, 0.0],   # 좌측 하단 (샤시 중심 기준)
+    #         "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
+    #         "mass": 3.0                  # 3kg
+    #     },
+    #     {
+    #         "name": "Speaker_Right", 
+    #         "pos" : [0.6, -0.4, 0.0],    # 우측 하단 (샤시 중심 기준)
+    #         "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
+    #         "mass": 3.0                  # 3kg
+    #     }
+    # ]
+    cfg["chassis_aux_masses"] = [] # 기본값은 빈 리스트
+    
+    # [NEW] 실행 시 뷰어 사용 여부 확인 (기본값 True)
+    cfg["use_viewer"] = ask_use_viewer()
+    
     run_simulation(cfg)
+
+'''
+1. 재료별 추천 
+solref 값 가이드
+- 재료 유형	추천 timeconst (강성)	추천 dampratio (감쇠)	특징 및 설명
+- Rigid (금속, 딱딱한 플라스틱)	0.002 ~ 0.005	1.0 ~ 2.0	변형이 거의 없는 소자. 타임스텝의 2배(0.002)가 수치적 한계치입니다.
+- Semi-Rigid (골판지, 강화 플라스틱)	0.01 ~ 0.02	1.0	약간의 탄성이 느껴지지만 기본적으로 형태를 유지해야 하는 경우입니다.
+- Adhesive/Tape (점착제, 테이프)	0.005 ~ 0.02	1.0 ~ 1.5	현재 프로젝트의 Cohesive 층에 해당합니다. 결합력이 강할수록 낮은 값을 씁니다.
+- Foam/Cushion (스티로폼, EPP)	0.02 ~ 0.1	0.5 ~ 1.0	충격을 흡수하며 눌려야 하는 재질입니다. 값이 클수록 말랑해집니다.
+- Soft Rubber (부드러운 고무)	0.05 ~ 0.2	0.1 ~ 0.5	복원력이 강하지만 아주 부드럽게 눌리는 재질입니다.
+
+2. 파라미터별 세부 조정 팁
+Timeconst (첫 번째 값)
+- 의미: 스프링-댐퍼 시스템이 평형 상태로 돌아오는 데 걸리는 시간 상수입니다.
+- Rule of Thumb: 시뮬레이션 타임스텝(dt)의 최소 2배 이상을 권장합니다.
+- dt=0.001일 때 0.002가 물리적 강성의 최대치입니다. 이보다 낮으면 수치적 폭발(Explosion)이 일어날 확률이 급격히 높아집니다.
+- 조정: 물체가 너무 잘 뚫고 지나가면(Penetration) 이 값을 낮추고, 시뮬레이션이 불안정하게 떨리면 이 값을 높여야 합니다.
+
+Dampratio (두 번째 값)
+- 의미: 감쇠비입니다. 1.0이 임계 감쇠(Critical Damping)입니다.
+- 1.0: 에너지를 가장 안정적으로 소산시키며 진동 없이 멈춥니다. (대부분의 조립체 권장)
+- > 1.0 (Over-damping): 충격 시 튕겨나가는 현상을 억제하고 싶을 때 사용합니다. 낙하 시험에서 바닥과의 접촉 등에 유리합니다.
+- < 1.0 (Under-damping): 물체가 통통 튀는 탄성 효과를 주고 싶을 때 사용합니다.
+
+3. 현재 프로젝트(WHToolsBox) 적용 예시
+사용자께서 방금 수정하신 값들을 기준으로 분석해 보면 다음과 같습니다.
+
+- Chassis / TV Panel (0.01): 상당히 단단한 구조체로 적절한 설정입니다.
+- Tape (0.05): 이전(0.005)보다 10배 더 말랑하게 수정하셨습니다. 이 경우 285G 같은 고충격에서는 테이프가 고무줄처럼 늘어나면서 부품 분리가 일어날 가능성이 매우 높습니다. (분리 문제가 다시 발생한다면 0.01 이하로 낮추는 것을 권장합니다.)
+- Cushion (0.1): 아주 부드러운 완충재 설정입니다. 충격 흡수량은 많아지지만 패널이 쿠션을 깊게 파고들 수 있습니다.
+
+'''
+

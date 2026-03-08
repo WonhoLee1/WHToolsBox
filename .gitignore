@@ -35,3 +35,7 @@ wheels/
 tmp/
 .vscode/
 __pycache__/
+
+# Simulation Results
+rds-*/
+temp_drop_sim.xml

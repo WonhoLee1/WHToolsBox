@@ -46,23 +46,35 @@ def get_default_config(user_config=None):
     if user_config is None:
         user_config = {}
         
+    # [시뮬레이션/솔버 파라미터 (sim_*)]
+    # MuJoCo의 <option> 태그에 직접 반영될 파라미터들입니다.
+    sim_integrator = user_config.get("sim_integrator", "implicitfast")
+    sim_timestep   = user_config.get("sim_timestep", 0.001)
+    sim_iterations = user_config.get("sim_iterations", 80)
+    sim_noslip_iterations = user_config.get("sim_noslip_iterations", 5)
+    sim_tolerance  = user_config.get("sim_tolerance", 1e-6)
+    sim_impratio   = user_config.get("sim_impratio", 1.0) # 접촉 임피던스 비율
+    sim_gravity    = user_config.get("sim_gravity", [0, 0, -9.81])
+    sim_nthread    = user_config.get("sim_nthread", 4)  # [NEW] 멀티코어 스레드 수 (CPU 물리 코어 수 권장)
+        
     # [솔버 파라미터 분리] 문자열 대신 개별 변수로 관리 (최적화 친화적)    
     cush_solref_stiff = user_config.get("cush_solref_stiff", 0.02) # 쿠션 timeconst
     cush_solref_damp = user_config.get("cush_solref_damp", 1.0) # 쿠션 dampratio
     
     # solimp = [dmin, dmax, width, midpoint, power] 
     cush_solimp_dmin = user_config.get("cush_solimp_dmin", 0.95)   # 쿠션 최소 임피던스
-    cush_solimp_dmax = user_config.get("cush_solimp_dmax", 0.99)  # 쿠션 최대 임피던스
+    cush_solimp_dmax = user_config.get("cush_solimp_dmax", 0.999)  # 쿠션 최대 임피던스
     cush_solimp_width = user_config.get("cush_solimp_width", 0.001)  # 쿠션 임피던스 폭
     cush_solimp_mid = user_config.get("cush_solimp_mid", 0.5)        # 쿠션 임피던스 중간점
     cush_solimp_power = user_config.get("cush_solimp_power", 2.0)    # 쿠션 임피던스 거듭제곱
     
-    # tape
-    tape_solref_stiff = user_config.get("tape_solref_stiff", 0.02) # 테이프 timeconst
-    tape_solref_damp = user_config.get("tape_solref_damp", 1.0) # 테이프 dampratio
+    # tape (Cohesive / Frame)
+    # 극단적인 충격(285G)에서도 버티도록 강도를 대폭 상향 (timeconst 0.02 -> 0.005)
+    tape_solref_stiff = user_config.get("tape_solref_stiff", 0.05) 
+    tape_solref_damp = user_config.get("tape_solref_damp", 1.0)
 
     tape_solimp_dmin = user_config.get("tape_solimp_dmin", 0.9)   # 테이프 최소 임피던스 
-    tape_solimp_dmax = user_config.get("tape_solimp_dmax", 0.95)  # 테이프 최대 임피던스
+    tape_solimp_dmax = user_config.get("tape_solimp_dmax", 0.999) # 테이프 최대 임피던스 (관통 및 분리 방지)
     tape_solimp_width = user_config.get("tape_solimp_width", 0.001)  # 테이프 임피던스 폭
     tape_solimp_mid = user_config.get("tape_solimp_mid", 0.5)        # 테이프 임피던스 중간점
     tape_solimp_power = user_config.get("tape_solimp_power", 2.0)    # 테이프 임피던스 거듭제곱
@@ -72,7 +84,7 @@ def get_default_config(user_config=None):
     cell_solref_damp = user_config.get("cell_solref_damp", 1.0) # 패널 dampratio
     
     cell_solimp_dmin = user_config.get("cell_solimp_dmin", 0.9)   # 패널 최소 임피던스
-    cell_solimp_dmax = user_config.get("cell_solimp_dmax", 0.95)  # 패널 최대 임피던스
+    cell_solimp_dmax = user_config.get("cell_solimp_dmax", 0.999)  # 패널 최대 임피던스 (쿠션 관통 방지)
     cell_solimp_width = user_config.get("cell_solimp_width", 0.001)  # 패널 임피던스 폭
     cell_solimp_mid = user_config.get("cell_solimp_mid", 0.5)        # 패널 임피던스 중간점
     cell_solimp_power = user_config.get("cell_solimp_power", 2.0)    # 패널 임피던스 거듭제곱
@@ -88,15 +100,23 @@ def get_default_config(user_config=None):
     tv_solimp_power = user_config.get("tv_solimp_power", 2.0)    # 구조물 임피던스 거듭제곱
     
     # gorund contact    
-    ground_solref_stiff =  user_config.get("ground_solref_stiff", 0.001) # 바닥 timeconst (0.002 미만시 폭발 위험)
-    ground_solref_damp = user_config.get("ground_solref_damp", 0.1) # 바닥 dampratio
-
+    # [BUG FIX] 사용자가 cfg["ground_solref_stiff"] 등을 직접 수정했을 때 문자열(ground_solref)에 즉각 반영되도록 유도
+    ground_solref_stiff = user_config.get("ground_solref_stiff", 0.01)
+    ground_solref_damp = user_config.get("ground_solref_damp", 1.0)
+    
     # solref: 오리지널 (timeconst, dampratio) 방식
     cush_solref = f"{cush_solref_stiff} {cush_solref_damp}"
     tape_solref = f"{tape_solref_stiff} {tape_solref_damp}"
     cell_solref = f"{cell_solref_stiff} {cell_solref_damp}"
     tv_solref = f"{tv_solref_stiff} {tv_solref_damp}"
-    ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
+    
+    # 만약 사용자가 이미 완성된 문자열 "ground_solref"를 직접 주었고, 
+    # 개별 파라미터(stiff, damp)는 고치지 않았다면 기존 문자열 유지
+    if "ground_solref" in user_config and "ground_solref_stiff" not in user_config and "ground_solref_damp" not in user_config:
+        ground_solref = user_config["ground_solref"]
+    else:
+        # 개별 파라미터가 하나라도 있으면 새로 조립
+        ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
 
     cush_solimp = f"{cush_solimp_dmin} {cush_solimp_dmax} {cush_solimp_width} {cush_solimp_mid} {cush_solimp_power}"
     tape_solimp = f"{tape_solimp_dmin} {tape_solimp_dmax} {tape_solimp_width} {tape_solimp_mid} {tape_solimp_power}"
@@ -155,33 +175,45 @@ def get_default_config(user_config=None):
         "chas_d"    : 0.050,      # chas: Chassis (TV 후면 기구물) 두께
         "occ_ithick": 0.050,  # Cohesive(테이프)가 차지하는 실제 테두리 폭(액자 형태 두께)
 
-        # 분할 정보 (div)
-        "box_div": [5, 4, 3],
-        "cush_div": [5, 4, 3],
-        "assy_div": [5, 4, 1], # OpenCell, Cohesive, Chassis 세 부품 공통으로 적용되는 분할 수
+        # [NEW] 상세 분할 정보 (Per-body div)
+        "box_div": user_config.get("box_div", [5, 4, 3]),
+        "cush_div": user_config.get("cush_div", [5, 4, 3]),
+        "oc_div": user_config.get("oc_div", [5, 4, 1]),
+        "occ_div": user_config.get("occ_div", [5, 4, 1]),
+        "chassis_div": user_config.get("chassis_div", [5, 4, 1]),
+        "assy_div": user_config.get("assy_div", [5, 4, 1]), # Legacy/Fallback
+
+        # [NEW] 내부 Weld 구속조건 사용 여부 (Zero Weld 모드 선택권)
+        # False 설정 시, 해당 부품의 모든 블록이 하나의 바디(Single-Body)에 Geom으로 직접 추가되어 
+        # 구속조건(Equality)이 0개가 되며 시뮬레이션 속도가 비약적으로 향상됩니다.
+        "box_use_weld": user_config.get("box_use_weld", True),
+        "cush_use_weld": user_config.get("cush_use_weld", True),
+        "oc_use_weld": user_config.get("oc_use_weld", True),
+        "occ_use_weld": user_config.get("occ_use_weld", True),
+        "chassis_use_weld": user_config.get("chassis_use_weld", True),
 
         # 질량 (Mass, kg)
         "mass_paper": 4.0,
         "mass_cushion": mass_cushion,
         "mass_oc": 5.0,       # OpenCell 질량
         "mass_occ": 0.1,     # Cohesive (테이프) 질량
-        "mass_chassis": 5.0,  # Chassis 질량
+        "mass_chassis": 15.0,  # Chassis 질량
 
         # 재료 물성치 (솔버 제어 및 물리 특성)
         "cush_solref": cush_solref,
         "tape_solref": tape_solref,
         "cush_solimp": cush_solimp,
         "tape_solimp": tape_solimp,
-        "mat_paper": {"rgba": "0.7 0.6 0.4 0.9", "solref": "0.01 1.0", "solimp": "0.8 0.95 0.001 0.5 2", "contype": "1", "conaffinity": "2"},
-        "mat_cush" : {"rgba": "0.9 0.9 0.9 0.5", "solref": cush_solref, "solimp": cush_solimp, "contype": "2", "conaffinity": "5"},
-        "mat_tape" : {"rgba": "1.0 0.1 0.1 0.8", "solref": tape_solref, "solimp": tape_solimp, "contype": "4", "conaffinity": "2"},
-        "mat_cell" : {"rgba": "0.1 0.1 0.1 1.0", "solref": cell_solref, "solimp": cell_solimp, "contype": "4", "conaffinity": "2"},
-        "mat_tv"   : {"rgba": "0.1 0.5 0.8 1.0", "solref": tv_solref, "solimp": tv_solimp, "contype": "4", "conaffinity": "2"},
+        "mat_paper": {"rgba": "0.7 0.6 0.4 0.9", "solref": "0.01 1.0", "solimp": "0.8 0.95 0.001 0.5 2", "contype": "1", "conaffinity": "1", "friction": "0.8"}, # Default init
+        "mat_cush" : {"rgba": "0.9 0.9 0.9 0.5", "solref": cush_solref, "solimp": cush_solimp, "contype": "1", "conaffinity": "1", "friction": user_config.get("cush_friction", 0.8)},
+        "mat_tape" : {"rgba": "1.0 0.1 0.1 0.8", "solref": tape_solref, "solimp": tape_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
+        "mat_cell" : {"rgba": "0.1 0.1 0.1 1.0", "solref": cell_solref, "solimp": cell_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
+        "mat_tv"   : {"rgba": "0.1 0.5 0.8 1.0", "solref": tv_solref, "solimp": tv_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
         
-        # 바닥(Floor) 접촉 물질 정보 (Cushion과 유사하게 처리하기 위해 추가)
+        # 바닥(Ground) 접촉 물질 정보 (Cushion과 유사하게 처리하기 위해 추가)
         "ground_solref": ground_solref, 
-        "ground_solimp": "0.9 0.95 0.001 0.5 2",
-        "ground_friction": 0.3,      # 바닥 마찰계수 기본값 0.3
+        "ground_solimp": user_config.get("ground_solimp", "0.90 0.99 0.01 0.5 2"),
+        "ground_friction": user_config.get("ground_friction", 0.2), # 바닥 마찰계수 기본값 0.2
 
         # 조명(Lighting) 설정 - 조절이 쉽도록 옵션으로 추출
         "light_head_ambient" : "0.28 0.28 0.28", # 헤드라이트 환경광
@@ -191,36 +223,46 @@ def get_default_config(user_config=None):
         "light_sub_diffuse"  : "0.21 0.21 0.21", # 보조 조명 확산광
 
         # 공기 저항 (Air Resistance) 설정
-        # MuJoCo fluidshape 기반 drag/viscous 및 커스텀 squeeze film 효과
-        "air_density"      : 1.225,    # 공기 밀도 (kg/m^3, 20도 1atm)
-        "air_viscosity"    : 1.81e-5,  # 공기 동점성계수 (Pa.s)
-        "air_cd_drag"      : 1.05,     # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
-        "air_cd_viscous"   : 0.0,      # Slender(점성) drag 계수 (박스는 보통 0)
-        "air_coef_squeeze" : 0.0,      # Squeeze Film 효과 강도 배율 (0=비활성화)
-        "air_squeeze_hmax" : 0.20,     # Squeeze Film 활성화 최대 높이 (m)
-        "air_squeeze_hmin" : 0.001,    # Squeeze Film 최소 높이 (분모 안전값, m)
-        "enable_air_resistance": True, # 전체 공기 저항 활성화 여부
+        "air_density"      : 1.225,    # 공기 밀도
+        "air_viscosity"    : 1.81e-5,  # 공기 동점성계수
+        "air_cd_drag"      : 1.05,     # Blunt drag 계수
+        "air_cd_viscous"   : 0.0,      # Slender(점성) drag 계수
+        "air_squeeze_hmin" : 0.001,    # Squeeze Film 최소 높이
+        "enable_air_drag"    : True,   # MuJoCo 빌트인 Drag/Viscous 활성화
+        "enable_air_squeeze" : True,   # 수동 Squeeze Film 공기 쿠션 활성화
+        
+        # -----------------------------------------------------------------
+        # [NEW] 임의 추가 질량 (CoG/MoI 조정용)
+        # -----------------------------------------------------------------
+        "chassis_aux_masses": user_config.get("chassis_aux_masses", []),
+
+        # 시뮬레이션 파라미터 재등록
+        "sim_integrator": sim_integrator,
+        "sim_timestep": sim_timestep,
+        "sim_iterations": sim_iterations,
+        "sim_noslip_iterations": sim_noslip_iterations,
+        "sim_impratio": sim_impratio,
+        "sim_tolerance": sim_tolerance,
+        "sim_gravity": sim_gravity,
+        "sim_nthread": sim_nthread,
     }
     
     # 사용자가 직접 전달한 나머지 설정값들을 최종 병합(덮어쓰기)합니다.
     for k, v in user_config.items():
         config[k] = v
         
-    # 만약 상위 수준의 변수(cush_solref_damp 등)가 user_config로 전달된 경우,
-    # mat_cush 등의 하위 파생 딕셔너리가 과거의 값으로 덮어써지는 문제를 방지하기 위해 
-    # 병합 완료 후 다시 한 번 갱신합니다.
+    # [FINAL SYNC] 사용자가 직접 config["ground_solref_stiff"] 등을 수정했을 경우를 대비해
+    # 모든 문자열 파라미터를 최종 병합된 값 기준으로 한 번 더 재조립합니다.
+    g_s = config.get("ground_solref_stiff", ground_solref_stiff)
+    g_d = config.get("ground_solref_damp", ground_solref_damp)
+    config["ground_solref"] = f"{g_s} {g_d}"
+    
+    # 쿠션 및 기타 부품들도 동일하게 최종 동기화
+    c_s = config.get("cush_solref_stiff", cush_solref_stiff)
+    c_d = config.get("cush_solref_damp", cush_solref_damp)
+    config["cush_solref"] = f"{c_s} {c_d}"
     if "mat_cush" in config:
-        config["mat_cush"]["solref"] = f"{config.get('cush_solref_stiff', 0.02)} {config.get('cush_solref_damp', 1.0)}"
-        config["mat_cush"]["solimp"] = f"{config.get('cush_solimp_dmin', 0.95)} {config.get('cush_solimp_dmax', 0.99)} {config.get('cush_solimp_width', 0.001)} {config.get('cush_solimp_mid', 0.5)} {config.get('cush_solimp_power', 2.0)}"
-    if "mat_tape" in config:
-        config["mat_tape"]["solref"] = f"{config.get('tape_solref_stiff', 0.02)} {config.get('tape_solref_damp', 1.0)}"
-        config["mat_tape"]["solimp"] = f"{config.get('tape_solimp_dmin', 0.9)} {config.get('tape_solimp_dmax', 0.95)} {config.get('tape_solimp_width', 0.001)} {config.get('tape_solimp_mid', 0.5)} {config.get('tape_solimp_power', 2.0)}"
-    if "mat_cell" in config:
-        config["mat_cell"]["solref"] = f"{config.get('cell_solref_stiff', 0.01)} {config.get('cell_solref_damp', 1.0)}"
-        config["mat_cell"]["solimp"] = f"{config.get('cell_solimp_dmin', 0.9)} {config.get('cell_solimp_dmax', 0.95)} {config.get('cell_solimp_width', 0.001)} {config.get('cell_solimp_mid', 0.5)} {config.get('cell_solimp_power', 2.0)}"
-    if "mat_tv" in config:
-        config["mat_tv"]["solref"] = f"{config.get('tv_solref_stiff', 0.01)} {config.get('tv_solref_damp', 1.0)}"
-        config["mat_tv"]["solimp"] = f"{config.get('tv_solimp_dmin', 0.9)} {config.get('tv_solimp_dmax', 0.95)} {config.get('tv_solimp_width', 0.001)} {config.get('tv_solimp_mid', 0.5)} {config.get('tv_solimp_power', 2.0)}"
+        config["mat_cush"]["solref"] = config["cush_solref"]
 
     return config
 
@@ -244,7 +286,7 @@ class DiscreteBlock:
 # [3] 최상위 계층 기저 클래스 (Base Discrete Body)
 # =====================================================================
 class BaseDiscreteBody:
-    def __init__(self, name, width, height, depth, mass, div, material_props):
+    def __init__(self, name, width, height, depth, mass, div, material_props, use_internal_weld=True):
         self.name = name
         self.width = width
         self.height = height
@@ -252,6 +294,7 @@ class BaseDiscreteBody:
         self.total_mass = mass
         self.div = div  # [Nx, Ny, Nz]
         self.material_props = material_props # 예: {"rgba": "...", "solref": "..."}
+        self.use_internal_weld = use_internal_weld # [NEW] 내부 Weld 구속조건 사용 여부 플래그
         
         self.blocks = {} # 딕셔너리로 개별 블록 저장 {(i,j,k): DiscreteBlock}
         self.children = [] # 하위 컴포넌트 목록
@@ -349,6 +392,13 @@ class BaseDiscreteBody:
         """부품 내부 인접 블록 간의 Weld 연결 XML 태그 생성 반환"""
         weld_xml = []
         
+        # [최적화] use_internal_weld 가 False 면 내부 Weld 를 생성하지 않음 (구속조건 0 모드)
+        if not self.use_internal_weld:
+            # 자식 컴포넌트들이 개별적으로 Weld 가 필요할 수 있으므로 자식은 재귀 호출
+            for child in self.children:
+                weld_xml.extend(child.get_weld_xml_strings())
+            return weld_xml
+
         # 내부 블록 간 연결 (i기준 인접, j기준 인접, k기준 인접)
         # 키 목록을 가져와서 인접한 것이 있으면 연결
         solref = self.material_props.get("solref", "0.02 1.0")
@@ -459,13 +509,56 @@ class BaseDiscreteBody:
                 xml_outs.extend(child.get_worldbody_xml_strings(indent_level))
             return xml_outs
 
-        # 내부에 속한 기하 형상(블록)들을 자식 body로 배치
-        if self.blocks.items():
+        # [NEW] Single-Body 모드 처리 (use_internal_weld=False 일 때)
+        # 이 모드에서는 최하위 격자마다 body 를 만들지 않고, 
+        # 하나의 부모 body 안에 모든 geom 을 직접 쏟아부어 구속조건을 0으로 만듭니다.
+        if not self.use_internal_weld:
+            # 부모 바디 시작
             xml_outs.append(f'{ind}<body name="{self.name}">')
-        else:
-            # 껍데기 전용 (컨테이너 그룹)
-            xml_outs.append(f'{ind}<body name="{self.name}">')
+            ind_c = ind + "  "
             
+            # [FIX] 단일 바디 모드에서도 부모(박스/어셈블리) 대비 움직일 수 있도록 조인트 추가
+            #PackagingBox나 AssySet같은 가상/그룹 루트는 제외
+            if self.name not in ["PackagingBox", "AssySet"]:
+                xml_outs.append(f'{ind_c}<joint type="slide" axis="1 0 0"/>')
+                xml_outs.append(f'{ind_c}<joint type="slide" axis="0 1 0"/>')
+                xml_outs.append(f'{ind_c}<joint type="slide" axis="0 0 1"/>')
+                xml_outs.append(f'{ind_c}<joint type="ball"/>')
+            
+            # 모든 격자 블록을 Geom으로 추가 (Body 없이)
+            for (i, j, k), blk in self.blocks.items():
+                rgba = blk.material.get("rgba", "0.8 0.8 0.8 1.0")
+                contype = blk.material.get("contype", "1")
+                conaffinity = blk.material.get("conaffinity", "1")
+                solref = blk.material.get("solref", "0.02 1.0")
+                solimp = blk.material.get("solimp", "0.9 0.95 0.001 0.5 2")
+                
+                friction = blk.material.get("friction", "0.8")
+                
+                # 단일 바디이므로 pos 는 블록의 절대(로컬) 위치 적용
+                xml_outs.append(f'{ind_c}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
+                                 f'pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}" '
+                                 f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
+                                 f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" '
+                                 f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
+                
+                # 부품 간 결합(Inter-weld)을 위해 사이트는 유지
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.cx+blk.dx:.5f} {blk.cy:.5f} {blk.cz:.5f}"/>')
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_NX" pos="{blk.cx-blk.dx:.5f} {blk.cy:.5f} {blk.cz:.5f}"/>')
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PY" pos="{blk.cx:.5f} {blk.cy+blk.dy:.5f} {blk.cz:.5f}"/>')
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_NY" pos="{blk.cx:.5f} {blk.cy-blk.dy:.5f} {blk.cz:.5f}"/>')
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PZ" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz+blk.dz:.5f}"/>')
+                xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_NZ" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz-blk.dz:.5f}"/>')
+
+            # 자식 컴포넌트 처리
+            for child in self.children:
+                xml_outs.extend(child.get_worldbody_xml_strings(indent_level + 1))
+            
+            xml_outs.append(f'{ind}</body>')
+            return xml_outs
+
+        # [기존] 이산 바디 모드 (Weld 가 필요한 유연한 시뮬레이션 시 사용)
+        xml_outs.append(f'{ind}<body name="{self.name}">')
         ind_c = ind + "  "
         for (i, j, k), blk in self.blocks.items():
             rgba = blk.material.get("rgba", "0.8 0.8 0.8 1.0")
@@ -474,20 +567,20 @@ class BaseDiscreteBody:
             solref = blk.material.get("solref", "0.02 1.0")
             solimp = blk.material.get("solimp", "0.9 0.95 0.001 0.5 2")
             
-            # 소문자로 블록 구동 접두어 적용
             block_body_name = f"b_{self.name.lower()}_{i}_{j}_{k}"
             xml_outs.append(f'{ind_c}<body name="{block_body_name}" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}">')
-            # MuJoCo 에러 (freejoint can only be used on top level) 회피를 위해 
-            # 6자유도를 수동으로 부여 (3개 슬라이드 + 1개 볼 조인트)
             xml_outs.append(f'{ind_c}  <joint type="slide" axis="1 0 0"/>')
             xml_outs.append(f'{ind_c}  <joint type="slide" axis="0 1 0"/>')
             xml_outs.append(f'{ind_c}  <joint type="slide" axis="0 0 1"/>')
             xml_outs.append(f'{ind_c}  <joint type="ball"/>')
             
-            xml_outs.append(f'{ind_c}  <geom type="box" size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" friction="0.8" solref="{solref}" solimp="{solimp}"/>')
+            friction = blk.material.get("friction", "0.8")
             
-            # Weld 연결을 위한 접점 사이트 생성
-            # 부품의 맨 가장자리 표면 중심들에 기준점(site) 배치
+            xml_outs.append(f'{ind_c}  <geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
+                             f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
+                             f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" '
+                             f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
+            
             xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.dx:.5f} 0 0"/>')
             xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_NX" pos="{-blk.dx:.5f} 0 0"/>')
             xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PY" pos="0 {blk.dy:.5f} 0"/>')
@@ -496,7 +589,6 @@ class BaseDiscreteBody:
             xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_NZ" pos="0 0 {-blk.dz:.5f}"/>')
             xml_outs.append(f'{ind_c}</body>')
 
-        # 하위 논리적 그룹(AssySet의 자식들 등)이 있다면 추가
         for child in self.children:
             xml_outs.extend(child.get_worldbody_xml_strings(indent_level + 1))
             
@@ -508,8 +600,8 @@ class BaseDiscreteBody:
 # =====================================================================
 
 class BPaperBox(BaseDiscreteBody):
-    def __init__(self, name, width, height, depth, mass, div, thick, material_props):
-        super().__init__(name, width, height, depth, mass, div, material_props)
+    def __init__(self, name, width, height, depth, mass, div, thick, material_props, use_internal_weld=True):
+        super().__init__(name, width, height, depth, mass, div, material_props, use_internal_weld)
         self.thick = thick
         
     def is_cavity(self, cx, cy, cz, dx, dy, dz):
@@ -523,8 +615,8 @@ class BPaperBox(BaseDiscreteBody):
         return False
 
 class BCushion(BaseDiscreteBody):
-    def __init__(self, name, width, height, depth, mass, div, material_props, assy_bbox, gap, cushion_cutter):
-        super().__init__(name, width, height, depth, mass, div, material_props)
+    def __init__(self, name, width, height, depth, mass, div, material_props, assy_bbox, gap, cushion_cutter, use_internal_weld=True):
+        super().__init__(name, width, height, depth, mass, div, material_props, use_internal_weld)
         self.assy_bbox = assy_bbox # AssySet이 차지하는 범위 [min_x, max_x, min_y, max_y, min_z, max_z]
         self.gap = gap
         self.cushion_cutter = cushion_cutter # dict of {key: [cx, cy, cz, w, h, d]}
@@ -548,8 +640,8 @@ class BCushion(BaseDiscreteBody):
         return False
 
 class BOpenCellCohesive(BaseDiscreteBody):
-    def __init__(self, name, width, height, depth, mass, div, ithick, material_props):
-        super().__init__(name, width, height, depth, mass, div, material_props)
+    def __init__(self, name, width, height, depth, mass, div, ithick, material_props, use_internal_weld=True):
+        super().__init__(name, width, height, depth, mass, div, material_props, use_internal_weld)
         self.ithick = ithick
 
     def is_cavity(self, cx, cy, cz, dx, dy, dz):
@@ -566,6 +658,54 @@ class BOpenCell(BaseDiscreteBody): # 단순 솔리드 블록
 
 class BChassis(BaseDiscreteBody): # 단순 솔리드 블록
     pass
+
+class BAuxBoxMass(BaseDiscreteBody):
+    """
+    CoG/MoI 조절을 위해 임의로 추가하는 박스 형상의 질량 블록 클래스입니다.
+    이 블록은 MuJoCo 시뮬레이션 내에서 다른 지오메트리들과 물리적인 접촉(Contact)을 
+    일으키지 않도록 설정되며(contype=0, conaffinity=0), 
+    주로 섀시(Chassis) 등 특정 부품에 용접(Weld)되어 전체 시스템의 관성 특성을 
+    변경하는 용도로 사용됩니다.
+    """
+    def __init__(self, name, width, height, depth, mass, material_props=None):
+        # 사용자가 별도의 재질 정보를 주지 않을 경우, 시각적 확인이 쉽도록 반투명한 빨간색을 기본값으로 사용합니다.
+        if material_props is None:
+            material_props = {
+                "rgba": "1.0 0.0 0.0 0.4",      # 반투명 빨간색
+                "solref": "0.02 1.0",           # 기본 접촉 파라미터 (접촉은 안 하지만 구조상 포함)
+                "solimp": "0.9 0.95 0.001"
+            }
+            
+        # 질량 블록은 단일 박스로 구성하므로 내부 분할(div)은 [1, 1, 1]로 고정합니다.
+        super().__init__(name, width, height, depth, mass, [1, 1, 1], material_props)
+        
+        # 접촉(Collision) 기능을 완전히 비활성화합니다.
+        self.material_props["contype"] = "0"
+        self.material_props["conaffinity"] = "0"
+
+    def build_geometry(self, local_offset=[0, 0, 0]):
+        """
+        주어진 오프셋 위치에 단일 이산 블록(Discrete Block)을 생성합니다.
+        """
+        # (0, 0, 0) 인덱스 하나만 가지는 단일 블록으로 처리합니다.
+        half_width  = self.width / 2.0
+        half_height = self.height / 2.0
+        half_depth  = self.depth / 2.0
+        
+        # DiscreteBlock 인스턴스를 하나 생성하여 blocks 딕셔너리에 저장합니다.
+        # local_offset은 부모 좌표계(예: Chassis) 기준의 설치 위치입니다.
+        aux_block = DiscreteBlock(
+            idx=(0, 0, 0), 
+            cx=local_offset[0], 
+            cy=local_offset[1], 
+            cz=local_offset[2],
+            dx=half_width, 
+            dy=half_height, 
+            dz=half_depth, 
+            mass=self.total_mass, 
+            material=self.material_props
+        )
+        self.blocks[(0, 0, 0)] = aux_block
 
 class BUnitBlock(BaseDiscreteBody): # 순수 테스트용 직육면체 단위 블록
     pass
@@ -659,7 +799,7 @@ def get_single_body_instance(body_name, config=None):
     occ_cut_y = [-assy_h/2 + occ_ithick, assy_h/2 - occ_ithick]
     
     if body_name == "BPaperBox":
-        b = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], box_div, box_thick, config["mat_paper"])
+        b = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], config["box_div"], box_thick, config["mat_paper"], config["box_use_weld"])
         b.build_geometry(local_offset=[0,0,0], 
                          required_cuts_x=[-box_w/2+box_thick, box_w/2-box_thick],
                          required_cuts_y=[-box_h/2+box_thick, box_h/2-box_thick],
@@ -669,7 +809,7 @@ def get_single_body_instance(body_name, config=None):
     elif body_name == "BCushion":
         assy_bbox = [-assy_w/2, assy_w/2, -assy_h/2, assy_h/2, -assy_d/2, assy_d/2]
         BCushion_cutter = { "center": [0, 0, 0, cush_w*0.5, cush_h*0.5, cush_d*2] }
-        b = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], cush_div, config["mat_cush"], assy_bbox, cush_gap, BCushion_cutter)
+        b = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], config["cush_div"], config["mat_cush"], assy_bbox, cush_gap, BCushion_cutter, config["cush_use_weld"])
         
         req_cuts_cush_x = [-assy_w/2 - cush_gap, assy_w/2 + cush_gap]
         req_cuts_cush_y = [-assy_h/2 - cush_gap, assy_h/2 + cush_gap]
@@ -684,18 +824,18 @@ def get_single_body_instance(body_name, config=None):
         return b
         
     elif body_name == "BOpenCell":
-        b = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], assy_div, config["mat_tv"])
+        b = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], config["oc_div"], config["mat_cell"], config["oc_use_weld"])
         # stiffness test 에서는 중심점을 원점(0,0,0)에 맞추어 평가를 용이하게 함
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BOpenCellCohesive":
-        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], assy_div, occ_ithick, config["mat_tape"])
+        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], config["occ_div"], occ_ithick, config["mat_tape"], config["occ_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BChassis":
-        b = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], assy_div, config["mat_tv"])
+        b = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], config["chassis_div"], config["mat_tv"], config["chassis_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
@@ -747,8 +887,27 @@ def create_model(export_path, config=None):
     # --- 2. 컴포넌트 인스턴스화 (조립 계층 정의) ---
     root_container = BaseDiscreteBody("PackagingBox", 0,0,0, 0, [1,1,1], {})
     
+    # [NEW] 자기 충돌(Self-Collision) 방지를 위한 비트 마스크 할당
+    # 각 부품별로 고유 비트를 할당하고(contype), 자기 비트를 제외한 비트들과만 충돌하게(conaffinity) 설정
+    bit_paper   = 1    # 00001
+    bit_cushion = 2    # 00010
+    bit_oc      = 4    # 00100
+    bit_occ     = 8    # 01000
+    bit_chassis = 16   # 10000
+    
+    # 모든 부품 비트의 합 (바닥과의 접촉 등을 위해 필요)
+    all_bits = bit_paper | bit_cushion | bit_oc | bit_occ | bit_chassis
+    
+    # 각 재질 설정에 비트 적용 (자기 자신과는 충돌하지 않도록 conaffinity 에서 자기 비트 제외)
+    # [주의] mat_cush["contype"] = bit_cushion, mat_cush["conaffinity"] = all_bits ^ bit_cushion
+    mat_paper["contype"] = f"{bit_paper}";   mat_paper["conaffinity"] = f"{all_bits ^ bit_paper}"
+    mat_cush["contype"]  = f"{bit_cushion}"; mat_cush["conaffinity"]  = f"{all_bits ^ bit_cushion}"
+    mat_cell["contype"]  = f"{bit_oc}";      mat_cell["conaffinity"]  = f"{all_bits ^ bit_oc}"
+    mat_tape["contype"]  = f"{bit_occ}";     mat_tape["conaffinity"]  = f"{all_bits ^ bit_occ}"
+    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{all_bits ^ bit_chassis}"
+
     if include_paperbox:
-        b_paper = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], box_div, box_thick, mat_paper)
+        b_paper = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], config["box_div"], box_thick, mat_paper, config["box_use_weld"])
     else:
         b_paper = None
     
@@ -758,16 +917,15 @@ def create_model(export_path, config=None):
     occ_z  = oc_z - oc_d/2 - occ_d/2
     chas_z = occ_z - occ_d/2 - chas_d/2
     
-    assy_div = config["assy_div"]
-    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], assy_div, mat_cell)
-    b_occ      = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], assy_div, occ_ithick, mat_tape)
-    b_chassis  = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], assy_div, mat_tv)
+    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], config["oc_div"], mat_cell, config["oc_use_weld"])
+    b_occ      = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], config["occ_div"], occ_ithick, mat_tape, config["occ_use_weld"])
+    b_chassis  = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], config["chassis_div"], mat_tv, config["chassis_use_weld"])
 
     b_cushion = None
     if include_cushion:
         assy_bbox = [-assy_w/2, assy_w/2, -assy_h/2, assy_h/2, -assy_d/2, assy_d/2]
         BCushion_cutter = { "center": [0, 0, 0, cush_w*0.5, cush_h*0.5, cush_d*2] }
-        b_cushion = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], config["cush_div"], mat_cush, assy_bbox, cush_gap, BCushion_cutter)
+        b_cushion = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], config["cush_div"], mat_cush, assy_bbox, cush_gap, BCushion_cutter, config["cush_use_weld"])
     
     # 트리 구조 편입 (계층 조립)
     assy_group.add_child(b_opencell)
@@ -812,13 +970,47 @@ def create_model(export_path, config=None):
     b_occ.build_geometry(local_offset=[0, 0, occ_z], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
     b_chassis.build_geometry(local_offset=[0, 0, chas_z], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
 
+    # -----------------------------------------------------------------
+    # [NEW] 3.5 추가 질량(Auxiliary Masses) 처리 및 Chassis 에 Weld 부착
+    # -----------------------------------------------------------------
+    # 사용자가 설정(config)을 통해 요청한 'chassis_aux_masses' 목록을 순회하며
+    # 실제 물리 블록을 생성하고 이를 섀시(Chassis) 부품의 하위 계층으로 등록합니다.
+    aux_mass_objects = []
+    chassis_aux_configs = config.get("chassis_aux_masses", [])
+    
+    for i, aux_item_config in enumerate(chassis_aux_configs):
+        # 개별 추가 질량의 파라미터 추출 (이름, 위치, 크기, 질량)
+        aux_name   = aux_item_config.get("name", f"AuxMass_{i}")
+        aux_pos    = aux_item_config.get("pos", [0.0, 0.0, 0.0])
+        aux_size   = aux_item_config.get("size", [0.1, 0.1, 0.1]) # [전체 너비, 높이, 두께]
+        aux_mass_kg = aux_item_config.get("mass", 1.0)
+        
+        # BAuxBoxMass 인스턴스 생성 (접촉이 없는 순수 질량 블록)
+        b_aux_mass = BAuxBoxMass(
+            name=aux_name, 
+            width=aux_size[0], 
+            height=aux_size[1], 
+            depth=aux_size[2], 
+            mass=aux_mass_kg
+        )
+        
+        # 섀시의 로컬 Z축 배치(chas_z)를 고려하여 실제 위치를 계산하고 지오메트리를 빌드합니다.
+        # 이 블록은 섀시 좌표계(b_chassis) 내부에 배치되지만, 
+        # 최종적으로 부착(Weld)을 위해 전체 어셈블리(root) 대비 좌표로 계산되어야 합니다.
+        b_aux_mass.build_geometry(local_offset=[aux_pos[0], aux_pos[1], aux_pos[2] + chas_z])
+        
+        # 섀시의 자식으로 등록하여 관성 계산(calculate_inertia) 시 자동으로 통합되도록 합니다.
+        b_chassis.add_child(b_aux_mass)
+        aux_mass_objects.append(b_aux_mass)
+
     # --- 4. 이기종 부품 간 직접 Weld 연결 로직 (Inter-Component Welds) ---
     # 이기종 부품 간 직접 Weld 연결 로직 (Inter-Component Welds)
     inter_weld_xml = []
     # AssySet 조립: OpenCell(앞) <---> OCC(테이프) <---> Chassis(뒤)
     # Z축 방향으로만 맞물리므로, (x, y) 인덱스가 같고 마주보는 파트끼리 테이프 강성으로 묶음.
-    tape_solref = mat_tape.get("solref", "0.005 1.5")
-    tape_solimp = mat_tape.get("solimp", "0.9 0.95 0.001 0.5 2")
+    # [강화] 테이프 물성치에서 직접 가져와 일관성 유지 (0.005 1.0 적용됨)
+    tape_solref_val = mat_tape.get("solref", "0.005 1.0")
+    tape_solimp_val = mat_tape.get("solimp", "0.9 0.999 0.001 0.5 2")
     
     for (i,j,k_occ), blk_occ in b_occ.blocks.items():
         # OCC 블록(테이프) 각각에 대해 앞으로는 OpenCell 블록을, 뒤로는 Chassis 블록을 찾는다.
@@ -828,13 +1020,47 @@ def create_model(export_path, config=None):
         if (i,j,0) in b_opencell.blocks:
             site_occ_pz = f"s_BOpenCellCohesive_{i}_{j}_{0}_PZ"
             site_oc_nz  = f"s_BOpenCell_{i}_{j}_{0}_NZ"
-            inter_weld_xml.append(f'        <weld site1="{site_occ_pz}" site2="{site_oc_nz}" solref="{tape_solref}" solimp="{tape_solimp}"/>')
+            inter_weld_xml.append(f'        <weld site1="{site_occ_pz}" site2="{site_oc_nz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
             
         # 2. OCC 아랫면(-Z) -> Chassis 윗면(+Z) 부착
         if (i,j,0) in b_chassis.blocks:
             site_occ_nz = f"s_BOpenCellCohesive_{i}_{j}_{0}_NZ"
             site_chas_pz = f"s_BChassis_{i}_{j}_{0}_PZ"
-            inter_weld_xml.append(f'        <weld site1="{site_occ_nz}" site2="{site_chas_pz}" solref="{tape_solref}" solimp="{tape_solimp}"/>')
+            inter_weld_xml.append(f'        <weld site1="{site_occ_nz}" site2="{site_chas_pz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
+
+    # [NEW] 3. 추가 질량(Aux Masses)과 섀시(Chassis) 간의 Weld 연결 생성
+    # 생성된 각 추가 질량 블록을 섀시의 가장 가까운 격자 블록 중 하나에 강하게 용접(Weld) 시킵니다.
+    # 이를 통해 추가 질량이 섀시와 한 몸처럼 움직이게 됩니다.
+    for b_aux_mass in aux_mass_objects:
+        # 추가 질량 블록(단일 블록)의 중심 좌표 추출
+        blk_aux = b_aux_mass.blocks[(0, 0, 0)]
+        target_ax, target_ay, target_az = blk_aux.cx, blk_aux.cy, blk_aux.cz
+        
+        # 섀시를 구성하는 수많은 격자 블록 중 가장 거리가 가까운 블록을 수색합니다.
+        min_distance_sq = float('inf')
+        nearest_chassis_key = None
+        
+        for block_key, blk_chassis in b_chassis.blocks.items():
+            # 거리의 제곱을 사용하여 계산 부하를 줄임
+            dist_sq = (blk_chassis.cx - target_ax)**2 + \
+                      (blk_chassis.cy - target_ay)**2 + \
+                      (blk_chassis.cz - target_az)**2
+            if dist_sq < min_distance_sq:
+                min_distance_sq = dist_sq
+                nearest_chassis_key = block_key
+        
+        # 가장 가까운 블록을 찾았다면, 해당 위치의 사이트(Site)들을 Weld 구속조건으로 연결합니다.
+        if nearest_chassis_key is not None:
+            ci, cj, ck = nearest_chassis_key
+            # 추가 질량 블록과 섀시 블록의 상단(+Z) 사이트를 연결점으로 사용합니다.
+            site_aux_mass = f"s_{b_aux_mass.name}_0_0_0_PZ"
+            site_chassis  = f"s_BChassis_{ci}_{cj}_{ck}_PZ"
+            
+            # Weld 구속조건 추가 (스피커 등 추가 질량이 거대한 충격에 분리되지 않도록 극도로 강한 solref 적용)
+            inter_weld_xml.append(
+                f'        <weld site1="{site_aux_mass}" site2="{site_chassis}" '
+                f'solref="0.002 1.0" solimp="0.9 0.999 0.001"/>'
+            )
 
     # --- 5. 낙하 조건 (ISTA 6A 등) 로테이션 연산 ---
     # 파싱된 드랍 모드에 따라 목표 임팩트 벡터(target_pt) 추출
@@ -865,7 +1091,33 @@ def create_model(export_path, config=None):
     # --- 6. XML 파일 작성 ---
     xml_str_io = io.StringIO()
     xml_str_io.write('<mujoco model="discrete_custom_box">\n')
-    xml_str_io.write('  <option integrator="implicitfast" timestep="0.001"><flag contact="enable"/></option>\n')
+    # [메모리 및 솔버 용량 확장] mj_stackAlloc 오버플로 및 대규모 구속조건 대응
+    # 현대 MuJoCo에서는 memory 속성으로 전체 풀을 할당하면 njmax, nconmax 등을 자동 관리합니다.
+    xml_str_io.write('  <size memory="512M"/>\n')
+    # [시뮬레이션 옵션] config["sim_*"] 파라미터들을 MuJoCo <option> 태그에 직접 반영합니다.
+    s_itgr = config["sim_integrator"]
+    s_dt   = config["sim_timestep"]
+    s_iter = config["sim_iterations"]
+    s_ns   = config["sim_noslip_iterations"]
+    s_tol  = config["sim_tolerance"]
+    s_imp  = config["sim_impratio"]
+    s_grav = config["sim_gravity"]
+    s_nth  = config["sim_nthread"]
+    
+    # [NEW] 공기 역학 파라미터 (MuJoCo 빌트인 Drag/Viscous 용도)
+    if config.get("enable_air_drag", True):
+        air_rho = config.get("air_density", 1.225)
+        air_mu  = config.get("air_viscosity", 1.81e-5)
+    else:
+        air_rho = 0.0
+        air_mu  = 0.0
+    
+    xml_str_io.write(f'  <option integrator="{s_itgr}" timestep="{s_dt}" iterations="{s_iter}" '
+                     f'noslip_iterations="{s_ns}" tolerance="{s_tol}" impratio="{s_imp}" '
+                     f'gravity="{s_grav[0]} {s_grav[1]} {s_grav[2]}" '
+                     f'density="{air_rho}" viscosity="{air_mu}">\n')
+    xml_str_io.write('    <flag contact="enable"/>\n')
+    xml_str_io.write('  </option>\n')
     
     # [시각적 개선] config에 정의된 조명 파라미터를 사용하여 씬 구성
     xml_str_io.write('  <visual>\n')
@@ -891,16 +1143,16 @@ def create_model(export_path, config=None):
     xml_str_io.write(f'    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{m_dif}" ambient="{m_amb}" castshadow="true"/>\n')
     xml_str_io.write(f'    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{s_dif}" castshadow="false"/>\n')
     
-    # 바닥(Floor) 설정: config에서 가져온 solref/solimp/friction 적용
+    # 바닥(Ground) 설정: config에서 가져온 solref/solimp/friction 적용
     g_solref = config.get("ground_solref", "0.01 1.0")
     g_solimp = config.get("ground_solimp", "0.9 0.95 0.001 0.5 2")
     g_fric   = config.get("ground_friction", 0.3)
-    xml_str_io.write(f'    <geom name="floor" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" solref="{g_solref}" solimp="{g_solimp}"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" solref="{g_solref}" solimp="{g_solimp}"/>\n')
     
     # 최상단 글로벌 패키지 박스 그룹. 여기서만 오프셋/회전이 적용됨.
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n')
     xml_str_io.write('      <freejoint/>\n')
-    xml_str_io.write('      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8"/>\n')
+    xml_str_io.write('      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>\n')
     
     # 전체 바디 트리 출력
     bodies_xml = root_container.get_worldbody_xml_strings(indent_level=3)
@@ -947,6 +1199,14 @@ if __name__ == "__main__":
     
     print(f"Generating Discrete Model XML to {out_file}...")
     cfg = get_default_config()
+    
+    # [VERIFICATION] 추가 질량 테스트 설정
+    cfg["chassis_aux_masses"] = [
+        {"name": "UpperWeight", "pos": [0, 0.5, 0], "size": [0.2, 0.1, 0.1], "mass": 10.0},
+        {"name": "SideWeight", "pos": [0.5, 0, 0], "size": [0.1, 0.2, 0.1], "mass": 5.0}
+    ]
+    cfg["ground_friction"] = 0.5 # 마찰계수 변경 테스트
+    
     # 예: 전면 하단 꼭짓점 낙하 자세로 설정
     cfg["drop_mode"] = "L-F-B" 
     cfg["include_paperbox"] = False # 로컬 테스트용 오버라이드

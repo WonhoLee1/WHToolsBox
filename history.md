@@ -16,9 +16,15 @@ run_drop_simulation.py 개선하고자 한다.
  - figure layout fitting 기능을 모든 figure 출력에 적용
  - {bodyname}_deformation.png는 최대값을 가지는 블럭에 대해서 표시하고 있는데, 해당 최대값을 가지는 블럭의 i-j-k를 legend에 표시
  - 모든 figure의 폰트 크기는 8pt로 설정. 
- - 
-
-
+ 
+ 2. 공기 저항
+ - 무조코 지원 viscous, drag air force 적용 
+   필요한 계수 입력 옵션 추가 ( 초기 값은 통상적인 계수를 추천하여 적용 )
+ - Squeeze film effect를 구현한다. 이와 관련된 구현 내용은 mujoco_secvd_boxmotion+v~.py에 포함되어 있으니 참고하여 구현한다.
+   필요한 계수 입력 옵션 추가 ( 초기 값은 통상적인 계수를 추천하여 적용 )
+ - rds-floor_impact.png에 subplot을 추가하여, 공기 저항 계수에 의해 box의 공기 저항력을 계산하고 기록한다. box의 크기를 이용한 면적 정보 활용.
+   drag, viscous, squeeze 각각에 대해서 계산하여 기록한다. (legend 표시)
+   
 
 
 # 2026-02-21
