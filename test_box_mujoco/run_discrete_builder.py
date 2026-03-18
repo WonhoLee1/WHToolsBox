@@ -117,7 +117,8 @@ def get_default_config(user_config=None):
     else:
         # 개별 파라미터가 하나라도 있으면 새로 조립
         ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
-
+        print (f"rebuild ground_solref {ground_solref}")
+    
     cush_solimp = f"{cush_solimp_dmin} {cush_solimp_dmax} {cush_solimp_width} {cush_solimp_mid} {cush_solimp_power}"
     tape_solimp = f"{tape_solimp_dmin} {tape_solimp_dmax} {tape_solimp_width} {tape_solimp_mid} {tape_solimp_power}"
     cell_solimp = f"{cell_solimp_dmin} {cell_solimp_dmax} {cell_solimp_width} {cell_solimp_mid} {cell_solimp_power}"
@@ -508,6 +509,17 @@ class BaseDiscreteBody:
             for child in self.children:
                 xml_outs.extend(child.get_worldbody_xml_strings(indent_level))
             return xml_outs
+            
+        # [NEW] Determine geom group based on naming convention
+        lower_name = self.name.lower()
+        if "cushion" in lower_name:
+            geom_group = 1
+        elif "chassis" in lower_name or "opencell" in lower_name or "adhesive" in lower_name or "tape" in lower_name or "cohesive" in lower_name:
+            geom_group = 2
+        elif "aux" in lower_name or "speaker" in lower_name:
+            geom_group = 3
+        else:
+            geom_group = 0
 
         # [NEW] Single-Body 모드 처리 (use_internal_weld=False 일 때)
         # 이 모드에서는 최하위 격자마다 body 를 만들지 않고, 
@@ -539,7 +551,7 @@ class BaseDiscreteBody:
                 xml_outs.append(f'{ind_c}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
                                  f'pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}" '
                                  f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
-                                 f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" '
+                                 f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" group="{geom_group}" '
                                  f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
                 
                 # 부품 간 결합(Inter-weld)을 위해 사이트는 유지
@@ -578,7 +590,7 @@ class BaseDiscreteBody:
             
             xml_outs.append(f'{ind_c}  <geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
                              f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
-                             f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" '
+                             f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" group="{geom_group}" '
                              f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
             
             xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.dx:.5f} 0 0"/>')
@@ -1052,13 +1064,17 @@ def create_model(export_path, config=None):
         # 가장 가까운 블록을 찾았다면, 해당 위치의 사이트(Site)들을 Weld 구속조건으로 연결합니다.
         if nearest_chassis_key is not None:
             ci, cj, ck = nearest_chassis_key
-            # 추가 질량 블록과 섀시 블록의 상단(+Z) 사이트를 연결점으로 사용합니다.
-            site_aux_mass = f"s_{b_aux_mass.name}_0_0_0_PZ"
-            site_chassis  = f"s_BChassis_{ci}_{cj}_{ck}_PZ"
+            # [FIX] site1, site2를 사용하면 두 점이 하나로 합쳐지도록 강제로 끌어당깁니다. (이것이 쿠션이 찌그러진 원인입니다!)
+            # body1, body2를 사용하면 초기 배치 모델의 상대 위치(Offset) 거리를 영원히 그대로 유지하며 연결됩니다.
             
-            # Weld 구속조건 추가 (스피커 등 추가 질량이 거대한 충격에 분리되지 않도록 극도로 강한 solref 적용)
+            # 각 컴포넌트가 Single Body (use_internal_weld=False) 인지 여부에 따라 
+            # 실제로 XML에 기록될 정확한 Body Name을 추출합니다.
+            body_aux = b_aux_mass.name if not b_aux_mass.use_internal_weld else f"b_{b_aux_mass.name.lower()}_0_0_0"
+            body_chas = b_chassis.name if not b_chassis.use_internal_weld else f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}"
+            
+            # site1, site2 대신 body1, body2 사용
             inter_weld_xml.append(
-                f'        <weld site1="{site_aux_mass}" site2="{site_chassis}" '
+                f'        <weld body1="{body_aux}" body2="{body_chas}" '
                 f'solref="0.002 1.0" solimp="0.9 0.999 0.001"/>'
             )
 
@@ -1147,7 +1163,7 @@ def create_model(export_path, config=None):
     g_solref = config.get("ground_solref", "0.01 1.0")
     g_solimp = config.get("ground_solimp", "0.9 0.95 0.001 0.5 2")
     g_fric   = config.get("ground_friction", 0.3)
-    xml_str_io.write(f'    <geom name="ground" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" solref="{g_solref}" solimp="{g_solimp}"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" group="0" solref="{g_solref}" solimp="{g_solimp}"/>\n')
     
     # 최상단 글로벌 패키지 박스 그룹. 여기서만 오프셋/회전이 적용됨.
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n')

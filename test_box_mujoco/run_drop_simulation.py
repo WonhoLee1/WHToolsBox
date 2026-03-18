@@ -9,6 +9,45 @@ import time
 import shutil
 from datetime import datetime
 from run_discrete_builder import create_model, get_default_config
+import pickle
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+@dataclass
+class DropSimResult:
+    """시뮬레이션 전체 결과 데이터를 담는 통합 클래스 (최적화 모델 매칭용)"""
+    config: Dict[str, Any]
+    metrics: Dict[str, Any]
+    max_g_force: float
+    time_history: List[float]
+    z_hist: List[float]
+    root_acc_history: List[Any]
+    corner_acc_hist: List[Any]
+    
+    pos_hist: List[Any] = field(default_factory=list)
+    vel_hist: List[Any] = field(default_factory=list)
+    acc_hist: List[Any] = field(default_factory=list)
+    
+    cog_pos_hist: List[Any] = field(default_factory=list)
+    cog_vel_hist: List[Any] = field(default_factory=list)
+    cog_acc_hist: List[Any] = field(default_factory=list)
+    
+    corner_pos_hist: List[Any] = field(default_factory=list)
+    corner_vel_hist: List[Any] = field(default_factory=list)
+    
+    ground_impact_hist: List[float] = field(default_factory=list)
+    air_drag_hist: List[float] = field(default_factory=list)
+    air_viscous_hist: List[float] = field(default_factory=list)
+    air_squeeze_hist: List[float] = field(default_factory=list)
+    
+    def save(self, filepath: str):
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+            
+    @classmethod
+    def load(cls, filepath: str):
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
 
 plt.rcParams.update({'font.size': 8})
 
@@ -212,7 +251,9 @@ def run_simulation(config_or_path, sim_duration=0.5):
         config = get_default_config() # fallback for later config.get calls
     else:
         # It's a config dictionary
-        config = config_or_path
+        # 사용자가 수정한 개별 요소(stiff, damp)가 문자열 파라미터(solref, solimp 등)에
+        # 완벽하게 조립/반영되도록 get_default_config 함수로 한 번 더 감싸서 동기화시킵니다.
+        config = get_default_config(config_or_path)
         print("Generating discrete box model from config...")
         xml_file = "temp_drop_sim.xml"
         xml_str = create_model(xml_file, config=config)
@@ -281,6 +322,9 @@ def run_simulation(config_or_path, sim_duration=0.5):
     pos_hist = []
     vel_hist = []
     acc_hist = []
+    cog_pos_hist = []
+    cog_vel_hist = []
+    cog_acc_hist = []
     corner_pos_hist = []
     corner_vel_hist = []
     corner_acc_hist = []
@@ -322,13 +366,14 @@ def run_simulation(config_or_path, sim_duration=0.5):
     k_spring_proxy = k_cush
 
     # 바닥 및 테이프 정보 (참조용 전역 질량 기준)
-    k_ground, c_ground = calc_mujoco_stiffness(config.get("ground_solref", "0.01 1.0"), config.get("mass_cushion", 1.0))
+    total_mass = float(np.sum(model.body_mass))
+    k_ground, c_ground = calc_mujoco_stiffness(config.get("ground_solref", "0.01 1.0"), total_mass)
     k_tape,   c_tape   = calc_mujoco_stiffness(config.get("tape_solref", "0.005 1.0"), config.get("mass_occ", 0.1))
 
     print("\n" + "="*80)
     print(f"[MuJoCo Solver Parameters (Calculated K & C)]")
     print(f" - Ground (Global) : K = {k_ground:10.1f} N/m, C = {c_ground:8.1f} Ns/m")
-    print(f"   (Used: mass={config.get('mass_cushion', 1.0):.3f}kg, solref={config.get('ground_solref', '0.01 1.0')})")
+    print(f"   (Used: mass={total_mass:.3f}kg, solref={config.get('ground_solref', '0.01 1.0')})")
     
     print(f" - Tape (Global)   : K = {k_tape:10.1f} N/m, C = {c_tape:8.1f} Ns/m")
     print(f"   (Used: mass={config.get('mass_occ', 0.1):.3f}kg, solref={config.get('tape_solref', '0.005 1.0')})")
@@ -416,12 +461,15 @@ def run_simulation(config_or_path, sim_duration=0.5):
             mujoco.mj_resetData(model, data)
             # Re-initialize histories
             time_history.clear(); z_hist.clear(); pos_hist.clear(); vel_hist.clear(); acc_hist.clear()
+            cog_pos_hist.clear(); cog_vel_hist.clear(); cog_acc_hist.clear()
             ground_impact_hist.clear(); air_drag_hist.clear(); air_viscous_hist.clear(); air_squeeze_hist.clear()
             corner_pos_hist.clear(); corner_vel_hist.clear(); corner_acc_hist.clear()
             for c in metrics:
                 for k in metrics[c]:
                     if isinstance(metrics[c][k], dict):
-                        for b in metrics[c][k]: metrics[c][k][b].clear()
+                        for b in metrics[c][k]: 
+                            if isinstance(metrics[c][k][b], list):
+                                metrics[c][k][b].clear()
                     elif isinstance(metrics[c][k], list):
                         metrics[c][k].clear()
             step = 0
@@ -463,6 +511,15 @@ def run_simulation(config_or_path, sim_duration=0.5):
         pos_hist.append(pos)
         vel_hist.append(vel)
         acc_hist.append(acc)
+        
+        root_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "BPackagingBox")
+        if root_id != -1:
+            cog_pos_hist.append(data.subtree_com[root_id].copy())
+            cog_vel_hist.append(data.subtree_linvel[root_id].copy())
+        else:
+            cog_pos_hist.append(pos)
+            cog_vel_hist.append(vel[3:6])
+        cog_acc_hist.append(acc[3:6]) # Subtree acceleration in MuJoCo requires numerical differentiation, so proxy by root acceleration
         
         corners = compute_corner_kinematics(pos, mat, vel, acc, config["box_w"], config["box_h"], config["box_d"])
         corner_pos_hist.append([c['pos'] for c in corners])
@@ -630,6 +687,80 @@ def run_simulation(config_or_path, sim_duration=0.5):
         
     # Plotting (only if requested)
     if config.get("plot_results", True):
+        # [NEW] txt 파일 출력을 위한 공용 헬퍼 함수
+        export_txt_path = os.path.join(output_dir, f'rds-{timestamp}_data.txt')
+        f_txt = open(export_txt_path, "w", encoding="utf-8")
+        
+        try:
+            from openpyxl import Workbook
+            from openpyxl.drawing.image import Image as xlImage
+            has_xl = True
+            xl_wb = Workbook()
+            xl_wb.remove(xl_wb.active)
+            export_xl_path = os.path.join(output_dir, f'rds-{timestamp}_data.xlsx')
+            xl_row_tracker = {}
+        except ImportError:
+            has_xl = False
+            
+        def export_plot_data(title, time_arr, data_dict, sheet_name=None, png_path=None):
+            f_txt.write(f"#TITLE: {title}\n")
+            legends = list(data_dict.keys())
+            max_len = max([len(str(l)) for l in legends]) if legends else 0
+            num_header_rows = max(1, (max_len + 18) // 19)
+            
+            for r in range(num_header_rows):
+                header = f"#{'Time (s)':<18}" if r == 0 else f"#{'':<18}"
+                for leg in legends:
+                    header += f"{str(leg)[r*19:(r+1)*19]:<20}"
+                f_txt.write(header + "\n")
+            
+            def fmt(v):
+                s = f"{float(v):.8f}"
+                if len(s) > 18:
+                    s = f"{float(v):.8e}"
+                return f"{s:<20}"
+                
+            for i in range(len(time_arr)):
+                line_str = f" {fmt(time_arr[i]).strip():<19}"
+                for leg in legends:
+                    try: val = data_dict[leg][i]
+                    except (IndexError, TypeError): val = 0.0
+                    line_str += fmt(val)
+                f_txt.write(line_str + "\n")
+            f_txt.write("\n")
+            
+            if has_xl and sheet_name:
+                safe_sheet = str(sheet_name)[:31]
+                if safe_sheet in xl_wb.sheetnames:
+                    ws = xl_wb[safe_sheet]
+                else:
+                    ws = xl_wb.create_sheet(title=safe_sheet)
+                    if png_path and os.path.exists(png_path):
+                        try:
+                            img = xlImage(png_path)
+                            ws.add_image(img, 'A1')
+                        except: pass
+                
+                if safe_sheet not in xl_row_tracker:
+                    xl_row_tracker[safe_sheet] = 11
+                start_row = xl_row_tracker[safe_sheet]
+                
+                ws.cell(row=start_row, column=1, value=f"#TITLE: {title}")
+                start_row += 1
+                
+                headers = ['Time (s)'] + legends
+                for col_idx, h in enumerate(headers, 1):
+                    ws.cell(row=start_row, column=col_idx, value=str(h))
+                    
+                for i in range(len(time_arr)):
+                    r_idx = start_row + 1 + i
+                    ws.cell(row=r_idx, column=1, value=time_arr[i])
+                    for col_idx, leg in enumerate(legends, 2):
+                        try: val = float(data_dict[leg][i])
+                        except: val = 0.0
+                        ws.cell(row=r_idx, column=col_idx, value=val)
+                xl_row_tracker[safe_sheet] = start_row + 1 + len(time_arr) + 1
+
         plt.figure(figsize=(10, 5))
         plt.plot(time_history, root_acc_history, label='Internal TV Accel (G)', color='black')
         plt.xlabel('Time (s)')
@@ -638,8 +769,10 @@ def run_simulation(config_or_path, sim_duration=0.5):
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'rds-impact_gforce.png'))
+        png1 = os.path.join(output_dir, 'rds-impact_gforce.png')
+        plt.savefig(png1)
         plt.close()
+        export_plot_data('Internal TV (OpenCell/Chassis) Peak Impact G-Force', time_history, {'Internal TV Accel (G)': root_acc_history}, 'Peak Impact G-Force', png1)
         
         # Ground Impact + Air Resistance combined plot (2 subplots)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
@@ -658,8 +791,16 @@ def run_simulation(config_or_path, sim_duration=0.5):
         ax2.grid(True)
         ax2.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'rds-ground_impact.png'))
+        png2 = os.path.join(output_dir, 'rds-ground_impact.png')
+        plt.savefig(png2)
         plt.close()
+        
+        export_plot_data('Ground Impact Force', time_history, {'Ground Normal Force (N)': ground_impact_hist}, 'Ground Impact', png2)
+        export_plot_data('Air Resistance Components', time_history, {
+            f'Drag (Cd={config.get("air_cd_drag",1.05):.2f})': air_drag_hist,
+            f'Viscous (Cd_v={config.get("air_cd_viscous",0.0):.2f})': air_viscous_hist,
+            f'Squeeze Film (k={config.get("air_coef_squeeze",1.0):.1f})': air_squeeze_hist
+        }, 'Ground Impact')
         
         # Motion All & Motion Z Setup
         pos_np = np.array(pos_hist) # (steps, 3)
@@ -671,7 +812,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
         c_acc_np = np.array(corner_acc_hist) # (steps, 8, 3)
         
         curves = {
-            'COG': {'pos': pos_np, 'vel': vel_np[:, 3:6], 'acc': acc_np[:, 3:6]},
+            'Center': {'pos': pos_np, 'vel': vel_np[:, 3:6], 'acc': acc_np[:, 3:6]},
+            'True_COG': {'pos': np.array(cog_pos_hist), 'vel': np.array(cog_vel_hist), 'acc': np.array(cog_acc_hist)},
             'CORNER_L-B-B': {'pos': c_pos_np[:,0,:], 'vel': c_vel_np[:,0,:], 'acc': c_acc_np[:,0,:]},
             'CORNER_L-B-F': {'pos': c_pos_np[:,1,:], 'vel': c_vel_np[:,1,:], 'acc': c_acc_np[:,1,:]},
             'CORNER_L-T-B': {'pos': c_pos_np[:,2,:], 'vel': c_vel_np[:,2,:], 'acc': c_acc_np[:,2,:]},
@@ -681,43 +823,57 @@ def run_simulation(config_or_path, sim_duration=0.5):
             'CORNER_R-T-B': {'pos': c_pos_np[:,6,:], 'vel': c_vel_np[:,6,:], 'acc': c_acc_np[:,6,:]},
             'CORNER_R-T-F': {'pos': c_pos_np[:,7,:], 'vel': c_vel_np[:,7,:], 'acc': c_acc_np[:,7,:]}
         }
-        ordered_keys = ['COG', 'CORNER_L-T-F', 'CORNER_R-T-F', 'CORNER_L-T-B', 'CORNER_R-T-B', 'CORNER_L-B-F', 'CORNER_R-B-F', 'CORNER_L-B-B', 'CORNER_R-B-B']
+        ordered_keys = ['Center', 'True_COG', 'CORNER_L-T-F', 'CORNER_R-T-F', 'CORNER_L-T-B', 'CORNER_R-T-B', 'CORNER_L-B-F', 'CORNER_R-B-F', 'CORNER_L-B-B', 'CORNER_R-B-B']
         
         # rds-Motion_All.png
         fig, axs = plt.subplots(3, 3, figsize=(18, 12))
         fig.suptitle('Kinematics: Position, Velocity, Acceleration vs Time', fontsize=16)
         labels_row = ['Position (m)', 'Velocity (m/s)', 'Acceleration (m/s^2)']
         labels_col = ['X Axis', 'Y Axis', 'Z Axis']
+        all_subplot_dicts = []
         for row in range(3):
             for col in range(3):
                 ax = axs[row, col]
+                subplot_dict = {}
                 for k in ordered_keys:
                     metric = 'pos' if row == 0 else ('vel' if row == 1 else 'acc')
                     ax.plot(time_history, curves[k][metric][:, col], label=k)
+                    subplot_dict[k] = curves[k][metric][:, col]
                 if row == 2: ax.set_xlabel('Time (s)')
                 if col == 0: ax.set_ylabel(labels_row[row])
                 if row == 0: ax.set_title(labels_col[col])
                 ax.grid(True)
+                all_subplot_dicts.append((f"Kinematics - {labels_row[row]} - {labels_col[col]}", subplot_dict))
         axs[0, 2].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
         plt.tight_layout(rect=[0, 0, 0.9, 1])
-        plt.savefig(os.path.join(output_dir, 'rds-Motion_All.png'))
+        png3 = os.path.join(output_dir, 'rds-Motion_All.png')
+        plt.savefig(png3)
         plt.close()
+        for i, (ttl, s_dict) in enumerate(all_subplot_dicts):
+            export_plot_data(ttl, time_history, s_dict, 'Motion_All', png3 if i==0 else None)
         
         # rds-Motion_Z.png
         fig, axs = plt.subplots(1, 3, figsize=(18, 5))
         fig.suptitle('Kinematics (Z Axis Only): Position, Velocity, Acceleration vs Time', fontsize=16)
         titles_z = ['Z Position (m)', 'Z Velocity (m/s)', 'Z Acceleration (m/s^2)']
+        z_subplot_dicts = []
         for i, metric in enumerate(['pos', 'vel', 'acc']):
             ax = axs[i]
+            subplot_dict = {}
             for k in ordered_keys:
                 ax.plot(time_history, curves[k][metric][:, 2], label=k)
+                subplot_dict[k] = curves[k][metric][:, 2]
             ax.set_xlabel('Time (s)')
             ax.set_ylabel(titles_z[i])
             ax.grid(True)
+            z_subplot_dicts.append((f"Kinematics (Z Axis Only) - {titles_z[i]}", subplot_dict))
         axs[2].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
         plt.tight_layout(rect=[0, 0, 0.9, 1])
-        plt.savefig(os.path.join(output_dir, 'rds-Motion_Z.png'))
+        png4 = os.path.join(output_dir, 'rds-Motion_Z.png')
+        plt.savefig(png4)
         plt.close()
+        for i, (ttl, s_dict) in enumerate(z_subplot_dicts):
+            export_plot_data(ttl, time_history, s_dict, 'Motion_Z', png4 if i==0 else None)
 
         # Plot metric per component max over time
         for comp, j_data in metrics.items():
@@ -749,8 +905,13 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 plt.grid(True)
                 plt.legend()
                 plt.tight_layout()
-                plt.savefig(os.path.join(output_dir, f'rds-{comp}_deformation.png'))
+                png_def = os.path.join(output_dir, f'rds-{comp}_deformation.png')
+                plt.savefig(png_def)
                 plt.close()
+                export_plot_data(f'{comp} Structural Deformation (Max)', time_history, {
+                    f'Max Bending [{global_loc_b}]': max_b_time,
+                    f'Max Twisting [{global_loc_t}]': max_t_time
+                }, f'{comp[:15]}_deformation', png_def)
             
             # New: All Blocks Angle Plot
             all_blocks = j_data.get('all_blocks_angle', {})
@@ -763,19 +924,22 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 num_blocks = len(all_blocks)
                 cols_legend = min(4, max(1, num_blocks // 10))
                 
+                block_dict = {}
                 for block_idx, a_hist in all_blocks.items():
                     legend_name = f"{block_idx[0]}-{block_idx[1]}-{block_idx[2]}"
                     ax_main.plot(time_history, a_hist, label=legend_name, linewidth=1.0)
+                    block_dict[legend_name] = a_hist
                 ax_main.set_xlabel('Time (s)')
                 ax_main.set_ylabel('Def. Angle (deg)')
                 ax_main.set_title(f'{comp} Block Angle Deformation (Relative to Root)')
                 ax_main.grid(True)
                 
                 # Put Legend outside
-                ax_main.legend(loc='center left', bbox_to_anchor=(1.0, 0.5), ncol=cols_legend, fontsize=6)
+                ax_main.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0), ncol=cols_legend, fontsize=6)
                 
                 # Inset 3D scatter plot for index guide
-                ax_inset = fig.add_axes([0.65, 0.05, 0.3, 0.3], projection='3d')
+                # Move slightly further down-right to avoid any potential clash
+                ax_inset = fig.add_axes([0.72, 0.05, 0.25, 0.25], projection='3d')
                 xs, ys, zs = [], [], []
                 labels = []
                 for b_idx, nom in block_noms.items():
@@ -795,9 +959,16 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 ax_inset.set_yticks([])
                 ax_inset.set_zticks([])
                 
-                plt.savefig(os.path.join(output_dir, f'rds-{comp}_deformation_all.png'))
+                png_def_all = os.path.join(output_dir, f'rds-{comp}_deformation_all.png')
+                plt.savefig(png_def_all)
                 plt.close()
+                export_plot_data(f'{comp} Block Angle Deformation (Relative to Root)', time_history, block_dict, f'{comp[:15]}_def_all', png_def_all)
             
+        f_txt.close()
+        if has_xl:
+            xl_wb.save(export_xl_path)
+            print(f"  >> Excel saved to: {os.path.basename(export_xl_path)}")
+        
     # Copy the XML file used for simulation to the output directory
     if xml_path and os.path.exists(xml_path):
         shutil.copy(xml_path, os.path.join(output_dir, os.path.basename(xml_path)))
@@ -806,7 +977,32 @@ def run_simulation(config_or_path, sim_duration=0.5):
     # [Important] Callback 해제 (메모리 릭 및 충돌 방지)
     mujoco.set_mjcb_control(None)
     
-    return time_history, z_hist, vel_hist, root_acc_history, corner_acc_hist, max_g_force, metrics
+    sim_result = DropSimResult(
+        config=config,
+        metrics=metrics,
+        max_g_force=max_g_force,
+        time_history=time_history,
+        z_hist=z_hist,
+        root_acc_history=root_acc_history,
+        corner_acc_hist=corner_acc_hist,
+        pos_hist=pos_hist,
+        vel_hist=vel_hist,
+        acc_hist=acc_hist,
+        cog_pos_hist=cog_pos_hist,
+        cog_vel_hist=cog_vel_hist,
+        cog_acc_hist=cog_acc_hist,
+        corner_pos_hist=corner_pos_hist,
+        corner_vel_hist=corner_vel_hist,
+        ground_impact_hist=ground_impact_hist,
+        air_drag_hist=air_drag_hist,
+        air_viscous_hist=air_viscous_hist,
+        air_squeeze_hist=air_squeeze_hist
+    )
+    result_path = os.path.join(output_dir, f'rds-{timestamp}_result.pkl')
+    sim_result.save(result_path)
+    print(f"  >> Python 데이터 오브젝트(DropSimResult) 저장 완료: {os.path.basename(result_path)}")
+    
+    return sim_result, time_history, z_hist, vel_hist, root_acc_history, corner_acc_hist, max_g_force, metrics
 
 if __name__ == "__main__":
     # Get basic defaults, override specifically if needed
@@ -816,8 +1012,7 @@ if __name__ == "__main__":
     cfg["drop_mode"] = "L-F-B" 
     cfg["include_paperbox"] = False # 로컬 테스트용 오버라이드
     cfg["drop_height"] = 0.5    
-    cfg["plot_results"] = True
-    cfg['sim_duration'] = 2.4
+    cfg["plot_results"] = True    
     cfg["only_generate_xml"] = False # [NEW] True 설정 시 시뮬레이션을 돌리지 않고 XML 모델 생성 및 저장만 수행
 
     # [COMPONENTS OPTIONS] 부품별 해상도(div) 및 결합 방식(use_weld) 설정
@@ -837,57 +1032,59 @@ if __name__ == "__main__":
     cfg["box_div"]          = [5, 4, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
     cfg["box_use_weld"]     = False        # 박스는 강체로 취급
     
-    cfg["ground_friction"] = 0.02 # 바닥 마찰계수 기본값 0.2
+    cfg["ground_friction"] = 0.01 # 바닥 마찰계수 기본값 0.2
     
     # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
     # ground_solref: [timeconst, dampratio] -> timeconst가 작을수록 딱딱함. (0.002 미만은 비권장)
     cfg["ground_solref_stiff"] = 0.005  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
-    cfg["ground_solref_damp"]  = 2.00    # Critical Damping
+    cfg["ground_solref_damp"]  = 0.01    # Critical Damping
     
     # ground_solimp: [dmin, dmax, width, midpoint, power] 
     # dmax를 0.999로 높여 최대 압축 시 반발력을 극대화하고, width를 줄여 즉각 반응하게 함
     cfg["ground_solimp"] = "0.9 0.999 0.001 0.5 2"
     
     # [SIMULATION OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sim_*)
-    cfg["sim_integrator"] = "Euler" # 통합기 (Euler, RK4, implicit, implicitfast 등)
-    cfg["sim_timestep"]   = 0.001          # 시뮬레이션 타임스텝 (s)
+    cfg["sim_integrator"] = "implicitfast" # 통합기 (Euler, RK4, implicit, implicitfast 등)
+    cfg['sim_duration'] = 3.0
+    cfg["sim_timestep"]   = 0.0015         # 시뮬레이션 타임스텝 (s)
     cfg["sim_iterations"] = 50             # 솔버 최대 반복 횟수 (1~200)
     cfg["sim_noslip_iterations"] = 0       # 마찰 고정(미끄러짐 방지)을 위한 추가 반복 횟수
-    cfg["sim_tolerance"]  = 1e-4           # 솔버 수렴 오차 허용치 (속도를 위해 약간 완화)
+    cfg["sim_tolerance"]  = 1e-5           # 솔버 수렴 오차 허용치 (속도를 위해 약간 완화)
     cfg["sim_gravity"]    = [0, 0, -9.81]  # 중력 가속도 [x, y, z]
     cfg["sim_nthread"]    = 4              # [NEW] 멀티코어 사용 (코어 수에 맞춰 조절)
-    
+    cfg["sim_impratio"]   = 5.0             # 기본 1.0. 값을 5~10 정도로 크게 주면 관통을 강력하게 봉쇄합니다.
+
     # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    cfg["cush_solref_stiff"] = 0.1 # 쿠션 timeconst
-    cfg["cush_solref_damp"]  = 2.0 # 쿠션 dampratio
+    cfg["cush_solref_stiff"] = 0.02 # 쿠션 timeconst
+    cfg["cush_solref_damp"]  = 0.5 # 쿠션 dampratio
 
     # air fluidic force
     cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
     cfg["air_viscosity"]    = 1.81e-5   # 공기 동점성계수 (Pa.s)
     cfg["air_cd_drag"]      = 1.05      # Blunt drag 계수 (박스 형태 기준 1.0~1.2)
     cfg["air_cd_viscous"]   = 0.01      # Slender(점성) drag 계수 (박스는 보통 0)
-    cfg["air_coef_squeeze"] = 1.0       # Squeeze Film 효과 강도 배율 (0=비활성화)
+    cfg["air_coef_squeeze"] = 0.2       # Squeeze Film 효과 강도 배율 (0=비활성화)
     cfg["air_squeeze_hmax"] = 0.20      # Squeeze Film 활성화 최대 높이 (m)
-    cfg["air_squeeze_hmin"] = 0.001     # Squeeze Film 최소 높이 (분모 안전값, m)
+    cfg["air_squeeze_hmin"] = 0.005      # Squeeze Film 최소 높이 (분모 안전값, m)
     cfg["enable_air_drag"]    = True   # MuJoCo 빌트인 Drag/Viscous 활성화 여부
     cfg["enable_air_squeeze"] = True   # 수동 Squeeze Film 활성화 여부
 
     # [EXAMPLE] 섀시 하단 양쪽(Bottom Left/Right)에 3kg 스피커를 부착하는 예제입니다 (필요시 주석 해제)
-    # cfg["chassis_aux_masses"] = [
-    #     {
-    #         "name": "Speaker_Left", 
-    #         "pos" : [-0.6, -0.4, 0.0],   # 좌측 하단 (샤시 중심 기준)
-    #         "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
-    #         "mass": 3.0                  # 3kg
-    #     },
-    #     {
-    #         "name": "Speaker_Right", 
-    #         "pos" : [0.6, -0.4, 0.0],    # 우측 하단 (샤시 중심 기준)
-    #         "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
-    #         "mass": 3.0                  # 3kg
-    #     }
-    # ]
-    cfg["chassis_aux_masses"] = [] # 기본값은 빈 리스트
+    cfg["chassis_aux_masses"] = [
+        {
+             "name": "Speaker_Left", 
+             "pos" : [-0.6, +0.4, 0.1],   # 좌측 하단 (샤시 중심 기준)
+             "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
+             "mass": 1.0                  # 3kg
+         },
+         {
+             "name": "Speaker_Right", 
+             "pos" : [0.6, +0.4, 0.3],    # 우측 하단 (샤시 중심 기준)
+             "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
+             "mass": 3.0                  # 3kg
+         }
+    ]
+    #cfg["chassis_aux_masses"] = [] # 기본값은 빈 리스트
     
     # [NEW] 실행 시 뷰어 사용 여부 확인 (기본값 True)
     cfg["use_viewer"] = ask_use_viewer()
@@ -923,6 +1120,14 @@ Dampratio (두 번째 값)
 - Chassis / TV Panel (0.01): 상당히 단단한 구조체로 적절한 설정입니다.
 - Tape (0.05): 이전(0.005)보다 10배 더 말랑하게 수정하셨습니다. 이 경우 285G 같은 고충격에서는 테이프가 고무줄처럼 늘어나면서 부품 분리가 일어날 가능성이 매우 높습니다. (분리 문제가 다시 발생한다면 0.01 이하로 낮추는 것을 권장합니다.)
 - Cushion (0.1): 아주 부드러운 완충재 설정입니다. 충격 흡수량은 많아지지만 패널이 쿠션을 깊게 파고들 수 있습니다.
+
+
+1. i-j-k reference 그림과 legend가 겹치는 문제가 있는데 해결할 수 있을까?
+2. 결과를 저장하는 python 변수들이 있다면, 이를 저장해놓았다가 다음에 읽어서 처리할 수 있으면 좋겠다. 이를 관장할 수 있는 데이터 클래스를 만들어 파일 저장, 읽기 등과 함게 데이터 처리, 가공, txt 및 excel 저장 등도 총괄 할 수 있도록 하자.
+
+그리고 시뮬레이션 후에 rds 폴더에 해당 결과도 저장해놓고, 다음에 읽어서 데이터를 다뤌 수 있도록 해달라. 
+
+우리는 나중에 주어진 시험 결과(예를 들면, 상자 모서리의 시간에 대한 좌표 변화)와 매칭되는 시뮬레이션 결과를 얻기 위해서 파라미터들을 자동으로 찾아 조정하는 기능을 구현할 게획이다. 이 계획도 참고하라.
 
 '''
 
