@@ -18,9 +18,9 @@ WHToolsBox는 전통적이고 무거운 유한요소해석(FEA) 상용 프로그
 - **🧪 충돌(Contact) & 공기 역학(Air Dynamics) 통합**
   바닥 및 부품 간의 유연한 거동(Solref/Solimp 임피던스 제어)은 물론, 압축 공기 쿠션(Squeeze Film Effect)과 드래그 등 유체 역학적 충격 저항까지 사실적으로 계산합니다.
 - **🧠 지능형 관성 보정 (Selective Inertia Balancing)**
-  Mass, CoG, MoI 중 원하는 항목만 선택적으로 보정하거나 다중 Aux Mass를 자동 배치하여 시스템의 물리적 정합성을 실시간으로 튜닝합니다.
+  Mass, CoG, MoI 중 원하는 항목만 선택적으로 보정하거나 다중 Aux Mass를 자동 배치하여 시스템의 물리적 정합성을 실시간으로 튜닝합니다. 보정 시 Baseline 값을 참조하여 최적화된 추가 질량 위치를 산출합니다.
 - **🟦 영구 변형(Plasticity) 및 시각적 모니터링**
-  충격 시 발생하는 영구 변형(Permanent Deformation)을 물리적으로 계산하며, 변형된 부위가 뷰어에서 푸른색(Blue Tint)으로 강조되어 파손 위험 부위를 직관적으로 식별할 수 있습니다.
+  충격 시 발생하는 영구적인 찌그러짐 현상을 물리적으로 계산합니다. **위치 이동(80%)**과 **크기 축소(20%)**를 결합한 메커니즘을 사용하며, 8곳의 모서리 및 두께 방향(Z-column) 패드에만 변형을 제한하여 사실감을 높였습니다. 변형된 부위는 뷰어에서 푸른색(Blue Tint)으로 강조됩니다.
 - **📊 포괄적 데이터 내보내기 (TXT/Excel Export Data Model)**
   추출된 모든 `DropSimResult` 데이터를 직렬화(pkl)로 캐싱하며, 다중 탭을 가진 Excel 파일(`openpyxl`) 및 TXT 파일 형식으로 G-Force 및 변형도, 진무게중심(True_COG) 좌표 그래프 이미지 등과 한데 묶여 매번 자동으로 레포트화(rds 폴더)됩니다.
 
