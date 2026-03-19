@@ -12,6 +12,8 @@ from run_discrete_builder import create_model, get_default_config
 import pickle
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
+import math
+import io
 
 @dataclass
 class DropSimResult:
@@ -49,18 +51,112 @@ class DropSimResult:
         with open(filepath, "rb") as f:
             return pickle.load(f)
 
+# =====================================================================
+# [NEW] 전역 로깅 설정 (모든 터미널 출력을 리포트 파일에 저장)
+# =====================================================================
+_report_file_path = None
+
+def log_and_print(msg):
+    """
+    터미널에 출력함과 동시에, 현재 진행 중인 시뮬레이션의 
+    summary_report.txt 파일이 설정되어 있다면 해당 파일에도 기록합니다.
+    """
+    content = str(msg)
+    print(content) # 실제 터미널 출력
+    
+    global _report_file_path
+    if _report_file_path:
+        try:
+            # 'a' (append) 모드로 열어 파일 끝에 추가 기록
+            with open(_report_file_path, "a", encoding="utf-8") as rf:
+                rf.write(content + "\n")
+        except Exception as e:
+            # 로깅 자체의 에러는 터미널에 최소한으로 출력
+            print(f"!!! [Logging Failed] {e}")
+
+# =====================================================================
+# [NEW] 리포팅 및 설정을 위한 유틸리티 함수
+# =====================================================================
+def format_config_report(config, timestamp):
+    """설정(Config) 데이터를 보기 좋게 문자열로 정리하여 반환합니다."""
+    lines = []
+    lines.append("\n" + "="*90)
+    lines.append(f"  [MuJoCo Drop Simulation - Configuration Summary]  -  {timestamp}")
+    lines.append("="*90)
+    
+    # 주요 카테고리별 정렬 정의
+    categories = {
+        "1. 낙하 조건 (Drop Setup)":       ["drop_mode", "drop_height", "sim_duration"],
+        "2. 구조물 및 조립 (Assembly)":    ["include_paperbox", "include_cushion", "box_use_weld", "cush_use_weld", "oc_use_weld", "chas_use_weld"],
+        "3. 형상 파라미터 (Geometry)":    ["box_w", "box_h", "box_d", "box_thick", "box_div", "cush_div", "assy_div", "oc_div", "chassis_div"],
+        "4. 질량/재질 설정 (Material)":   ["mass_paper", "mass_cushion", "mass_oc", "mass_occ", "mass_chassis", "ground_friction"],
+        "5. 솔버/환경 설정 (Solver)":     ["sim_integrator", "sim_timestep", "sim_iterations", "sim_impratio", "sim_nthread", "ground_solref", "tape_solref"],
+        "6. 공기 역학 (Aerodynamics)":    ["enable_air_drag", "enable_air_squeeze", "air_density", "air_coef_squeeze", "air_cd_drag"]
+    }
+    
+    logged_keys = set()
+    for cat, keys in categories.items():
+        lines.append(f"\n[{cat}]")
+        for k in keys:
+            if k in config:
+                val = config[k]
+                lines.append(f"  - {k:<25}: {val}")
+                logged_keys.add(k)
+    
+    # 추가 질량(Aux Masses) 별도 처리
+    if "chassis_aux_masses" in config and config["chassis_aux_masses"]:
+        lines.append("\n[7. 추가 질량 (Chassis Aux Masses)]")
+        for i, aux in enumerate(config["chassis_aux_masses"]):
+            name = aux.get('name', f'Aux_{i}')
+            lines.append(f"  * {name:<23}: pos={aux.get('pos')}, mass={aux.get('mass')}kg, size={aux.get('size')}")
+        logged_keys.add("chassis_aux_masses")
+
+    # 상기 카테고리에 누락된 기타 설정들
+    other_keys = [k for k in config.keys() if k not in logged_keys and not k.startswith("mat_")]
+    if other_keys:
+        lines.append("\n[8. 기타 세부 설정 (Others)]")
+        for k in sorted(other_keys):
+            lines.append(f"  - {k:<25}: {config[k]}")
+        
+    lines.append("\n" + "="*90 + "\n")
+    return "\n".join(lines)
+
+def print_inertia_report(config, title="[Assembly Inertia Report]", logger=print):
+    """지정된 설정에 따른 모델의 질량, CoG, MoI 정보를 측정하고 리포트 형식으로 출력합니다."""
+    # 실제 XML 파일 생성을 피하기 위해 임시 파일명을 사용하지만, 
+    # create_model 내부에서 이미 로깅 로직이 있으므로 이를 활용합니다.
+    temp_xml = "temp_inertia_check.xml"
+    _, total_mass, cog, moi, details = create_model(temp_xml, config=config, logger=logger)
+    return total_mass, cog, moi, details
+
+def save_config_as_py(config, filepath, timestamp):
+    """전체 설정을 차후 재현 가능한 Python 딕셔너리 형태의 파일로 저장합니다."""
+    import pprint
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f'# MuJoCo Drop Simulation Reproduction Config\n')
+        f.write(f'# Generated for Run: rds-{timestamp}\n')
+        f.write(f'# Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
+        formatted_cfg = pprint.pformat(config, indent=4, sort_dicts=False)
+        f.write(f'config = {formatted_cfg}\n')
+
 plt.rcParams.update({'font.size': 8})
+
 
 
 def ask_use_viewer():
     """사용자에게 GUI 뷰어(Passive Viewer) 사용 여부를 묻습니다."""
     try:
-        # 5초 내에 입력이 없으면 기본값(True) 사용 (선택 사항, 여기서는 단순 input 사용)
-        ans = input("\n>> MuJoCo GUI 뷰어를 실행하시겠습니까? (Y/n, 기본값=Y): ").strip().lower()
+        prompt = "\n>> MuJoCo GUI 뷰어를 실행하시겠습니까? (Y/n, 기본값=Y): "
+        ans = input(prompt).strip().lower()
+        
+        # [LOGGING] 사용자 응답을 로그에 기록
+        log_and_print(f"{prompt.strip()} -> {ans if ans else 'y (default)'}")
+        
         if ans == 'n':
             return False
         return True
     except EOFError:
+        log_and_print(">> IO Error or Empty input. Defaulting to True.")
         return True
 
 
@@ -243,38 +339,75 @@ def compute_corner_kinematics(center_pos, center_mat, center_vel, center_acc, bo
     return results
 
 def run_simulation(config_or_path, sim_duration=0.5):
-    if isinstance(config_or_path, str):
-        # It's an XML path
-        xml_path = config_or_path
-        print(f"Loading MuJoCo model from XML: {xml_path}")
-        model = mujoco.MjModel.from_xml_path(xml_path)
-        config = get_default_config() # fallback for later config.get calls
-    else:
-        # It's a config dictionary
-        # 사용자가 수정한 개별 요소(stiff, damp)가 문자열 파라미터(solref, solimp 등)에
-        # 완벽하게 조립/반영되도록 get_default_config 함수로 한 번 더 감싸서 동기화시킵니다.
-        config = get_default_config(config_or_path)
-        print("Generating discrete box model from config...")
-        xml_file = "temp_drop_sim.xml"
-        xml_str = create_model(xml_file, config=config)
-        xml_abs_path = os.path.abspath(xml_file)
-        print(f"  >> Generated XML: {xml_abs_path}")
-        model = mujoco.MjModel.from_xml_string(xml_str)
-        # Override sim_duration if provided in config
-        sim_duration = config.get('sim_duration', sim_duration)
-        xml_path = xml_abs_path
-
-    # [NEW] 결과 저장을 위한 타임스탬프 폴더 생성
+    # [NEW] 결과 저장을 위한 타임스탬프 및 출력 경로 초기화 (가장 먼저 수행)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = f"rds-{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
-    report_file_path = os.path.join(output_dir, "summary_report.txt")
+    
+    # 전역 로깅 경로 설정
+    global _report_file_path
+    _report_file_path = os.path.abspath(os.path.join(output_dir, "summary_report.txt"))
+
+    # 시작 시점에 빈 파일을 생성(Overwrite)하여 기록 준비
+    with open(_report_file_path, "w", encoding="utf-8") as f:
+        pass 
+
+    if isinstance(config_or_path, str):
+        # XML 경로가 직접 전달된 경우
+        xml_path = config_or_path
+        log_and_print(f"\nLoading MuJoCo model from XML: {xml_path}")
+        model = mujoco.MjModel.from_xml_path(xml_path)
+        config = get_default_config() # fallback
+    else:
+        # Config 딕셔너리가 전달된 경우 (모델 생성 필요)
+        config = get_default_config(config_or_path)
+        
+        # [NEW] 로깅 디렉토리 생성 직후, 보정 전(Baseline) 관성 상태를 측정하여 요약에 포함할 준비
+        baseline_stats = None
+        if not config.get("only_generate_xml", False):
+            # 보정 전 상태를 확인하기 위해 aux masses가 없는 임시 설정을 만듭니다.
+            base_cfg = config.copy()
+            if "chassis_aux_masses" in base_cfg:
+                base_cfg["chassis_aux_masses"] = []
+            
+            # 로그 파일이 생성되었으므로, 여기에 Baseline 기록 (터미널 출력은 생략하거나 별도 처리)
+            _, b_m, b_c, b_i, _ = create_model("temp_baseline.xml", config=base_cfg, logger=lambda x: None)
+            baseline_stats = (b_m, b_c, b_i)
+
+        # Detailed summary of current configuration
+        summary_text = format_config_report(config, timestamp)
+        
+        # [NEW] Baseline 정보를 텍스트 하단에 병합
+        if baseline_stats:
+            b_m, b_c, b_i = baseline_stats
+            extra = []
+            extra.append("\n[Baseline Inertia (Pre-Correction)]")
+            extra.append(f"  - Baseline Mass            : {b_m:12.4f} kg")
+            extra.append(f"  - Baseline CoG             : ({b_c[0]:.4f}, {b_c[1]:.4f}, {b_c[2]:.4f})")
+            extra.append(f"  - Baseline MoI (x,y,z)     : ({b_i[0]:.6f}, {b_i[1]:.6f}, {b_i[2]:.6f})")
+            summary_text = summary_text.replace("\n" + "="*90 + "\n", "\n".join(extra) + "\n\n" + "="*90 + "\n")
+
+        log_and_print(summary_text)
+
+        config_py_path = os.path.join(output_dir, f"rds-{timestamp}_config.py")
+        save_config_as_py(config, config_py_path, timestamp)
+        log_and_print(f"  >> Reproducible config script saved to: {os.path.basename(config_py_path)}")
+
+        log_and_print("\nGenerating discrete box model from config...")
+        xml_file = "temp_drop_sim.xml"
+        xml_str, *_ = create_model(xml_file, config=config, logger=log_and_print)
+        xml_abs_path = os.path.abspath(xml_file)
+        log_and_print(f"  >> Generated XML: {xml_abs_path}")
+        
+        model = mujoco.MjModel.from_xml_string(xml_str)
+        sim_duration = config.get('sim_duration', sim_duration)
+        xml_path = xml_abs_path
 
     # [NEW] 모델 생성만 수행하고 시뮬레이션은 건너뛰는 옵션 처리
     if config.get("only_generate_xml", False):
         if xml_path and os.path.exists(xml_path):
             shutil.copy(xml_path, os.path.join(output_dir, os.path.basename(xml_path)))
-            print(f"  >> [XML Mode] XML saved to {output_dir}. Skipping simulation.")
+            log_and_print(f"  >> [XML Mode] XML saved to {output_dir}. Skipping simulation.")
         return None
     
     data = mujoco.MjData(model)
@@ -282,7 +415,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
     # [INFO] MuJoCo 3.0+ 멀티코어 연산은 XML의 <option npoolthread="N"> 설정을 통해 활성화됩니다.
     nthread = config.get("sim_nthread", 4)
     if nthread > 1:
-        print(f"  >> Multicore requested: {nthread} threads (via npoolthread).")
+        log_and_print(f"  >> Multicore requested: {nthread} threads (via npoolthread).")
     
     # Identify bodies for structural metrics
     # Group by component name -> dict of (i,j,k) -> body_id
@@ -370,19 +503,19 @@ def run_simulation(config_or_path, sim_duration=0.5):
     k_ground, c_ground = calc_mujoco_stiffness(config.get("ground_solref", "0.01 1.0"), total_mass)
     k_tape,   c_tape   = calc_mujoco_stiffness(config.get("tape_solref", "0.005 1.0"), config.get("mass_occ", 0.1))
 
-    print("\n" + "="*80)
-    print(f"[MuJoCo Solver Parameters (Calculated K & C)]")
-    print(f" - Ground (Global) : K = {k_ground:10.1f} N/m, C = {c_ground:8.1f} Ns/m")
-    print(f"   (Used: mass={total_mass:.3f}kg, solref={config.get('ground_solref', '0.01 1.0')})")
+    log_and_print("\n" + "="*80)
+    log_and_print(f"[MuJoCo Solver Parameters (Calculated K & C)]")
+    log_and_print(f" - Ground (Global) : K = {k_ground:10.1f} N/m, C = {c_ground:8.1f} Ns/m")
+    log_and_print(f"   (Used: mass={total_mass:.3f}kg, solref={config.get('ground_solref', '0.01 1.0')})")
     
-    print(f" - Tape (Global)   : K = {k_tape:10.1f} N/m, C = {c_tape:8.1f} Ns/m")
-    print(f"   (Used: mass={config.get('mass_occ', 0.1):.3f}kg, solref={config.get('tape_solref', '0.005 1.0')})")
+    log_and_print(f" - Tape (Global)   : K = {k_tape:10.1f} N/m, C = {c_tape:8.1f} Ns/m")
+    log_and_print(f"   (Used: mass={config.get('mass_occ', 0.1):.3f}kg, solref={config.get('tape_solref', '0.005 1.0')})")
     
-    print(f" - Cushion (Block) : K = {k_cush:10.1f} N/m, C = {c_cush:8.1f} Ns/m (per block)")
-    print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_solref})")
-    print(f"   (Geom: Avg_Area={area_avg:.6f} m^2, Avg_Depth={avg_dz:.4f} m)")
-    print(f"   >> Est. Young's Modulus (E): {E_mpa:.4e} MPa ({E_kpa:.2f} kPa)")
-    print("="*80 + "\n")
+    log_and_print(f" - Cushion (Block) : K = {k_cush:10.1f} N/m, C = {c_cush:8.1f} Ns/m (per block)")
+    log_and_print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_solref})")
+    log_and_print(f"   (Geom: Avg_Area={area_avg:.6f} m^2, Avg_Depth={avg_dz:.4f} m)")
+    log_and_print(f"   >> Est. Young's Modulus (E): {E_mpa:.4e} MPa ({E_kpa:.2f} kPa)")
+    log_and_print("="*80 + "\n")
 
     metrics = {}
     for comp in components:
@@ -401,7 +534,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 'loc_b': [], 'loc_t': [], 'loc_e': []
             }
             
-    print(f"Starting simulation for {duration} seconds with {steps} steps...")
+    log_and_print(f"Starting simulation for {duration} seconds with {steps} steps...")
     
     # k_spring_proxy is now calculated from MuJoCo parameters above
     
@@ -409,6 +542,96 @@ def run_simulation(config_or_path, sim_duration=0.5):
     
     mujoco.mj_forward(model, data)
     
+    # [NEW] 영구 변형(Plastic Deformation) 로직 초기화
+    geom_state_tracker = {}
+    enable_plasticity = config.get("enable_plasticity", False)
+    plasticity_ratio = config.get("plasticity_ratio", 0.3)
+    
+    def apply_plastic_deformation():
+        if not enable_plasticity: return
+        current_penetrations = {}
+        
+        # 1. 런타임에 바닥(ground)과 쿠션 상호작용 검사
+        for i in range(data.ncon):
+            con = data.contact[i]
+            g1_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, con.geom1)
+            g2_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, con.geom2)
+            
+            target_geom = -1
+            if g1_name and "ground" in g1_name.lower(): target_geom = con.geom2
+            elif g2_name and "ground" in g2_name.lower(): target_geom = con.geom1
+            
+            if target_geom != -1:
+                t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, target_geom)
+                if t_name and t_name.startswith("g_bcushion_"):
+                    # g_bcushion_{i}_{j}_{k} 정규식 또는 스플릿 추출
+                    parts = t_name.split('_')
+                    if len(parts) >= 5:
+                        try:
+                            c_i = int(parts[2])
+                            c_j = int(parts[3])
+                            # 8곳의 모서리 및 두께 방향 능(Edge Columns)에 걸치는 패드만 허용
+                            # i가 0 또는 끝이고, j가 0 또는 끝인 기둥들 (Z인 k는 무관)
+                            if (c_i == 0 or c_i == cush_div[0] - 1) and (c_j == 0 or c_j == cush_div[1] - 1):
+                                pen = -con.dist
+                                if pen > 1e-4:
+                                    if pen > current_penetrations.get(target_geom, 0.0):
+                                        current_penetrations[target_geom] = pen
+                        except ValueError:
+                            pass
+
+        # 2. 신규 접촉 등록
+        for gid in current_penetrations:
+            if gid not in geom_state_tracker:
+                geom_state_tracker[gid] = {'max_p': 0.0, 'applied': False}
+                
+        # 3. 압축(Compression) 및 회복(Recovery) 상태 업데이트
+        for gid, state in geom_state_tracker.items():
+            curr_p = current_penetrations.get(gid, 0.0)
+            
+            # 압축 진행 중
+            if curr_p >= state['max_p']:
+                state['max_p'] = curr_p
+                state['applied'] = False
+            
+            # 회복 중 변형 적용
+            if state['max_p'] > 0.001 and not state['applied']:
+                recovery = state['max_p'] - curr_p
+                if recovery >= state['max_p'] * plasticity_ratio:
+                    # 향후 탄성 계수 기반 공식을 위해 별도 분리 가능한 지점 
+                    deformation = state['max_p'] * plasticity_ratio
+                    
+                    local_pos = model.geom_pos[gid]
+                    inward_dir = -np.sign(local_pos[:3])
+                    
+                    # 비율: 80% 이동, 20% 축소 (옆 간섭 방지)
+                    shrink = deformation * 0.2
+                    shift = deformation * 0.8
+                    
+                    # 1D/2D 기준 크기 축소 
+                    model.geom_size[gid][0] = max(0.001, model.geom_size[gid][0] - shrink)
+                    model.geom_size[gid][1] = max(0.001, model.geom_size[gid][1] - shrink)
+                    
+                    # 위치 이동
+                    model.geom_pos[gid] += inward_dir * shift
+                    
+                    # [NEW] 영구 변형량(shrink) 직관적 확인을 위한 색상 변경 (화이트 -> 블루)
+                    # 수 mm 이하 변형 시에도 눈에 확 띄도록 2000.0을 곱해 색상을 바꿉니다.
+                    color_drop = min(1.0, shrink * 2000.0)  
+                    model.geom_rgba[gid][0] = max(0.0, 1.0 - color_drop)
+                    model.geom_rgba[gid][1] = max(0.0, 1.0 - color_drop)
+                    model.geom_rgba[gid][2] = 1.0  # Blue 고정
+                    model.geom_rgba[gid][3] = 1.0  # Alpha 유지
+                    
+                    state['applied'] = True
+                    # 로깅 추가 (작동 확인 가능하도록 주석 해제)
+                    t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, gid)
+                    print(f"  [Plasticity] {t_name} 영구 변형 발생! shrink={shrink*1000:.3f}mm, shift={shift*1000:.3f}mm")
+            
+            if curr_p == 0.0 and state['applied']:
+                state['max_p'] = 0.0
+                state['applied'] = False
+
     # [NEW] Control Callback 등록 (mjcb_control)
     def mjcb_aerodynamics(model, data):
         apply_aerodynamics(model, data, config)
@@ -427,12 +650,12 @@ def run_simulation(config_or_path, sim_duration=0.5):
     def key_callback(keycode):
         if keycode == 32: # Space
             ctrl.paused = not ctrl.paused
-            print(f"   >> [VIEWER] {'PAUSED' if ctrl.paused else 'RUNNING'}")
+            log_and_print(f"   >> [VIEWER] {'PAUSED' if ctrl.paused else 'RUNNING'}")
         elif keycode == 262: # Right Arrow
             ctrl.step_request = True
         elif keycode == 256: # ESC
             ctrl.quit_request = True
-            print("   >> [VIEWER] Quit requested.")
+            log_and_print("   >> [VIEWER] Quit requested.")
         elif keycode == 259 or keycode == 82: # Backspace (259) or R (82)
             ctrl.reset_request = True
     
@@ -440,16 +663,24 @@ def run_simulation(config_or_path, sim_duration=0.5):
     viewer = None
     if use_viewer:
         viewer = mujoco.viewer.launch_passive(model, data, key_callback=key_callback)
-        print("\n" + "-"*40)
-        print("🎮 [Passive Viewer Interactive Controls]")
-        print(" - [Space]     : Pause / Resume")
-        print(" - [Right]     : Single Step (when paused)")
-        print(" - [Backspace] : Reset Simulation")
-        print(" - [Esc]       : Stop & Show Results")
-        print("-"*40 + "\n")
+        log_and_print("\n" + "-"*40)
+        log_and_print("🎮 [Passive Viewer Interactive Controls]")
+        log_and_print(" - [Space]     : Pause / Resume")
+        log_and_print(" - [Right]     : Single Step (when paused)")
+        log_and_print(" - [Backspace] : Reset Simulation")
+        log_and_print(" - [Esc]       : Stop & Show Results")
+        log_and_print("-"*40 + "\n")
+
+    # [NEW] 시뮬레이션 진행 상황 테이블 헤더 출력
+    log_and_print("-" * 65)
+    log_and_print(f"| {'Step':^8} | {'Sim Time (s)':^12} | {'Real Time (s)':^13} | {'FPS':^8} |")
+    log_and_print("-" * 65)
 
     start_real_time = time.time()
     last_reported_interval = -1
+    last_report_step = 0
+    last_report_real_time = start_real_time
+    report_count = 0
     
     step = 0
     while step < steps:
@@ -457,7 +688,7 @@ def run_simulation(config_or_path, sim_duration=0.5):
             break
             
         if ctrl.reset_request:
-            print("   >> [VIEWER] Resetting simulation...")
+            log_and_print("   >> [VIEWER] Resetting simulation...")
             mujoco.mj_resetData(model, data)
             # Re-initialize histories
             time_history.clear(); z_hist.clear(); pos_hist.clear(); vel_hist.clear(); acc_hist.clear()
@@ -475,11 +706,22 @@ def run_simulation(config_or_path, sim_duration=0.5):
             step = 0
             ctrl.reset_request = False
             ctrl.paused = True
+            
+            # Reset table reporting
+            last_reported_interval = -1
+            start_real_time = time.time()
+            last_report_step = 0
+            last_report_real_time = start_real_time
+            report_count = 0
+            log_and_print("-" * 65)
+            log_and_print(f"| {'Step':^8} | {'Sim Time (s)':^12} | {'Real Time (s)':^13} | {'FPS':^8} |")
+            log_and_print("-" * 65)
             continue
 
         if not ctrl.paused or ctrl.step_request:
             try:
                 mujoco.mj_step(model, data)
+                apply_plastic_deformation()  # 매 스텝마다 변형 체킹
                 ctrl.step_request = False
                 step += 1
             except Exception as e:
@@ -496,12 +738,30 @@ def run_simulation(config_or_path, sim_duration=0.5):
         if viewer and viewer.is_running():
             viewer.sync()
             
-        # [INFO] Progress Reporting
+        # [INFO] Progress Reporting (Table Row)
         sim_interval = int(data.time / 0.05)
         if sim_interval > last_reported_interval:
-            real_elapsed = time.time() - start_real_time
-            print(f"Step Index: {step:6d} | Sim Time: {data.time:6.3f}s | Real Time: {real_elapsed:7.2f}s")
+            # Interval FPS calculation
+            current_real_time = time.time()
+            real_elapsed = current_real_time - start_real_time
+            interval_elapsed = current_real_time - last_report_real_time
+            if interval_elapsed > 0:
+                fps = (step - last_report_step) / interval_elapsed
+            else:
+                fps = 0.0
+            
+            log_and_print(f"| {step:8d} | {data.time:12.3f} | {real_elapsed:13.2f} | {fps:8.1f} |")
+            
             last_reported_interval = sim_interval
+            last_report_step = step
+            last_report_real_time = current_real_time
+            report_count += 1
+            
+            # [NEW] 30개 출력마다 열 제목 재출력
+            if report_count > 0 and report_count % 30 == 0:
+                log_and_print("-" * 65)
+                log_and_print(f"| {'Step':^8} | {'Sim Time (s)':^12} | {'Real Time (s)':^13} | {'FPS':^8} |")
+                log_and_print("-" * 65)
             
         time_history.append(data.time)
         
@@ -636,54 +896,61 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 metrics[comp][j]['loc_t'].append(loc_t)
                 metrics[comp][j]['loc_e'].append(loc_e)
 
-    print("Simulation completed.")
+    log_and_print("-" * 65)
+    log_and_print("Simulation completed.")
     
     # Calculate global peak G over the differentiated root trajectory
     # Double differentiation of Z position for absolute shock magnitude
     z_array = np.array(z_hist)
-    v_z = np.gradient(z_array, dt)
-    a_z = np.gradient(v_z, dt)
-    # The actual physics simulation tracks relative to earth freefall, so we pull max impact
-    root_acc_history = np.abs(a_z) / 9.81
-    max_g_force = float(np.max(root_acc_history))
+    if len(z_array) > 1:
+        v_z = np.gradient(z_array, dt)
+        a_z = np.gradient(v_z, dt)
+        # The actual physics simulation tracks relative to earth freefall, so we pull max impact
+        root_acc_history = np.abs(a_z) / 9.81
+        max_g_force = float(np.max(root_acc_history))
+    else:
+        max_g_force = 0.0
     # Generate Terminal Summary Report and save to file
-    with open(report_file_path, "w", encoding="utf-8") as rf:
-        def log_and_print(s):
-            print(s)
-            rf.write(s + "\n")
+    # [Changed] log_and_print helper is now defined earlier and persistent.
 
-        log_and_print("-" * 50)
-        log_and_print(f"Peak Assembly G-Force: {max_g_force:.2f} G")
-        log_and_print("-" * 50)
+    log_and_print("-" * 50)
+    log_and_print(f"Peak Assembly G-Force: {max_g_force:.2f} G")
+    log_and_print("-" * 50)
 
-        for comp, j_data in metrics.items():
-            log_and_print("=" * 83)
-            log_and_print(f"[최대 구조 변형 지표 로컬라이징 리포트] - Body: {comp}")
-            log_and_print("-" * 83)
-            log_and_print(f"{'Row Index':<9} | {'Max Bending (deg) / Loc':<23} | {'Max Twist (deg) / Loc':<21} | {'Peak Energy (J) / Loc':<21}")
-            log_and_print("-" * 83)
+    for comp, j_data in metrics.items():
+        # [NEW] 리지드 바디(Rigid Body) 및 단일 블록(Aux Mass) 제외 로직
+        # 구조적 변형(굽힘, 비틂)은 최소 2개 이상의 블록이 존재해야 정의 가능합니다.
+        # 블록이 1개뿐인 컴포넌트는 강체로 간주하고 리포트에서 제외합니다.
+        if len(components[comp]) <= 1:
+            continue
+
+        log_and_print("=" * 83)
+        log_and_print(f"[최대 구조 변형 지표 로컬라이징 리포트] - Body: {comp}")
+        log_and_print("-" * 83)
+        log_and_print(f"{'Row Index':<9} | {'Max Bending (deg) / Loc':<23} | {'Max Twist (deg) / Loc':<21} | {'Peak Energy (J) / Loc':<21}")
+        log_and_print("-" * 83)
+        
+        j_keys = [k for k in j_data.keys() if isinstance(k, int)]
+        for j in sorted(j_keys):
+            hist = j_data[j]
+            max_b = max(hist['bending'])
+            idx_b = hist['bending'].index(max_b)
+            loc_b = hist['loc_b'][idx_b]
             
-            j_keys = [k for k in j_data.keys() if isinstance(k, int)]
-            for j in sorted(j_keys):
-                hist = j_data[j]
-                max_b = max(hist['bending'])
-                idx_b = hist['bending'].index(max_b)
-                loc_b = hist['loc_b'][idx_b]
-                
-                max_t = max(hist['twist'])
-                idx_t = hist['twist'].index(max_t)
-                loc_t = hist['loc_t'][idx_t]
-                
-                max_e = max(hist['energy'])
-                idx_e = hist['energy'].index(max_e)
-                loc_e = hist['loc_e'][idx_e]
-                
-                str_b = f"{max_b:>6.2f} (@ {loc_b:<7})"
-                str_t = f"{max_t:>6.2f} (@ {loc_t:<7})"
-                str_e = f"{max_e:>6.2f} (@ {loc_e:<7})"
-                log_and_print(f"y = {j:<5} | {str_b:<23} | {str_t:<21} | {str_e:<21}")
-            log_and_print("=" * 83)
-            log_and_print("")
+            max_t = max(hist['twist'])
+            idx_t = hist['twist'].index(max_t)
+            loc_t = hist['loc_t'][idx_t]
+            
+            max_e = max(hist['energy'])
+            idx_e = hist['energy'].index(max_e)
+            loc_e = hist['loc_e'][idx_e]
+            
+            str_b = f"{max_b:>6.2f} (@ {loc_b:<7})"
+            str_t = f"{max_t:>6.2f} (@ {loc_t:<7})"
+            str_e = f"{max_e:>6.2f} (@ {loc_e:<7})"
+            log_and_print(f"y = {j:<5} | {str_b:<23} | {str_t:<21} | {str_e:<21}")
+        log_and_print("=" * 83)
+        log_and_print("")
         
     # Plotting (only if requested)
     if config.get("plot_results", True):
@@ -877,6 +1144,10 @@ def run_simulation(config_or_path, sim_duration=0.5):
 
         # Plot metric per component max over time
         for comp, j_data in metrics.items():
+            # [NEW] 블록이 1개인 강체는 시각화 리포트에서도 제외
+            if len(components[comp]) <= 1:
+                continue
+
             j_keys = [k for k in j_data.keys() if isinstance(k, int)]
             if len(j_keys) > 0:
                 plt.figure(figsize=(10, 5))
@@ -916,7 +1187,9 @@ def run_simulation(config_or_path, sim_duration=0.5):
             # New: All Blocks Angle Plot
             all_blocks = j_data.get('all_blocks_angle', {})
             block_noms = j_data.get('block_nominals', {})
-            if len(all_blocks) > 0:
+            
+            # [NEW] 블록이 1개뿐인 경우 상대적인 각도 변화 차트가 무의미하므로 제외
+            if len(all_blocks) > 0 and len(components[comp]) > 1:
                 fig = plt.figure(figsize=(14, 6))
                 
                 # Create main plot for angle curves
@@ -967,12 +1240,12 @@ def run_simulation(config_or_path, sim_duration=0.5):
         f_txt.close()
         if has_xl:
             xl_wb.save(export_xl_path)
-            print(f"  >> Excel saved to: {os.path.basename(export_xl_path)}")
+            log_and_print(f"  >> Excel saved to: {os.path.basename(export_xl_path)}")
         
     # Copy the XML file used for simulation to the output directory
     if xml_path and os.path.exists(xml_path):
         shutil.copy(xml_path, os.path.join(output_dir, os.path.basename(xml_path)))
-        print(f"  >> Results saved to: {os.path.basename(output_dir)}")
+        log_and_print(f"  >> Results saved to: {os.path.basename(output_dir)}")
     
     # [Important] Callback 해제 (메모리 릭 및 충돌 방지)
     mujoco.set_mjcb_control(None)
@@ -1000,13 +1273,108 @@ def run_simulation(config_or_path, sim_duration=0.5):
     )
     result_path = os.path.join(output_dir, f'rds-{timestamp}_result.pkl')
     sim_result.save(result_path)
-    print(f"  >> Python 데이터 오브젝트(DropSimResult) 저장 완료: {os.path.basename(result_path)}")
+    log_and_print(f"  >> Python 데이터 오브젝트(DropSimResult) 저장 완료: {os.path.basename(result_path)}")
     
     return sim_result, time_history, z_hist, vel_hist, root_acc_history, corner_acc_hist, max_g_force, metrics
 
-if __name__ == "__main__":
-    # Get basic defaults, override specifically if needed
+def calculate_required_aux_masses(cfg, target_mass, target_cog, target_moi):
+    """
+    현재 모델의 관성 특성을 분석하고, 목표로 하는 질량/CoG/MoI를 달성하기 위해 
+    다수의 보정 질량(aux_masses) 리스트를 계산하여 반환합니다.
+    단일 블록으로는 달성하기 어려운 복합 관성을 맞추기 위해 8개의 대칭된
+    포인트 질량체(Point Masses)로 목표치를 완벽히 분배합니다.
+    """
+    from run_discrete_builder import create_model
+    import math
     
+    # 1. 기저 모델 관성 획득 (보정 질량 제외)
+    temp_cfg = cfg.copy()
+    temp_cfg["chassis_aux_masses"] = []  
+    
+    # create_model 호출하여 현재 상태 측정
+    _, m_base, c_base, i_base, _ = create_model("temp_calc.xml", config=temp_cfg, logger=lambda x: None)
+    
+    m_base = float(m_base)
+    c_base = np.array(c_base)
+    i_base = np.array(i_base) # [Ixx, Iyy, Izz]
+
+    # 2. 목표값 처리 (None일 경우 Baseline 값 사용)
+    target_mass = target_mass if target_mass is not None else m_base
+    target_cog  = target_cog  if target_cog  is not None else c_base
+    target_moi  = target_moi  if target_moi  is not None else i_base
+
+    # 필요한 총 보정 질량
+    m_aux = target_mass - m_base
+    
+    # 보정할 분량이 거의 없는 경우 빈 리스트 반환
+    if abs(m_aux) < 1e-6:
+        # 질량은 맞는데 CoG나 MoI가 다를 수도 있으므로 체크
+        # 하지만 m_aux=0이면 점질량으로 보정 불가. 최소 질량 요구.
+        if (np.allclose(target_cog, c_base, atol=1e-5) and 
+            np.allclose(target_moi, i_base, atol=1e-5)):
+            return []
+        else:
+            raise ValueError(f"질량 변화 없이 CoG/MoI만 보정하는 것은 물리적으로 불가능합니다 (최소한의 추가 질량이 필요함).")
+
+    if m_aux < 0:
+        raise ValueError(f"목표 질량({target_mass})이 현재 질량({m_base})보다 작습니다. (감량 보정은 지원하지 않음)")
+
+    # 3. 추가 질량체 군집의 목표 CoG 연산
+    pos_aux = (np.array(target_cog) * target_mass - m_base * c_base) / m_aux
+
+    # 4. 관성 모멘트 평행축 정리 역산
+    def shift_moi(m, i_cg, cg, target_p):
+        d = target_p - cg
+        ix = i_cg[0] + m * (d[1]**2 + d[2]**2)
+        iy = i_cg[1] + m * (d[0]**2 + d[2]**2)
+        iz = i_cg[2] + m * (d[0]**2 + d[1]**2)
+        return np.array([ix, iy, iz])
+
+    i_base_at_target = shift_moi(m_base, i_base, c_base, target_cog)
+    i_aux_req_at_target = np.array(target_moi) - i_base_at_target
+    
+    # pos_aux 기준에서 가져야할 순수 Inertia 
+    i_aux_req_at_own_cog = i_aux_req_at_target - shift_moi(m_aux, [0,0,0], pos_aux, target_cog)
+    
+    # 이론상 불가능할 경우(음수) 최소 오차를 위해 0으로 제한 (물리적 한계 보정)
+    i_res = np.maximum(i_aux_req_at_own_cog, 1e-9)
+
+    # 5. 8개의 질량체로 대칭 분배
+    m_each = m_aux / 8.0
+    
+    # 기하학적 형상(단일 박스)의 구속에 얽매이지 않고, 대칭된 8개의 점으로 텐서 완벽 분해
+    # 8-Point Mass 위치 오프셋 해석해
+    dx_sq = (i_res[1] + i_res[2] - i_res[0]) / (2.0 * m_aux)
+    dy_sq = (i_res[0] + i_res[2] - i_res[1]) / (2.0 * m_aux)
+    dz_sq = (i_res[0] + i_res[1] - i_res[2]) / (2.0 * m_aux)
+    
+    dx = math.sqrt(max(0, dx_sq))
+    dy = math.sqrt(max(0, dy_sq))
+    dz = math.sqrt(max(0, dz_sq))
+    
+    s = [0.01, 0.01, 0.01] # 충돌이나 시각을 방해하지 않는 매우 작은 형상 더미
+    
+    aux_masses = []
+    idx = 1
+    for sign_x in [-1, 1]:
+        for sign_y in [-1, 1]:
+            for sign_z in [-1, 1]:
+                px = pos_aux[0] + sign_x * dx
+                py = pos_aux[1] + sign_y * dy
+                pz = pos_aux[2] + sign_z * dz
+                
+                aux_masses.append({
+                    "name": f"AutoB_{idx}",
+                    "pos": [float(round(px, 5)), float(round(py, 5)), float(round(pz, 5))],
+                    "mass": float(round(m_each, 5)),
+                    "size": s
+                })
+                idx += 1
+
+    return aux_masses
+
+def test_run_case_1():
+    # Get basic defaults, override specifically if needed    
     cfg = get_default_config()
     # 예: 전면 하단 꼭짓점 낙하 자세로 설정
     cfg["drop_mode"] = "L-F-B" 
@@ -1032,6 +1400,20 @@ if __name__ == "__main__":
     cfg["box_div"]          = [5, 4, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
     cfg["box_use_weld"]     = False        # 박스는 강체로 취급
     
+    cfg["tape_solref"] = "0.05 1.0"
+    
+    # [NEW] 영구 변형 테스트 활성화
+    cfg["enable_plasticity"] = True
+    cfg["plasticity_ratio"] = 0.5
+
+    cfg["sim_duration"] = 1.0
+
+    cfg["mass_paper"] = 4.0
+    cfg["mass_cushion"] = 2.0
+    cfg["mass_oc"] = 5.0
+    cfg["mass_occ"] = 0.1
+    cfg["mass_chassis"] = 10.0
+
     cfg["ground_friction"] = 0.01 # 바닥 마찰계수 기본값 0.2
     
     # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
@@ -1044,9 +1426,9 @@ if __name__ == "__main__":
     cfg["ground_solimp"] = "0.9 0.999 0.001 0.5 2"
     
     # [SIMULATION OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sim_*)
-    cfg["sim_integrator"] = "implicitfast" # 통합기 (Euler, RK4, implicit, implicitfast 등)
+    cfg["sim_integrator"] = "Euler" # 통합기 (Euler, RK4, implicit, implicitfast 등)
     cfg['sim_duration'] = 3.0
-    cfg["sim_timestep"]   = 0.0015         # 시뮬레이션 타임스텝 (s)
+    cfg["sim_timestep"]   = 0.0013         # 시뮬레이션 타임스텝 (s)
     cfg["sim_iterations"] = 50             # 솔버 최대 반복 횟수 (1~200)
     cfg["sim_noslip_iterations"] = 0       # 마찰 고정(미끄러짐 방지)을 위한 추가 반복 횟수
     cfg["sim_tolerance"]  = 1e-5           # 솔버 수렴 오차 허용치 (속도를 위해 약간 완화)
@@ -1055,8 +1437,8 @@ if __name__ == "__main__":
     cfg["sim_impratio"]   = 5.0             # 기본 1.0. 값을 5~10 정도로 크게 주면 관통을 강력하게 봉쇄합니다.
 
     # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    cfg["cush_solref_stiff"] = 0.02 # 쿠션 timeconst
-    cfg["cush_solref_damp"]  = 0.5 # 쿠션 dampratio
+    cfg["cush_solref_stiff"] = 0.07 # 쿠션 timeconst
+    cfg["cush_solref_damp"]  = 0.7 # 쿠션 dampratio
 
     # air fluidic force
     cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
@@ -1069,27 +1451,42 @@ if __name__ == "__main__":
     cfg["enable_air_drag"]    = True   # MuJoCo 빌트인 Drag/Viscous 활성화 여부
     cfg["enable_air_squeeze"] = True   # 수동 Squeeze Film 활성화 여부
 
-    # [EXAMPLE] 섀시 하단 양쪽(Bottom Left/Right)에 3kg 스피커를 부착하는 예제입니다 (필요시 주석 해제)
-    cfg["chassis_aux_masses"] = [
-        {
-             "name": "Speaker_Left", 
-             "pos" : [-0.6, +0.4, 0.1],   # 좌측 하단 (샤시 중심 기준)
-             "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
-             "mass": 1.0                  # 3kg
-         },
-         {
-             "name": "Speaker_Right", 
-             "pos" : [0.6, +0.4, 0.3],    # 우측 하단 (샤시 중심 기준)
-             "size": [0.05, 0.05, 0.01],  # 50mm x 50mm x 10mm
-             "mass": 3.0                  # 3kg
-         }
-    ]
-    #cfg["chassis_aux_masses"] = [] # 기본값은 빈 리스트
+    # [STEP 1] 보정 전 설계 원안 검토 (Baseline Review)
+    print_inertia_report(cfg, title="Baseline Inertia Report (Pre-Correction)", logger=print)
     
-    # [NEW] 실행 시 뷰어 사용 여부 확인 (기본값 True)
+    # [STEP 2] 자동 질량 보정 적용 (Target 맞춤)
+    target_mass = 25.0
+    target_cog = [0.0, -0.01, -0.01]
+    #target_moi = [3.0, 8.0, 10.0]  # [Ixx, Iyy, Izz]
+    target_moi = None
+
+    try:
+        # 예시: CoG만 보정하고 싶다면 target_mass=None, target_moi=None 입력 가능
+        aux_items = calculate_required_aux_masses(cfg, target_mass, target_cog, target_moi)
+        cfg["chassis_aux_masses"] = aux_items
+        print(f"\n>> [Inertia Balancer] Target 기반 보정 질량 (8-Point 다중 질량체) 생성 완료:")
+        print(f"      - 생성된 개체 수: {len(aux_items)}EA, 총 추가 질량: {sum(x['mass'] for x in aux_items):.4f}kg")
+        if aux_items:
+            for aux in aux_items[:2]:
+                print(f"      - 예시: {aux['name']} / Pos: {aux['pos']} / Mass: {aux['mass']}kg")
+            print("      ... 등격(Symmetric) 배치됨")
+        else:
+            print("      - 보정이 필요하지 않은 상태입니다 (Baseline 유지).")
+    except Exception as e:
+        print(f"\n>> [Inertia Balancer] 보정 계산 실패 (기본값 사용): {e}")
+        cfg["chassis_aux_masses"] = []
+    
+    # [STEP 3] 실행 전 최종 확인 (선택 사항)
+    print("\n>> 보정이 적용된 최종 모델 구성을 확인합니다...")
+    print_inertia_report(cfg, title="Final Balanced Inertia Report", logger=print)
+
+    # [STEP 4] 실행 시 뷰어 사용 여부 확인 후 시뮬레이션 시작
     cfg["use_viewer"] = ask_use_viewer()
-    
     run_simulation(cfg)
+
+
+if __name__ == "__main__":
+    test_run_case_1()
 
 '''
 1. 재료별 추천 

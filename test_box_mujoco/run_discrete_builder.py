@@ -198,7 +198,7 @@ def get_default_config(user_config=None):
         "mass_cushion": mass_cushion,
         "mass_oc": 5.0,       # OpenCell 질량
         "mass_occ": 0.1,     # Cohesive (테이프) 질량
-        "mass_chassis": 15.0,  # Chassis 질량
+        "mass_chassis": 10.0,  # Chassis 질량
 
         # 재료 물성치 (솔버 제어 및 물리 특성)
         "cush_solref": cush_solref,
@@ -443,60 +443,116 @@ class BaseDiscreteBody:
         return weld_xml
 
     def calculate_inertia(self):
-        """자신과 모든 자식 블록들을 취합하여 전체 질량, 무게중심(CoG), 관성 모멘트(MoI)를 계산합니다."""
-        total_mass = 0.0
-        cog = np.zeros(3)
-        moi = np.zeros(3) # 로컬 Ixx, Iyy, Izz (평행축 정리 적용 전)
+        """
+        자신과 모든 자식 블록들을 취합하여 전체 질량, 무게중심(CoG), 관성 모멘트(MoI)를 계산합니다.
+        평행축 정리(Parallel Axis Theorem)를 적용하여 기준 좌표계에서의 올바른 관성 텐서를 도출합니다.
         
-        # 1. 속한 개별 블록들의 질량과 중심 누적
-        for blk in self.blocks.values():
-            total_mass += blk.mass
-            cog += blk.mass * np.array([blk.cx, blk.cy, blk.cz])
-            
-            # 직육면체의 로컬 관성 모멘트 I = 1/12 * m * (w^2 + h^2)
-            # 여기서는 dx, dy, dz 가 half-size 이므로 실제 너비는 2*dx
-            w, h, d = 2*blk.dx, 2*blk.dy, 2*blk.dz
-            ixx = (1/12.0) * blk.mass * (h**2 + d**2)
-            iyy = (1/12.0) * blk.mass * (w**2 + d**2)
-            izz = (1/12.0) * blk.mass * (w**2 + h**2)
-            
-            moi += np.array([ixx, iyy, izz])
-            
-        # 2. 자식 컴포넌트들의 결과 누적 (재귀)
-        for child in self.children:
-            child_mass, child_cog, child_moi, child_blocks_data = child.calculate_inertia()
-            if child_mass > 0:
-                total_mass += child_mass
-                cog += child_mass * child_cog
-                moi += child_moi
-                
-        # 3. 전체 평균 무게 중심(CoG) 계산
-        if total_mass > 0:
-            cog = cog / total_mass
-            
-        # 4. 평행축 정리(Parallel Axis Theorem) 적용하여 CoG 기준 글로벌 MoI 계산
-        # 개별 블록들의 리스트를 다시 평면 순회하여 거리를 구해야 정확한 텐서가 나옴
-        global_moi = np.zeros(3)
+        추가로 리턴 값에 각 개별 부품(Body)들의 독립적인 관성 데이터 목록을 포함하여, 
+        리포트 출력 시 하부 부품별 질량 분포를 확인할 수 있게 합니다.
+
+        Returns:
+            total_mass (float): 전체 질량 합계 (kg)
+            total_cog (np.array): 전체 무게중심 [x, y, z]
+            final_total_moi (np.array): 전체 관성 모멘트 합계 [Ixx, Iyy, Izz] (kg*m^2)
+            individual_details (list): 각 개별 부품의 정보 딕셔너리 리스트
+        """
+        # 1. 모든 말단 이산 블록(DiscreteBlock) 정보를 재귀적으로 수집 및 개별 바디 데이터 산출
+        all_primitive_blocks = []
+        individual_details = []
         
-        def _accumulate_global_moi(body):
-            nonlocal global_moi
+        def _collect_all_blocks_and_calculate_sub_inertias(body):
+            """트리를 순회하며 모든 블록을 수집하고, 각 노드(Body)별 관성 특성을 계산합니다."""
+            nonlocal all_primitive_blocks, individual_details
+            
+            this_body_mass = 0.0
+            this_body_weighted_cog_sum = np.zeros(3)
+            this_body_local_moi_sum = np.zeros(3)
+            this_body_blocks_list = []
+            
+            # (A) 해당 Body가 직접 가지고 있는 블록들을 순회
             for blk in body.blocks.values():
-                b_cog = np.array([blk.cx, blk.cy, blk.cz])
-                dist_sq = (b_cog - cog)**2
-                # Ixx는 y, z 거리 제곱의 합, Iyy는 x, z 등... 
-                global_moi[0] += blk.mass * (dist_sq[1] + dist_sq[2])
-                global_moi[1] += blk.mass * (dist_sq[0] + dist_sq[2])
-                global_moi[2] += blk.mass * (dist_sq[0] + dist_sq[1])
-            for ch in body.children:
-                _accumulate_global_moi(ch)
+                this_body_mass += blk.mass
+                this_body_weighted_cog_sum += blk.mass * np.array([blk.cx, blk.cy, blk.cz])
                 
+                # 블록 자체의 로컬 MoI (중심 기준)
+                # MuJoCo Geoms (Box) 공식: I = (1/12) * mass * (width^2 + height^2)
+                # 여기서 dx, dy, dz는 Half-size이므로 실제 변의 길이는 2배입니다.
+                w_full, h_full, d_full = 2.0 * blk.dx, 2.0 * blk.dy, 2.0 * blk.dz
+                ixx = (1.0/12.0) * blk.mass * (h_full**2 + d_full**2)
+                iyy = (1.0/12.0) * blk.mass * (w_full**2 + d_full**2)
+                izz = (1.0/12.0) * blk.mass * (w_full**2 + h_full**2)
+                
+                this_body_local_moi_sum += np.array([ixx, iyy, izz])
+                this_body_blocks_list.append(blk)
+                all_primitive_blocks.append(blk)
+            
+            # (B) 해당 Body에 실제 질량이 존재한다면(Geom이 있다면) 리스트에 기록
+            # AssySet 같이 자식만 있는 컨테이너는 개별 리스트에서 제외하거나 
+            # 필요에 따라 합산 결과를 넣을 수 있습니다. 여기서는 블록 보유 바디만 기록합니다.
+            if this_body_mass > 0:
+                # 이 바디만의 독자적 무게중심
+                this_body_cog = this_body_weighted_cog_sum / this_body_mass
+                
+                # 평행축 정리 적용 (이 바디의 자체 CoG 기준의 관성 텐서로 보정)
+                this_body_parallel_correction = np.zeros(3)
+                for blk in this_body_blocks_list:
+                    b_pos = np.array([blk.cx, blk.cy, blk.cz])
+                    dist_sq_from_body_cog = (b_pos - this_body_cog)**2
+                    this_body_parallel_correction[0] += blk.mass * (dist_sq_from_body_cog[1] + dist_sq_from_body_cog[2])
+                    this_body_parallel_correction[1] += blk.mass * (dist_sq_from_body_cog[0] + dist_sq_from_body_cog[2])
+                    this_body_parallel_correction[2] += blk.mass * (dist_sq_from_body_cog[0] + dist_sq_from_body_cog[1])
+                
+                this_body_final_moi = this_body_local_moi_sum + this_body_parallel_correction
+                
+                individual_details.append({
+                    "name"  : body.name,
+                    "mass"  : this_body_mass,
+                    "cog"   : this_body_cog,
+                    "moi"   : this_body_final_moi
+                })
+            
+            # (C) 자식 컴포넌트들에 대해 재귀적으로 탐색 수행
+            for child in body.children:
+                _collect_all_blocks_and_calculate_sub_inertias(child)
+                
+        # 재귀 호출 수행 (self가 루트가 됨)
+        _collect_all_blocks_and_calculate_sub_inertias(self)
+        
+        # 2. 전역(Assembly 전체) 합계 데이터 계산
+        total_mass = 0.0
+        total_weighted_cog_sum = np.zeros(3)
+        total_pure_local_moi_sum = np.zeros(3)
+        
+        # 수집된 모든 블록을 한 번에 처리 (가장 정확한 합산 방식)
+        for blk in all_primitive_blocks:
+            total_mass += blk.mass
+            total_weighted_cog_sum += blk.mass * np.array([blk.cx, blk.cy, blk.cz])
+            
+            w_full, h_full, d_full = 2.0 * blk.dx, 2.0 * blk.dy, 2.0 * blk.dz
+            total_pure_local_moi_sum[0] += (1.0/12.0) * blk.mass * (h_full**2 + d_full**2)
+            total_pure_local_moi_sum[1] += (1.0/12.0) * blk.mass * (w_full**2 + d_full**2)
+            total_pure_local_moi_sum[2] += (1.0/12.0) * blk.mass * (w_full**2 + h_full**2)
+            
         if total_mass > 0:
-            _accumulate_global_moi(self)
-        
-        # 최종 총합: (개별 로컬 MoI의 합) + (CoG 중심 기준 거리 제곱 질량의 합)
-        final_moi = moi + global_moi
-        
-        return total_mass, cog, final_moi, None
+            # 전체 조립체의 전역 CoG
+            total_cog = total_weighted_cog_sum / total_mass
+            
+            # 전체 조립체 CoG 기준의 평행축 정리 보정량 계산
+            total_parallel_moI_correction = np.zeros(3)
+            for blk in all_primitive_blocks:
+                b_pos = np.array([blk.cx, blk.cy, blk.cz])
+                dist_sq_from_total_cog = (b_pos - total_cog)**2
+                total_parallel_moI_correction[0] += blk.mass * (dist_sq_from_total_cog[1] + dist_sq_from_total_cog[2])
+                total_parallel_moI_correction[1] += blk.mass * (dist_sq_from_total_cog[0] + dist_sq_from_total_cog[2])
+                total_parallel_moI_correction[2] += blk.mass * (dist_sq_from_total_cog[0] + dist_sq_from_total_cog[1])
+                
+            final_total_moi = total_pure_local_moi_sum + total_parallel_moI_correction
+        else:
+            total_cog = np.zeros(3)
+            final_total_moi = np.zeros(3)
+            
+        return total_mass, total_cog, final_total_moi, individual_details
+
 
     def get_worldbody_xml_strings(self, indent_level=2):
         """자신과 자식의 Body 구문을 재귀적으로 생성. 
@@ -862,7 +918,13 @@ def get_single_body_instance(body_name, config=None):
     else:
         raise ValueError(f"Unknown discrete body type: {body_name}")
 
-def create_model(export_path, config=None):
+def create_model(export_path, config=None, logger=print):
+    """
+    구성(config)에 따라 MuJoCo 용 XML 모델 파일을 생성하고 저장합니다.
+    - export_path: 저장할 XML 파일 경로
+    - config: 설정 딕셔너리 (None일 경우 기본값 사용)
+    - logger: 출력용 함수 (기본값 print, 외부 로깅용으로 교체 가능)
+    """
     # 사용자가 제공한 설정과 디폴트 설정을 내부적으로 계산하여 완벽하게 통합
     config = get_default_config(config)
         
@@ -985,19 +1047,15 @@ def create_model(export_path, config=None):
     # -----------------------------------------------------------------
     # [NEW] 3.5 추가 질량(Auxiliary Masses) 처리 및 Chassis 에 Weld 부착
     # -----------------------------------------------------------------
-    # 사용자가 설정(config)을 통해 요청한 'chassis_aux_masses' 목록을 순회하며
-    # 실제 물리 블록을 생성하고 이를 섀시(Chassis) 부품의 하위 계층으로 등록합니다.
     aux_mass_objects = []
     chassis_aux_configs = config.get("chassis_aux_masses", [])
     
     for i, aux_item_config in enumerate(chassis_aux_configs):
-        # 개별 추가 질량의 파라미터 추출 (이름, 위치, 크기, 질량)
         aux_name   = aux_item_config.get("name", f"AuxMass_{i}")
         aux_pos    = aux_item_config.get("pos", [0.0, 0.0, 0.0])
-        aux_size   = aux_item_config.get("size", [0.1, 0.1, 0.1]) # [전체 너비, 높이, 두께]
+        aux_size   = aux_item_config.get("size", [0.1, 0.1, 0.1])
         aux_mass_kg = aux_item_config.get("mass", 1.0)
         
-        # BAuxBoxMass 인스턴스 생성 (접촉이 없는 순수 질량 블록)
         b_aux_mass = BAuxBoxMass(
             name=aux_name, 
             width=aux_size[0], 
@@ -1006,54 +1064,34 @@ def create_model(export_path, config=None):
             mass=aux_mass_kg
         )
         
-        # 섀시의 로컬 Z축 배치(chas_z)를 고려하여 실제 위치를 계산하고 지오메트리를 빌드합니다.
-        # 이 블록은 섀시 좌표계(b_chassis) 내부에 배치되지만, 
-        # 최종적으로 부착(Weld)을 위해 전체 어셈블리(root) 대비 좌표로 계산되어야 합니다.
         b_aux_mass.build_geometry(local_offset=[aux_pos[0], aux_pos[1], aux_pos[2] + chas_z])
-        
-        # 섀시의 자식으로 등록하여 관성 계산(calculate_inertia) 시 자동으로 통합되도록 합니다.
         b_chassis.add_child(b_aux_mass)
         aux_mass_objects.append(b_aux_mass)
 
     # --- 4. 이기종 부품 간 직접 Weld 연결 로직 (Inter-Component Welds) ---
-    # 이기종 부품 간 직접 Weld 연결 로직 (Inter-Component Welds)
     inter_weld_xml = []
-    # AssySet 조립: OpenCell(앞) <---> OCC(테이프) <---> Chassis(뒤)
-    # Z축 방향으로만 맞물리므로, (x, y) 인덱스가 같고 마주보는 파트끼리 테이프 강성으로 묶음.
-    # [강화] 테이프 물성치에서 직접 가져와 일관성 유지 (0.005 1.0 적용됨)
     tape_solref_val = mat_tape.get("solref", "0.005 1.0")
     tape_solimp_val = mat_tape.get("solimp", "0.9 0.999 0.001 0.5 2")
     
     for (i,j,k_occ), blk_occ in b_occ.blocks.items():
-        # OCC 블록(테이프) 각각에 대해 앞으로는 OpenCell 블록을, 뒤로는 Chassis 블록을 찾는다.
-        # 격자 분할이 동일하게 적용되었으므로 동일한 i,j 키를 가진다. k는 0(유일)
-        
-        # 1. OCC 윗면(+Z) -> OpenCell 아랫면(-Z) 부착
         if (i,j,0) in b_opencell.blocks:
             site_occ_pz = f"s_BOpenCellCohesive_{i}_{j}_{0}_PZ"
             site_oc_nz  = f"s_BOpenCell_{i}_{j}_{0}_NZ"
             inter_weld_xml.append(f'        <weld site1="{site_occ_pz}" site2="{site_oc_nz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
             
-        # 2. OCC 아랫면(-Z) -> Chassis 윗면(+Z) 부착
         if (i,j,0) in b_chassis.blocks:
             site_occ_nz = f"s_BOpenCellCohesive_{i}_{j}_{0}_NZ"
             site_chas_pz = f"s_BChassis_{i}_{j}_{0}_PZ"
             inter_weld_xml.append(f'        <weld site1="{site_occ_nz}" site2="{site_chas_pz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
 
-    # [NEW] 3. 추가 질량(Aux Masses)과 섀시(Chassis) 간의 Weld 연결 생성
-    # 생성된 각 추가 질량 블록을 섀시의 가장 가까운 격자 블록 중 하나에 강하게 용접(Weld) 시킵니다.
-    # 이를 통해 추가 질량이 섀시와 한 몸처럼 움직이게 됩니다.
     for b_aux_mass in aux_mass_objects:
-        # 추가 질량 블록(단일 블록)의 중심 좌표 추출
         blk_aux = b_aux_mass.blocks[(0, 0, 0)]
         target_ax, target_ay, target_az = blk_aux.cx, blk_aux.cy, blk_aux.cz
         
-        # 섀시를 구성하는 수많은 격자 블록 중 가장 거리가 가까운 블록을 수색합니다.
         min_distance_sq = float('inf')
         nearest_chassis_key = None
         
         for block_key, blk_chassis in b_chassis.blocks.items():
-            # 거리의 제곱을 사용하여 계산 부하를 줄임
             dist_sq = (blk_chassis.cx - target_ax)**2 + \
                       (blk_chassis.cy - target_ay)**2 + \
                       (blk_chassis.cz - target_az)**2
@@ -1061,33 +1099,22 @@ def create_model(export_path, config=None):
                 min_distance_sq = dist_sq
                 nearest_chassis_key = block_key
         
-        # 가장 가까운 블록을 찾았다면, 해당 위치의 사이트(Site)들을 Weld 구속조건으로 연결합니다.
         if nearest_chassis_key is not None:
             ci, cj, ck = nearest_chassis_key
-            # [FIX] site1, site2를 사용하면 두 점이 하나로 합쳐지도록 강제로 끌어당깁니다. (이것이 쿠션이 찌그러진 원인입니다!)
-            # body1, body2를 사용하면 초기 배치 모델의 상대 위치(Offset) 거리를 영원히 그대로 유지하며 연결됩니다.
-            
-            # 각 컴포넌트가 Single Body (use_internal_weld=False) 인지 여부에 따라 
-            # 실제로 XML에 기록될 정확한 Body Name을 추출합니다.
             body_aux = b_aux_mass.name if not b_aux_mass.use_internal_weld else f"b_{b_aux_mass.name.lower()}_0_0_0"
             body_chas = b_chassis.name if not b_chassis.use_internal_weld else f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}"
             
-            # site1, site2 대신 body1, body2 사용
             inter_weld_xml.append(
                 f'        <weld body1="{body_aux}" body2="{body_chas}" '
                 f'solref="0.002 1.0" solimp="0.9 0.999 0.001"/>'
             )
 
     # --- 5. 낙하 조건 (ISTA 6A 등) 로테이션 연산 ---
-    # 파싱된 드랍 모드에 따라 목표 임팩트 벡터(target_pt) 추출
     target_pt = parse_drop_target(drop_mode, box_w, box_h, box_d)
     target_dist = np.linalg.norm(target_pt)
-    
-    # 목표 지점 벡터가 정확히 전역 중력방향([0, 0, -target_dist])을 향하도록 회전축/각 파출
     rot_axis = np.cross(target_pt, [0, 0, -target_dist])
     
     if np.linalg.norm(rot_axis) < 1e-6:
-        # 이미 중력 방향이거나 정반대(180도)인 경우의 예외처리
         if target_pt[2] < 0:
             rot_axis = np.array([1.0, 0.0, 0.0])
             angle_rad = 0.0
@@ -1100,17 +1127,13 @@ def create_model(export_path, config=None):
         dot_val = np.clip(dot_val, -1.0, 1.0)
         angle_rad = np.arccos(dot_val)
 
-    # 전역 좌표 변환 (초기 낙하 자세 생성)
     wx, wy, wz = get_local_pose([0,0,0], drop_height, rot_axis, angle_rad, target_dist)
     rot_str = f"{rot_axis[0]:.4f} {rot_axis[1]:.4f} {rot_axis[2]:.4f} {np.degrees(angle_rad):.4f}"
     
     # --- 6. XML 파일 작성 ---
     xml_str_io = io.StringIO()
     xml_str_io.write('<mujoco model="discrete_custom_box">\n')
-    # [메모리 및 솔버 용량 확장] mj_stackAlloc 오버플로 및 대규모 구속조건 대응
-    # 현대 MuJoCo에서는 memory 속성으로 전체 풀을 할당하면 njmax, nconmax 등을 자동 관리합니다.
     xml_str_io.write('  <size memory="512M"/>\n')
-    # [시뮬레이션 옵션] config["sim_*"] 파라미터들을 MuJoCo <option> 태그에 직접 반영합니다.
     s_itgr = config["sim_integrator"]
     s_dt   = config["sim_timestep"]
     s_iter = config["sim_iterations"]
@@ -1120,7 +1143,6 @@ def create_model(export_path, config=None):
     s_grav = config["sim_gravity"]
     s_nth  = config["sim_nthread"]
     
-    # [NEW] 공기 역학 파라미터 (MuJoCo 빌트인 Drag/Viscous 용도)
     if config.get("enable_air_drag", True):
         air_rho = config.get("air_density", 1.225)
         air_mu  = config.get("air_viscosity", 1.81e-5)
@@ -1135,23 +1157,19 @@ def create_model(export_path, config=None):
     xml_str_io.write('    <flag contact="enable"/>\n')
     xml_str_io.write('  </option>\n')
     
-    # [시각적 개선] config에 정의된 조명 파라미터를 사용하여 씬 구성
     xml_str_io.write('  <visual>\n')
     h_amb = config.get("light_head_ambient", "0.28 0.28 0.28")
     h_dif = config.get("light_head_diffuse", "0.56 0.56 0.56")
     xml_str_io.write(f'    <headlight ambient="{h_amb}" diffuse="{h_dif}" specular="0.07 0.07 0.07"/>\n')
-    # map: 그림자 해상도 및 가시 거리 조정
     xml_str_io.write('    <map znear="0.01"/>\n')
     xml_str_io.write('  </visual>\n')
 
     xml_str_io.write('  <default>\n')
-    # 요소가 많으므로 contact 제외 및 계산 고속화 필수 (Weld에 의한 구속이 뼈대 역할)
     xml_str_io.write('    <joint armature="0.05" damping="1.0"/>\n')
     xml_str_io.write('    <geom friction="0.8" solref="0.02 1.0" solimp="0.9 0.95 0.001"/>\n')
     xml_str_io.write('  </default>\n')
     
     xml_str_io.write('  <worldbody>\n')
-    # [조명 설정] 천장에서 아래로 비추는 주 조명 및 보조 조명
     m_dif = config.get("light_main_diffuse", "0.49 0.49 0.49")
     m_amb = config.get("light_main_ambient", "0.21 0.21 0.21")
     s_dif = config.get("light_sub_diffuse", "0.21 0.21 0.21")
@@ -1159,18 +1177,15 @@ def create_model(export_path, config=None):
     xml_str_io.write(f'    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{m_dif}" ambient="{m_amb}" castshadow="true"/>\n')
     xml_str_io.write(f'    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{s_dif}" castshadow="false"/>\n')
     
-    # 바닥(Ground) 설정: config에서 가져온 solref/solimp/friction 적용
     g_solref = config.get("ground_solref", "0.01 1.0")
     g_solimp = config.get("ground_solimp", "0.9 0.95 0.001 0.5 2")
     g_fric   = config.get("ground_friction", 0.3)
     xml_str_io.write(f'    <geom name="ground" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" group="0" solref="{g_solref}" solimp="{g_solimp}"/>\n')
     
-    # 최상단 글로벌 패키지 박스 그룹. 여기서만 오프셋/회전이 적용됨.
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n')
     xml_str_io.write('      <freejoint/>\n')
     xml_str_io.write('      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>\n')
     
-    # 전체 바디 트리 출력
     bodies_xml = root_container.get_worldbody_xml_strings(indent_level=3)
     for line in bodies_xml:
         xml_str_io.write(line + "\n")
@@ -1179,12 +1194,10 @@ def create_model(export_path, config=None):
     xml_str_io.write('  </worldbody>\n')
     
     xml_str_io.write('  <equality>\n')
-    # 컴포넌트 내부의 격자 블록들을 이어주는 Weld (PaperBox 내부, Cushion 내부, TV 내부 조립 등)
     internal_weld_xml = root_container.get_weld_xml_strings()
     for line in internal_weld_xml:
         xml_str_io.write(line + "\n")
         
-    # 이기종 부품 간의 어셈블리 Weld (테이프)
     for line in inter_weld_xml:
         xml_str_io.write(line + "\n")
     xml_str_io.write('  </equality>\n')
@@ -1198,15 +1211,51 @@ def create_model(export_path, config=None):
         f.write(final_xml_str)
 
     # --- 7. 관성 텐서(CoG, MoI) 시스템 출력 ---
-    total_mass, cog, moi, _ = root_container.calculate_inertia()
-    print("\n" + "="*60)
-    print(f"[Assembly Inertia Report] Mode: {drop_mode}")
-    print(f" - Total Mass : {total_mass:.4f} kg")
-    print(f" - CoG (x, y, z): {cog[0]:.4f},  {cog[1]:.4f},  {cog[2]:.4f}")
-    print(f" - MoI (Ixx, Iyy, Izz): {moi[0]:.6f},  {moi[1]:.6f},  {moi[2]:.6f}")
-    print("="*60 + "\n")
+    total_mass, cog, moi, individual_details = root_container.calculate_inertia()
     
-    return final_xml_str
+    name_width = 30
+    mass_width = 12
+    cog_width  = 32
+    moi_width  = 38
+    
+    header = (f"{'Body Name'.ljust(name_width)} | "
+              f"{'Mass (kg)'.rjust(mass_width)} | "
+              f"{'CoG (x, y, z)'.center(cog_width)} | "
+              f"{'MoI (Ixx, Iyy, Izz)'.center(moi_width)}")
+    separator_width = len(header)
+
+    logger("\n" + "=" * separator_width)
+    logger(f"[Assembly Inertia Report] Mode: {drop_mode}")
+    logger(f"{'-' * separator_width}")
+    logger(f" - 전체 질량 (Total Mass)        : {total_mass:12.4f} kg")
+    logger(f" - 전체 무게 중심 (Global CoG)    : ({cog[0]:8.4f}, {cog[1]:8.4f}, {cog[2]:8.4f})")
+    logger(f" - 전체 관성 모멘트 (Global MoI)  : ({moi[0]:10.6f}, {moi[1]:10.6f}, {moi[2]:10.6f})")
+    logger(f"{'-' * separator_width}")
+    
+    logger(header)
+    logger("-" * separator_width)
+    
+    total_row = (f"{'Total (Assembly)'.ljust(name_width)} | "
+                 f"{total_mass:12.4f} | "
+                 f"{f'({cog[0]:.3f}, {cog[1]:.3f}, {cog[2]:.3f})'.center(cog_width)} | "
+                 f"{f'({moi[0]:.6f}, {moi[1]:.6f}, {moi[2]:.6f})'.center(moi_width)}")
+    logger(total_row)
+    logger("-" * separator_width)
+    
+    for detail in individual_details:
+        b_name_str = str(detail['name']).ljust(name_width)
+        b_mass_val = detail['mass']
+        b_cog_vals = detail['cog']
+        b_moi_vals = detail['moi']
+        
+        cog_str = f"({b_cog_vals[0]:.3f}, {b_cog_vals[1]:.3f}, {b_cog_vals[2]:.3f})".center(cog_width)
+        moi_str = f"({b_moi_vals[0]:.6f}, {b_moi_vals[1]:.6f}, {b_moi_vals[2]:.6f})".center(moi_width)
+        
+        logger(f"{b_name_str} | {b_mass_val:12.4f} | {cog_str} | {moi_str}")
+        
+    logger("=" * separator_width + "\n")
+
+    return final_xml_str, total_mass, cog, moi, individual_details
 
 if __name__ == "__main__":
     out_dir = r"c:\Users\GOODMAN\WHToolsBox\test_box_mujoco"

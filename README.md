@@ -17,8 +17,10 @@ WHToolsBox는 전통적이고 무거운 유한요소해석(FEA) 상용 프로그
   수만 개의 이산 블록(Discrete blocks) 및 가상 용접점(Weld constraints)을 1초 안에 셋업하고 멀티코어 솔버로 해석을 가속화합니다. (기존 FEM 모델 대비 압도적인 연산 속도 확보)
 - **🧪 충돌(Contact) & 공기 역학(Air Dynamics) 통합**
   바닥 및 부품 간의 유연한 거동(Solref/Solimp 임피던스 제어)은 물론, 압축 공기 쿠션(Squeeze Film Effect)과 드래그 등 유체 역학적 충격 저항까지 사실적으로 계산합니다.
-- **👁️ 시각적 디버깅 및 분석 (Visual Debugging)**
-  0~5번의 단축키로 제어 가능한 `Geometry Visibility Grouping` 기능이 탑재되어 내부 섀시, 접합 테이프(Cohesive), 스피커 등의 보조 질량 관측을 심층적으로 디버깅할 수 있습니다.
+- **🧠 지능형 관성 보정 (Selective Inertia Balancing)**
+  Mass, CoG, MoI 중 원하는 항목만 선택적으로 보정하거나 다중 Aux Mass를 자동 배치하여 시스템의 물리적 정합성을 실시간으로 튜닝합니다.
+- **🟦 영구 변형(Plasticity) 및 시각적 모니터링**
+  충격 시 발생하는 영구 변형(Permanent Deformation)을 물리적으로 계산하며, 변형된 부위가 뷰어에서 푸른색(Blue Tint)으로 강조되어 파손 위험 부위를 직관적으로 식별할 수 있습니다.
 - **📊 포괄적 데이터 내보내기 (TXT/Excel Export Data Model)**
   추출된 모든 `DropSimResult` 데이터를 직렬화(pkl)로 캐싱하며, 다중 탭을 가진 Excel 파일(`openpyxl`) 및 TXT 파일 형식으로 G-Force 및 변형도, 진무게중심(True_COG) 좌표 그래프 이미지 등과 한데 묶여 매번 자동으로 레포트화(rds 폴더)됩니다.
 
