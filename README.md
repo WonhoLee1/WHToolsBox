@@ -17,6 +17,8 @@ WHToolsBox는 전통적이고 무거운 유한요소해석(FEA) 상용 프로그
   수만 개의 이산 블록(Discrete blocks) 및 가상 용접점(Weld constraints)을 1초 안에 셋업하고 멀티코어 솔버로 해석을 가속화합니다. (기존 FEM 모델 대비 압도적인 연산 속도 확보)
 - **🧪 충돌(Contact) & 공기 역학(Air Dynamics) 통합**
   바닥 및 부품 간의 유연한 거동(Solref/Solimp 임피던스 제어)은 물론, 압축 공기 쿠션(Squeeze Film Effect)과 드래그 등 유체 역학적 충격 저항까지 사실적으로 계산합니다.
+- **🔄 지능형 소재 파라미터 동기화 (Advanced Sync System)**
+  사용자가 설정한 개별 물리 수치(Stiffness, Damping, Friction 등)가 시뮬레이션 모델(XML) 내의 복합 문자열(`solref`/`solimp`) 및 재질 사전에 누락 없이 동기화됩니다. 내부 결속력(Weld)과 외부 표면 접촉(Contact) 파라미터를 완전히 분리 제어할 수 있는 독자적인 피처를 제공합니다.
 - **🧠 지능형 관성 보정 (Selective Inertia Balancing)**
   Mass, CoG, MoI 중 원하는 항목만 선택적으로 보정하거나 다중 Aux Mass를 자동 배치하여 시스템의 물리적 정합성을 실시간으로 튜닝합니다. 보정 시 Baseline 값을 참조하여 최적화된 추가 질량 위치를 산출합니다.
 - **🟦 영구 변형(Plasticity) 및 시각적 모니터링**

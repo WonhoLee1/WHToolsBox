@@ -86,37 +86,144 @@ def format_config_report(config, timestamp):
     
     # 주요 카테고리별 정렬 정의
     categories = {
-        "1. 낙하 조건 (Drop Setup)":       ["drop_mode", "drop_height", "sim_duration"],
-        "2. 구조물 및 조립 (Assembly)":    ["include_paperbox", "include_cushion", "box_use_weld", "cush_use_weld", "oc_use_weld", "chas_use_weld"],
-        "3. 형상 파라미터 (Geometry)":    ["box_w", "box_h", "box_d", "box_thick", "box_div", "cush_div", "assy_div", "oc_div", "chassis_div"],
-        "4. 질량/재질 설정 (Material)":   ["mass_paper", "mass_cushion", "mass_oc", "mass_occ", "mass_chassis", "ground_friction"],
-        "5. 솔버/환경 설정 (Solver)":     ["sim_integrator", "sim_timestep", "sim_iterations", "sim_impratio", "sim_nthread", "ground_solref", "tape_solref"],
-        "6. 공기 역학 (Aerodynamics)":    ["enable_air_drag", "enable_air_squeeze", "air_density", "air_coef_squeeze", "air_cd_drag"]
+        "1. 낙하 및 실행 조건 (Drop & Run)": ["drop_mode", "drop_direction", "drop_height", "sim_duration", "only_generate_xml", "plot_results", "use_viewer"],
+        "2. 구조물 및 조립 (Assembly)":       ["include_paperbox", "include_cushion", "box_use_weld", "cush_use_weld", "oc_use_weld", "occ_use_weld", "chassis_use_weld"],
+        "3. 오픈셀/테이프 형상 (OC/Tape Geo)": ["oc_div", "oc_d", "occ_div", "occ_d", "occ_ithick"],
+        "4. 공통 형상 파라미터 (Common Geo)": ["box_w", "box_h", "box_d", "box_thick", "box_div", "cush_div", "cush_gap", "assy_div", "assy_w", "assy_h", "chassis_div", "chas_d"],
+        "5. 질량 및 물성 (Material)":        ["mass_paper", "mass_cushion", "mass_oc", "mass_occ", "mass_chassis", "ground_friction", "enable_plasticity", "plasticity_ratio", "cush_yield_stress",
+                                              "ground_solref", "ground_solref_stiff", "ground_solref_damp", "ground_solimp", 
+                                              "cush_solref", "cush_solref_stiff", "cush_solref_damp",
+                                              "cush_weld_solref", "cush_weld_solref_stiff", "cush_weld_solref_damp", "cush_weld_solimp",
+                                              "cush_contact_solref", "cush_contact_solimp", "cush_edge_solref", "cush_edge_solimp", 
+                                              "tape_weld_solref", "tape_solref", "cell_weld_solref", "cell_solref"],
+        "6. 솔버 및 물리 파라미터 (Physics)": ["sim_integrator", "sim_timestep", "sim_iterations", "sim_impratio", "sim_nthread", "sim_gravity", "sim_tolerance", "sim_noslip_iterations"],
+        "7. 공기 역학 (Aerodynamics)":       ["enable_air_drag", "enable_air_squeeze", "air_density", "air_viscosity", "air_cd_drag", "air_cd_viscous", "air_coef_squeeze", "air_squeeze_hmax", "air_squeeze_hmin"]
     }
     
+    # Mapping of parameter names to English descriptions
+    descriptions = {
+        "drop_mode": "Standard drop test mode (PARCEL, LTL, CUSTOM, etc.)",    # 표준 낙하 시험 모드 (PARCEL, LTL, CUSTOM 등)
+        "drop_direction": "Specific drop orientation (e.g., front-bottom-left)", # 구체적인 낙하 방향 (예: front-bottom-left)
+        "drop_height": "Drop height from ground (m)",                         # 지면으로부터의 낙하 높이 (m)
+        "sim_duration": "Total simulation duration (s)",                      # 총 시뮬레이션 시간 (s)
+        "only_generate_xml": "Generate XML and skip simulation",              # XML 모델만 생성하고 시뮬레이션은 건너뜀
+        "plot_results": "Enable plotting of simulation results",              # 시뮬레이션 결과 그래프 출력 여부
+        "use_viewer": "Enable MuJoCo passive viewer GUI",                    # MuJoCo 패시브 뷰어 GUI 활성화
+        "include_paperbox": "Include outer packaging box",                    # 외곽 포장 박스 포함 여부
+        "include_cushion": "Include cushion components",                      # 완충재(쿠션) 포함 여부
+        "box_use_weld": "Box as multiple bodies+weld (True) or single rigid (False)", # 박스 강체화 여부 (True: 다수 바디+Weld, False: 단일 강체)
+        "cush_use_weld": "Cushion as multiple bodies+weld (True) or single rigid (False)", # 쿠션 강체화 여부 (True: 다수 바디+Weld, False: 단일 강체)
+        "oc_use_weld": "Use internal welds for OpenCell",                    # 오픈셀 내부 Weld 사용 여부
+        "occ_use_weld": "Use internal welds for Cohesive layer",              # 접착층 내부 Weld 사용 여부
+        "chas_use_weld": "Use internal welds for Chassis",                    # 샤시 내부 Weld 사용 여부
+        "chassis_use_weld": "Use internal welds for Chassis",                 # 샤시 내부 Weld 사용 여부 (중복 키)
+        "box_w": "Packaging box width (m)",                                   # 포장 박스 가로 길이 (m)
+        "box_h": "Packaging box height (m)",                                  # 포장 박스 세로 길이 (m)
+        "box_d": "Packaging box depth (m)",                                   # 포장 박스 깊이 (m)
+        "box_thick": "Packaging box wall thickness (m)",                      # 포장 박스 벽 두께 (m)
+        "box_div": "Box discretization resolution [X, Y, Z]",                 # 박스 분할 해상도 [X, Y, Z]
+        "cush_div": "Cushion discretization resolution [X, Y, Z]",            # 쿠션 분할 해상도 [X, Y, Z]
+        "cush_gap": "Clearance gap between components (m)",                   # 부품 간 간격 (m)
+        "assy_div": "Assembly discretization resolution [X, Y, Z]",           # 조립체 분할 해상도 [X, Y, Z]
+        "assy_w": "Core assembly width (m)",                                  # 조립체 가로 치수 (m)
+        "assy_h": "Core assembly height (m)",                                 # 조립체 세로 치수 (m)
+        "oc_div": "OpenCell discretization resolution [X, Y, Z]",             # 오픈셀 분할 해상도 [X, Y, Z]
+        "oc_d": "OpenCell thickness (m)",                                     # 오픈셀 두께 (m)
+        "occ_div": "Cohesive layer discretization resolution [X, Y, Z]",       # 접착층 분할 해상도 [X, Y, Z]
+        "occ_d": "Cohesive layer thickness (m)",                              # 접착층 두께 (m)
+        "occ_ithick": "Cohesive layer initial thickness (m)",                 # 접착층 초기 두께 (m)
+        "chassis_div": "Chassis discretization resolution [X, Y, Z]",          # 샤시 분할 해상도 [X, Y, Z]
+        "chas_d": "Chassis thickness (m)",                                    # 샤시 두께 (m)
+        "mass_paper": "Packaging box mass (kg)",                             # 포장 박스 질량 (kg)
+        "mass_cushion": "Cushion mass (kg)",                                 # 쿠션 질량 (kg)
+        "mass_oc": "OpenCell panel mass (kg)",                                # 오픈셀 패널 질량 (kg)
+        "mass_occ": "Cohesive/Tape layer mass (kg)",                         # 접착/테이프층 질량 (kg)
+        "mass_chassis": "TV Chassis mass (kg)",                              # TV 샤시 질량 (kg)
+        "ground_friction": "Ground friction coefficient",                    # 바닥 마찰 계수
+        "enable_plasticity": "Enable permanent plastic deformation",           # 소성 변형(영구 변형) 활성화
+        "plasticity_ratio": "Plastic deformation ratio (0~1)",                # 소성 변형 비율 (0~1)
+        "sim_integrator": "Numerical integrator type (Euler, RK4, etc.)",    # 수치 적분기 방식 (Euler, RK4 등)
+        "sim_timestep": "Simulation time step (s)",                           # 시뮬레이션 시간 간격 (s)
+        "sim_iterations": "Max solver iterations per step",                  # 스텝당 최대 솔버 반복 횟수
+        "sim_impratio": "Penetration constraint ratio (5~10 for rigid)",      # 관통 제약 배율 (강체는 5~10 권장)
+        "sim_nthread": "Number of CPU threads for computation",               # 연산용 CPU 스레드 수
+        "sim_gravity": "Gravity acceleration vector [x, y, z]",               # 중력 가속도 벡터 [x, y, z]
+        "sim_tolerance": "Solver convergence tolerance",                      # 솔버 수렴 오차 허용치
+        "sim_noslip_iterations": "Iterations for friction constraint",         # 마찰 제약(No-slip) 반복 횟수
+        "ground_solref": "Ground contact solver (timeconst, dampratio)",      # 바닥 접촉 솔버 (타임상수, 감쇠비)
+        "ground_solref_stiff": "Ground contact stiffness param",              # 바닥 접촉 강성 파라미터
+        "ground_solref_damp": "Ground contact damping param",                # 바닥 접촉 감쇠 파라미터
+        "ground_solimp": "Ground contact solver impedance (dmin, dmax, ...)", # 바닥 접촉 솔버 임피던스
+        "cush_solref": "Cushion default solver reference",                    # 쿠션 기본 솔버 레퍼런스
+        "cush_solref_stiff": "Cushion stiffness param",                       # 쿠션 강성 파라미터
+        "cush_solref_damp": "Cushion damping param",                         # 쿠션 감쇠 파라미터
+        "cush_weld_solref": "Cushion internal weld solver reference",         # 쿠션 내부 Weld 솔버 레퍼런스
+        "cush_weld_solref_stiff": "Cushion weld stiffness param",             # 쿠션 Weld 강성 파라미터
+        "cush_weld_solref_damp": "Cushion weld damping param",               # 쿠션 Weld 감쇠 파라미터
+        "cush_weld_solimp": "Cushion internal weld solver impedance",         # 쿠션 내부 Weld 솔버 임피던스
+        "cush_contact_solref": "Cushion center contact solver reference",      # 쿠션 중앙부 접촉 솔버 레퍼런스
+        "cush_contact_solimp": "Cushion center contact solver impedance",      # 쿠션 중앙부 접촉 솔버 임피던스
+        "cush_edge_solref": "Cushion edge/corner contact solver reference",   # 쿠션 모서리 접촉 솔버 레퍼런스
+        "cush_edge_solimp": "Cushion edge/corner contact solver impedance",   # 쿠션 모서리 접촉 솔버 임피던스
+        "tape_weld_solref": "Tape internal weld solver reference",            # 테이프 내부 Weld 솔버 레퍼런스
+        "tape_solref": "Tape general contact solver reference",               # 테이프 일반 접촉 솔버 레퍼런스
+        "cell_weld_solref": "OpenCell internal weld solver reference",        # 오픈셀 내부 Weld 솔버 레퍼런스
+        "cell_solref": "OpenCell general contact solver reference",           # 오픈셀 일반 접촉 솔버 레퍼런스
+        "enable_air_drag": "Enable air drag and viscous forces",             # 공기 저항 및 점성력 활성화
+        "enable_air_squeeze": "Enable air squeeze film effect on impact",     # 충돌 시 공기 압축(Squeeze Film) 효과 활성화
+        "air_density": "Air density (kg/m^3)",                                # 공기 밀도 (kg/m^3)
+        "air_viscosity": "Air dynamic viscosity (Pa.s)",                      # 공기 점성 계수 (Pa.s)
+        "air_cd_drag": "Blunt body drag coefficient",                         # 형상 저항 계수 (Drag Coefficient)
+        "air_cd_viscous": "Viscous skin friction coefficient",                # 점성 마찰 계수 (Viscous Coeff)
+        "air_coef_squeeze": "Squeeze film intensity multiplier",              # 스퀴즈 효과 강도 배율
+        "air_squeeze_hmax": "Max height for squeeze film activation (m)",      # 스퀴즈 효과 활성화 최대 높이 (m)
+        "air_squeeze_hmin": "Min height for squeeze film activation (m)"       # 스퀴즈 효과 활성화 최소 높이 (m)
+    }
+
     logged_keys = set()
     for cat, keys in categories.items():
-        lines.append(f"\n[{cat}]")
+        cat_lines = []
         for k in keys:
             if k in config:
                 val = config[k]
-                lines.append(f"  - {k:<25}: {val}")
+                desc = descriptions.get(k, "")
+                comment = f" # {desc}" if desc else ""
+                cat_lines.append(f"  - {k:<25}: {str(val):<20}{comment}")
                 logged_keys.add(k)
+        
+        if cat_lines:
+            lines.append(f"\n[{cat}]")
+            lines.extend(cat_lines)
     
-    # 추가 질량(Aux Masses) 별도 처리
+    # 8. 추가 질량(Aux Masses) 별도 처리
     if "chassis_aux_masses" in config and config["chassis_aux_masses"]:
-        lines.append("\n[7. 추가 질량 (Chassis Aux Masses)]")
+        lines.append("\n[8. 추가 질량 (Chassis Aux Masses)]")
         for i, aux in enumerate(config["chassis_aux_masses"]):
             name = aux.get('name', f'Aux_{i}')
-            lines.append(f"  * {name:<23}: pos={aux.get('pos')}, mass={aux.get('mass')}kg, size={aux.get('size')}")
+            lines.append(f"  * {name:<23}: pos={str(aux.get('pos')):<35} # mass={aux.get('mass')}kg, size={aux.get('size')}")
         logged_keys.add("chassis_aux_masses")
 
-    # 상기 카테고리에 누락된 기타 설정들
-    other_keys = [k for k in config.keys() if k not in logged_keys and not k.startswith("mat_")]
+    # 9. 시각화 및 기타 (Visual & Misc)
+    visual_keys = ["light_main_diffuse", "light_main_ambient", "light_head_diffuse", "light_head_ambient", "light_sub_diffuse"]
+    vis_lines = []
+    for k in visual_keys:
+        if k in config:
+            desc = descriptions.get(k, "")
+            comment = f" # {desc}" if desc else ""
+            vis_lines.append(f"  - {k:<25}: {str(config[k]):<20}{comment}")
+            logged_keys.add(k)
+    if vis_lines:
+        lines.append("\n[9. 시각화 관련 설정 (Visual)]")
+        lines.extend(vis_lines)
+
+    # 상기 카테고리에 누락된 기타 설정들 (진짜 기타)
+    other_keys = sorted([k for k in config.keys() if k not in logged_keys and not k.startswith("mat_")])
     if other_keys:
-        lines.append("\n[8. 기타 세부 설정 (Others)]")
-        for k in sorted(other_keys):
-            lines.append(f"  - {k:<25}: {config[k]}")
+        lines.append("\n[10. 기타 보조 설정 (Others)]")
+        for k in other_keys:
+            desc = descriptions.get(k, "")
+            comment = f" # {desc}" if desc else ""
+            lines.append(f"  - {k:<25}: {str(config[k]):<20}{comment}")
         
     lines.append("\n" + "="*90 + "\n")
     return "\n".join(lines)
@@ -412,6 +519,11 @@ def run_simulation(config_or_path, sim_duration=0.5):
     
     data = mujoco.MjData(model)
     
+    # [NEW] 원본 지오메트리 정보 저장 (Reset 시 복구용)
+    original_geom_pos = model.geom_pos.copy()
+    original_geom_size = model.geom_size.copy()
+    original_geom_rgba = model.geom_rgba.copy()
+    
     # [INFO] MuJoCo 3.0+ 멀티코어 연산은 XML의 <option npoolthread="N"> 설정을 통해 활성화됩니다.
     nthread = config.get("sim_nthread", 4)
     if nthread > 1:
@@ -434,8 +546,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
                     idx_j = int(parts[-2])
                     idx_k = int(parts[-1])
                     
-                    # 컴포넌트 이름은 첫 'b_'와 인덱스 사이의 모든 세그먼트를 결합
-                    comp_name = "_".join(parts[1:-3])
+                    # 컴포넌트 이름은 첫 'b_'와 인덱스 사이의 모든 세그먼트를 결합하여 소문자로 저장
+                    comp_name = "_".join(parts[1:-3]).lower()
                     
                     if comp_name not in components:
                         components[comp_name] = {}
@@ -445,39 +557,71 @@ def run_simulation(config_or_path, sim_duration=0.5):
                     # 인덱스 변환 실패 시 (이산 블록 형식이 아님) 건너뜀
                     continue
 
+    # [REFINED] 전 부품에 대한 실제 격자 인덱스 범위를 GEOM 기반으로 전수 조사
+    # Body 이름 전수 조사 시 Single-Body(Weld=False) 부품의 탐색 누락을 방지하기 위함
+    comp_max_idxs = {}
+    for i in range(model.ngeom):
+        g_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
+        if g_name and g_name.startswith("g_"):
+            parts = g_name.split("_")
+            # g_{comp}_{i}_{j}_{k} 형식 (최소 5개 세그먼트)
+            if len(parts) >= 5:
+                # 'g'와 인덱스들 사이가 컴포넌트 이름
+                comp_name = "_".join(parts[1:-3]).lower()
+                try:
+                    i_idx = int(parts[-3])
+                    j_idx = int(parts[-2])
+                    k_idx = int(parts[-1])
+                    
+                    if comp_name not in comp_max_idxs:
+                        comp_max_idxs[comp_name] = [0, 0, 0]
+                    
+                    if i_idx > comp_max_idxs[comp_name][0]: comp_max_idxs[comp_name][0] = i_idx
+                    if j_idx > comp_max_idxs[comp_name][1]: comp_max_idxs[comp_name][1] = j_idx
+                    if k_idx > comp_max_idxs[comp_name][2]: comp_max_idxs[comp_name][2] = k_idx
+                except:
+                    pass
+    
+    # 튜플로 변환하여 확정
+    for k in list(comp_max_idxs.keys()):
+        comp_max_idxs[k] = tuple(comp_max_idxs[k])
+        
+    if comp_max_idxs:
+        log_and_print(f"  >> [Plasticity] Component Index Ranges detected: {comp_max_idxs}")
+
     # Time setup
     dt = model.opt.timestep
     duration = config.get("sim_duration", 1.0)
     steps = int(duration / dt)
     
-    time_history = []
-    z_hist = []
-    pos_hist = []
-    vel_hist = []
-    acc_hist = []
-    cog_pos_hist = []
-    cog_vel_hist = []
-    cog_acc_hist = []
-    corner_pos_hist = []
-    corner_vel_hist = []
-    corner_acc_hist = []
-    ground_impact_hist = []
-    air_drag_hist = []
-    air_viscous_hist = []
-    air_squeeze_hist = []
+    time_history = []           # 시뮬레이션 경과 시간 (Simulation Time)
+    z_hist = []                  # 전체 조립체의 수직(Z) 방향 높이 (Height)
+    pos_hist = []                # 전체 조립체의 6자유도 위치 성분 (Root Position)
+    vel_hist = []                # 전체 조립체의 6자유도 속도 성분 (Root Velocity)
+    acc_hist = []                # 전체 조립체의 6자유도 가속도 성분 (Root Acceleration)
+    cog_pos_hist = []            # 전체 조립체의 무게중심 전역 위치 (Subtree CoM Position)
+    cog_vel_hist = []            # 전체 조립체의 무게중심 전역 속도 (Subtree CoM Velocity)
+    cog_acc_hist = []            # 전체 조립체의 무게중심 전역 가속도 (Subtree CoM Acceleration)
+    corner_pos_hist = []         # 박스 외곽 8개 모서리의 전역 위치 (8 Corners World Position)
+    corner_vel_hist = []         # 박스 외곽 8개 모서리의 전역 속도 (8 Corners World Velocity)
+    corner_acc_hist = []         # 박스 외곽 8개 모서리의 전역 가속도 (8 Corners World Acceleration)
+    ground_impact_hist = []      # 지면과의 접촉 및 충격력 크기 (Ground Impact Force Magnitude)
+    air_drag_hist = []           # 계산된 공기 형상 저항 추정치 (Estimated Air Drag)
+    air_viscous_hist = []        # 계산된 공기 점성 마찰 저항 추정치 (Estimated Air Viscous)
+    air_squeeze_hist = []        # 지면 낙하 직전 공기 압축(Squeeze Film) 저항 (Air Squeeze Force)
     
     # Metric histories per component by row (j) and individual blocks
     # [NEW] MuJoCo 물리 파라미터 (Stiffness K, Damping C) 사전 계산 및 출력
-    cush_tc = config.get("cush_solref_stiff", 0.02)
-    cush_dr = config.get("cush_solref_damp", 1.0)
-    cush_solref = f"{cush_tc} {cush_dr}"
+    cush_tc = config.get("cush_weld_solref_stiff", config.get("cush_solref_stiff", 0.02))
+    cush_dr = config.get("cush_weld_solref_damp", config.get("cush_solref_damp", 1.0))
+    cush_weld_solref = f"{cush_tc} {cush_dr}"
     
     # 쿠션 블록 한 개의 질량 (에너지 계산용)
     cush_div = config.get("cush_div", [5, 4, 3])
     num_cush_blocks = np.prod(cush_div)
     m_cush_block = config.get("mass_cushion", 1.0) / num_cush_blocks
     
-    k_cush, c_cush = calc_mujoco_stiffness(cush_solref, m_cush_block)
+    k_cush, c_cush = calc_mujoco_stiffness(cush_weld_solref, m_cush_block)
     
     # [NEW] 탄성 계수 (Young's Modulus, E) 근사 계산
     # E = (K * L) / A  (K: 강성, L: 블록 두께, A: 단면적)
@@ -511,8 +655,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
     log_and_print(f" - Tape (Global)   : K = {k_tape:10.1f} N/m, C = {c_tape:8.1f} Ns/m")
     log_and_print(f"   (Used: mass={config.get('mass_occ', 0.1):.3f}kg, solref={config.get('tape_solref', '0.005 1.0')})")
     
-    log_and_print(f" - Cushion (Block) : K = {k_cush:10.1f} N/m, C = {c_cush:8.1f} Ns/m (per block)")
-    log_and_print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_solref})")
+    log_and_print(f" - Cushion (Weld)  : K = {k_cush:10.1f} N/m, C = {c_cush:8.1f} Ns/m (per block)")
+    log_and_print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_weld_solref})")
     log_and_print(f"   (Geom: Avg_Area={area_avg:.6f} m^2, Avg_Depth={avg_dz:.4f} m)")
     log_and_print(f"   >> Est. Young's Modulus (E): {E_mpa:.4e} MPa ({E_kpa:.2f} kPa)")
     log_and_print("="*80 + "\n")
@@ -546,12 +690,15 @@ def run_simulation(config_or_path, sim_duration=0.5):
     geom_state_tracker = {}
     enable_plasticity = config.get("enable_plasticity", False)
     plasticity_ratio = config.get("plasticity_ratio", 0.3)
+    yield_stress_pa = config.get("cush_yield_stress", 0.1) * 1e6 # MPa -> Pa
     
     def apply_plastic_deformation():
         if not enable_plasticity: return
         current_penetrations = {}
         
-        # 1. 런타임에 바닥(ground)과 쿠션 상호작용 검사
+        # 1. 런타임에 바닥(ground)과 쿠션 상호작용 검사 (하중 및 침투량 집계)
+        geom_hits = {} # gid -> {'max_p', 'sum_f', 'local_n', 'parts'}
+        
         for i in range(data.ncon):
             con = data.contact[i]
             g1_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, con.geom1)
@@ -564,69 +711,122 @@ def run_simulation(config_or_path, sim_duration=0.5):
             if target_geom != -1:
                 t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, target_geom)
                 if t_name and t_name.startswith("g_bcushion_"):
-                    # g_bcushion_{i}_{j}_{k} 정규식 또는 스플릿 추출
                     parts = t_name.split('_')
                     if len(parts) >= 5:
-                        try:
-                            c_i = int(parts[2])
-                            c_j = int(parts[3])
-                            # 8곳의 모서리 및 두께 방향 능(Edge Columns)에 걸치는 패드만 허용
-                            # i가 0 또는 끝이고, j가 0 또는 끝인 기둥들 (Z인 k는 무관)
-                            if (c_i == 0 or c_i == cush_div[0] - 1) and (c_j == 0 or c_j == cush_div[1] - 1):
-                                pen = -con.dist
-                                if pen > 1e-4:
-                                    if pen > current_penetrations.get(target_geom, 0.0):
-                                        current_penetrations[target_geom] = pen
-                        except ValueError:
-                            pass
+                        gid = target_geom
+                        if gid not in geom_hits:
+                            geom_hits[gid] = {'max_p': 0.0, 'sum_f': 0.0, 'local_n': np.zeros(3), 'parts': parts}
+                        
+                        # 하중 합산
+                        force_vec = np.zeros(6)
+                        mujoco.mj_contactForce(model, data, i, force_vec)
+                        geom_hits[gid]['sum_f'] += abs(force_vec[0])
+                        
+                        # 최대 침투량 및 그때의 법선 벡터 저장
+                        pen = -con.dist
+                        if pen > geom_hits[gid]['max_p']:
+                            geom_hits[gid]['max_p'] = pen
+                            # 월드 법선을 로컬 좌표로 변환하여 주요 충격축 판별 준비
+                            body_id = model.geom_bodyid[gid]
+                            nw = con.frame[:3]
+                            geom_hits[gid]['local_n'] = data.xmat[body_id].reshape(3,3).T @ nw
 
-        # 2. 신규 접촉 등록
-        for gid in current_penetrations:
-            if gid not in geom_state_tracker:
-                geom_state_tracker[gid] = {'max_p': 0.0, 'applied': False}
+                # 1.5. 집계된 정보를 바탕으로 소성 변형 여부 판정
+        for gid, hit in geom_hits.items():
+            parts = hit['parts']
+            try:
+                c_i = int(parts[-3]); c_j = int(parts[-2]); c_k = int(parts[-1])
+                # 컴포넌트 이름 추출 (g_ 명칭 규약 준수)
+                comp_name = "_".join(parts[1:-3]).lower()
                 
-        # 3. 압축(Compression) 및 회복(Recovery) 상태 업데이트
+                # 사전 계산된 실제 최대 인덱스 사용
+                nx_max, ny_max, nz_max = comp_max_idxs.get(comp_name, (0,0,0))
+                
+                bx = (c_i == 0 or c_i == nx_max)
+                by = (c_j == 0 or c_j == ny_max)
+                bz = (c_k == 0 or c_k == nz_max)
+                
+                # [UPDATE] 엣지/코너뿐만 아니라 모든 외곽 표면 블록을 변형 대상으로 확장
+                if bx or by or bz:
+                    # 블록의 단면적(Area) 근사 계산 (압력 판정용)
+                    sz = model.geom_size[gid]
+                    
+                    # [REFINED] 코너/엣지인 경우 국소 접촉 면적이 작으므로 유효 단면적을 보정
+                    # (코너는 3면이 만나는 점이므로 가장 작은 면적을 기준으로 반응성 극대화)
+                    if (bx + by + bz) >= 2: # Edge (2) or Corner (3)
+                        areas = [sz[1]*sz[2], sz[0]*sz[2], sz[0]*sz[1]]
+                        g_area = 4.0 * min(areas)
+                        ma = np.argmin(areas) # 가장 얇은 축을 주요 변형 축으로 우선 제안
+                    else:
+                        ma = np.argmax(np.abs(hit['local_n']))
+                        g_area = 4.0 * sz[(ma+1)%3] * sz[(ma+2)%3]
+                    
+                    # 현재 실제 침투량은 하중과 상관없이 추적하여 조기 회복 판정 방지
+                    current_penetrations[gid] = hit['max_p']
+                    
+                    # 항복 강도 초과 시에만 '기록될 최대 침투량' 갱신
+                    if g_area > 0 and (hit['sum_f'] / g_area) > yield_stress_pa:
+                        if hit['max_p'] > 1e-6:
+                            # state 기록 관리
+                            if gid not in geom_state_tracker:
+                                geom_state_tracker[gid] = {'max_p': 0.0, 'applied': False, 'major_axis': ma}
+                            
+                            if hit['max_p'] > geom_state_tracker[gid]['max_p']:
+                                geom_state_tracker[gid]['max_p'] = hit['max_p']
+                                geom_state_tracker[gid]['major_axis'] = ma
+                                geom_state_tracker[gid]['applied'] = False
+            except ValueError:
+                pass
+
+        # 2. 압합(Compression) 및 회복(Recovery) 상태 업데이트
         for gid, state in geom_state_tracker.items():
             curr_p = current_penetrations.get(gid, 0.0)
             
-            # 압축 진행 중
+            # 압축 진행 중: 현재 침투량이 기록된 최대치를 넘어서면 갱신 
+            # (단, 앞선 루프에서 항복 강도를 넘은 경우에만 max_p가 실질적으로 유의미하게 커짐)
             if curr_p >= state['max_p']:
                 state['max_p'] = curr_p
                 state['applied'] = False
             
-            # 회복 중 변형 적용
-            if state['max_p'] > 0.001 and not state['applied']:
+            # 회복 중 변형 적용: 최소 0.1mm 이상의 유의미한 압축이 있었을 때만 작동
+            if state['max_p'] > 0.0001 and not state['applied']:
                 recovery = state['max_p'] - curr_p
                 if recovery >= state['max_p'] * plasticity_ratio:
                     # 향후 탄성 계수 기반 공식을 위해 별도 분리 가능한 지점 
                     deformation = state['max_p'] * plasticity_ratio
                     
-                    local_pos = model.geom_pos[gid]
-                    inward_dir = -np.sign(local_pos[:3])
+                    # 기하학적 정밀 변형 로직 (50:50 비율로 한쪽 면 고정 적용)
+                    # 블록이 전체 어셈블리 중심에 대해 어디에 위치하는지 확인하여 압축 방향 결정
+                    body_id = model.geom_bodyid[gid]
+                    b_pos = model.body_pos[body_id] # PackagingBox 중심 대비 로컬 좌표
+                    # 중심을 향하는 방향 벡터 (가장 큰 성분 방향이 압축 주축임)
+                    inward_dir = -np.sign(b_pos)
                     
-                    # 비율: 80% 이동, 20% 축소 (옆 간섭 방지)
-                    shrink = deformation * 0.2
-                    shift = deformation * 0.8
+                    # 전체 변형량(deformation)을 이동 50%, 크기(half-size) 50%로 분배
+                    half_shrink = deformation / 2.0
+                    shift_amount = deformation / 2.0
                     
-                    # 1D/2D 기준 크기 축소 
-                    model.geom_size[gid][0] = max(0.001, model.geom_size[gid][0] - shrink)
-                    model.geom_size[gid][1] = max(0.001, model.geom_size[gid][1] - shrink)
+                    # 사전 판별된 축이 있으면 사용, 없으면 위치 기반 판별
+                    major_axis = state.get('major_axis', np.argmax(np.abs(b_pos)))
                     
-                    # 위치 이동
-                    model.geom_pos[gid] += inward_dir * shift
+                    # 1. 크기 축소 (해당 축의 반폭(half-size)만 줄임)
+                    model.geom_size[gid][major_axis] = max(0.001, model.geom_size[gid][major_axis] - half_shrink)
                     
-                    # [NEW] 영구 변형량(shrink) 직관적 확인을 위한 색상 변경 (화이트 -> 블루)
-                    # 수 mm 이하 변형 시에도 눈에 확 띄도록 2000.0을 곱해 색상을 바꿉니다.
-                    color_drop = min(1.0, shrink * 2000.0)  
+                    # 2. 위치 이동 (충격 반대 방향으로 중심을 밀어줌으로써 한쪽 면을 고정시킴)
+                    shift_vec = np.zeros(3)
+                    shift_vec[major_axis] = inward_dir[major_axis] * shift_amount
+                    model.geom_pos[gid] += shift_vec
+                    
+                    # [NEW] 영구 변형량(shrink) 시각화: 수 mm 이하 변형 시에도 색상 변화로 감지 가능하도록 처리
+                    color_drop = min(1.0, half_shrink * 4000.0)  
                     model.geom_rgba[gid][0] = max(0.0, 1.0 - color_drop)
                     model.geom_rgba[gid][1] = max(0.0, 1.0 - color_drop)
                     model.geom_rgba[gid][2] = 1.0  # Blue 고정
-                    model.geom_rgba[gid][3] = 1.0  # Alpha 유지
+                    model.geom_rgba[gid][3] = 1.0
                     
                     state['applied'] = True
-                    # 로깅 추가 (작동 확인 가능하도록 주석 해제)
                     t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, gid)
-                    print(f"  [Plasticity] {t_name} 영구 변형 발생! shrink={shrink*1000:.3f}mm, shift={shift*1000:.3f}mm")
+                    print(f"  [Plasticity] {t_name}, shrink={deformation*1000:.3f}mm, shift={shift_amount*1000:.3f}mm (Axis: {major_axis})")
             
             if curr_p == 0.0 and state['applied']:
                 state['max_p'] = 0.0
@@ -690,6 +890,13 @@ def run_simulation(config_or_path, sim_duration=0.5):
         if ctrl.reset_request:
             log_and_print("   >> [VIEWER] Resetting simulation...")
             mujoco.mj_resetData(model, data)
+            
+            # [NEW] 지오메트리 정보 복구 (Plasticity 초기화)
+            model.geom_pos[:] = original_geom_pos
+            model.geom_size[:] = original_geom_size
+            model.geom_rgba[:] = original_geom_rgba
+            geom_state_tracker.clear()
+            
             # Re-initialize histories
             time_history.clear(); z_hist.clear(); pos_hist.clear(); vel_hist.clear(); acc_hist.clear()
             cog_pos_hist.clear(); cog_vel_hist.clear(); cog_acc_hist.clear()
@@ -1376,12 +1583,20 @@ def calculate_required_aux_masses(cfg, target_mass, target_cog, target_moi):
 def test_run_case_1():
     # Get basic defaults, override specifically if needed    
     cfg = get_default_config()
-    # 예: 전면 하단 꼭짓점 낙하 자세로 설정
-    cfg["drop_mode"] = "L-F-B" 
+    # 낙하 모드 및 구체적인 방향 설정 (Full Name 사용: front/back, top/bottom, left/right)
+    # 형식: [Front/Back]-[Top/Bottom]-[Left/Right] (필요 없는 축은 '--'로 표시)
+    # PARCEL 모드 (Standard Mapping):
+    # 1: Top, 2: Bottom, 3: Front, 4: Back, 5: Left, 6: Right
+    # LTL 모드 (Custom Mapping):
+    # 1: Top, 2: Back, 3: Bottom, 4: Front, 5: Right, 6: Left
+    #cfg["drop_mode"] = "CUSTOM"
+    #cfg["drop_direction"] = "rear-bottom-right" # 예: 전면-아랫면-왼쪽 (꼭짓점 낙하)
+    cfg["drop_mode"] = "LTL"
+    cfg["drop_direction"] = "Corner 2-3-5" # 예: 전면-아랫면-왼쪽 (꼭짓점 낙하)
     cfg["include_paperbox"] = False # 로컬 테스트용 오버라이드
     cfg["drop_height"] = 0.5    
     cfg["plot_results"] = True    
-    cfg["only_generate_xml"] = False # [NEW] True 설정 시 시뮬레이션을 돌리지 않고 XML 모델 생성 및 저장만 수행
+    cfg["only_generate_xml"] = False     # [NEW] True 설정 시 시뮬레이션을 돌리지 않고 XML 모델 생성 및 저장만 수행
 
     # [COMPONENTS OPTIONS] 부품별 해상도(div) 및 결합 방식(use_weld) 설정
     # use_weld=False 설정 시, 해당 부품은 내부 구속조건이 없는 '단일 강체'로 취급되어 연산 속도가 비약적으로 향상됩니다.
@@ -1400,30 +1615,44 @@ def test_run_case_1():
     cfg["box_div"]          = [5, 4, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
     cfg["box_use_weld"]     = False        # 박스는 강체로 취급
     
-    cfg["tape_solref"] = "0.05 1.0"
+    # [NEW] 물리 파라미터 고도화 (Weld vs Contact 분리 및 엣지 특화)
+    # 1. 쿠션 (Cushion)
+    cfg["cush_weld_solref_stiff"] = 0.02    # 쿠션 블록 간 결합 강성 (Stiffness)
+    cfg["cush_weld_solref_damp"]  = 0.6     # 쿠션 블록 간 결합 감쇠 (Damping)
+    cfg["cush_contact_solref"]    = "0.005 0.8" # 일반 접촉 (Center)
+    cfg["cush_contact_solimp"]    = "0.1 0.95 0.002 0.5 2" 
+    cfg["cush_edge_solref"]       = "0.02 0.6" # 엣지/모너리 전용 접촉 (Edge/Corner)
+    cfg["cush_edge_solimp"]       = "0.1 0.95 0.004 0.5 2"
+    # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
+    cfg["cush_solref_stiff"] = 0.01 # 쿠션 timeconst
+    cfg["cush_solref_damp"]  = 0.1 # 쿠션 dampratio
+
+    # 2. 테이프/접착제 (Tape)
+    #cfg["tape_weld_solref"] = "0.01 1.0"
+    #cfg["tape_solref"]      = "0.05 1.0"
+    
+    # 3. 오픈셀/패널 (Cell/TV)
+    #cfg["cell_weld_solref"] = "0.005 1.0"
+    #cfg["cell_solref"]      = "0.01 1.0"
     
     # [NEW] 영구 변형 테스트 활성화
-    cfg["enable_plasticity"] = True
+    cfg["enable_plasticity"] = False
     cfg["plasticity_ratio"] = 0.5
-
-    cfg["sim_duration"] = 1.0
-
+    
     cfg["mass_paper"] = 4.0
     cfg["mass_cushion"] = 2.0
     cfg["mass_oc"] = 5.0
     cfg["mass_occ"] = 0.1
     cfg["mass_chassis"] = 10.0
-
-    cfg["ground_friction"] = 0.01 # 바닥 마찰계수 기본값 0.2
-    
+        
     # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
     # ground_solref: [timeconst, dampratio] -> timeconst가 작을수록 딱딱함. (0.002 미만은 비권장)
-    cfg["ground_solref_stiff"] = 0.005  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
-    cfg["ground_solref_damp"]  = 0.01    # Critical Damping
-    
-    # ground_solimp: [dmin, dmax, width, midpoint, power] 
-    # dmax를 0.999로 높여 최대 압축 시 반발력을 극대화하고, width를 줄여 즉각 반응하게 함
-    cfg["ground_solimp"] = "0.9 0.999 0.001 0.5 2"
+    cfg["ground_solref_stiff"] = 0.001  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
+    cfg["ground_solref_damp"]  = 0.0001    # Critical Damping
+    cfg["ground_friction"]     = 0.1   # 바닥 마찰계수
+
+    # ground_solimp: [dmin, dmax, width, midpoint, power]     
+    cfg["ground_solimp"] = "0.1 0.95 0.001 0.5 2"
     
     # [SIMULATION OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sim_*)
     cfg["sim_integrator"] = "Euler" # 통합기 (Euler, RK4, implicit, implicitfast 등)
@@ -1436,9 +1665,7 @@ def test_run_case_1():
     cfg["sim_nthread"]    = 4              # [NEW] 멀티코어 사용 (코어 수에 맞춰 조절)
     cfg["sim_impratio"]   = 5.0             # 기본 1.0. 값을 5~10 정도로 크게 주면 관통을 강력하게 봉쇄합니다.
 
-    # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    cfg["cush_solref_stiff"] = 0.07 # 쿠션 timeconst
-    cfg["cush_solref_damp"]  = 0.7 # 쿠션 dampratio
+    
 
     # air fluidic force
     cfg["air_density"]      = 1.225     # 공기 밀도 (kg/m^3, 20도 1atm)
@@ -1456,7 +1683,8 @@ def test_run_case_1():
     
     # [STEP 2] 자동 질량 보정 적용 (Target 맞춤)
     target_mass = 25.0
-    target_cog = [0.0, -0.01, -0.01]
+    target_cog = [0.0, -0.001, -0.001]
+    target_cog = None
     #target_moi = [3.0, 8.0, 10.0]  # [Ixx, Iyy, Izz]
     target_moi = None
 
@@ -1481,7 +1709,7 @@ def test_run_case_1():
     print_inertia_report(cfg, title="Final Balanced Inertia Report", logger=print)
 
     # [STEP 4] 실행 시 뷰어 사용 여부 확인 후 시뮬레이션 시작
-    cfg["use_viewer"] = ask_use_viewer()
+    cfg["use_viewer"] = True # 로컬 테스트 시 뷰어 비활성화
     run_simulation(cfg)
 
 
@@ -1528,3 +1756,57 @@ Dampratio (두 번째 값)
 
 '''
 
+
+
+
+'''
+ISTA 6-Amazon.com (SIOC) 규격에 따른 낙하 시험에서는 제품의 각 면(Face), 능(Edge), 꼭짓점(Corner)을 숫자로 정의하여 관리합니다. 
+사용자가 drop_direction에 "2-3-5"와 같이 숫자를 입력했을 때 이를 정확히 해석하기 위해서는 우선 PARCEL과 LTL 모드에 따른 넘버링 체계를 이해해야 합니다.
+
+1. ISTA 6A 면(Face) 넘버링의 기본 원칙
+박스형 포장재의 6개 면은 보통 다음과 같이 정의됩니다:
+
+1번 면 (Face 1): 상면 (Top)
+2번 면 (Face 2): 하면 (Bottom / Base) - 가장 중요
+3번 면 (Face 3): 전면 (Front / Display side) - TV의 경우 화면부
+4번 면 (Face 4): 후면 (Rear / Back)
+5번 면 (Face 5): 좌측면 (Left)
+6번 면 (Face 6): 우측면 (Right)
+NOTE
+넘버링 기준 잡기 제품을 정상적인 적재 상태(정면이 나를 향하도록)로 놓았을 때, 천장이 1번, 바닥이 2번입니다. 
+그 상태에서 내 눈앞에 보이는 정면이 3번, 그 반대편이 4번이며, 나의 왼손 쪽이 5번, 오른손 쪽이 6번이 됩니다.
+
+2. PARCEL vs LTL: 모드별 넘버링의 차이
+ISTA 6A 규격 내에서도 배송 형태(SIOC Type)에 따라 강조되는 지점과 넘버링의 의미가 미세하게 달라집니다.
+
+2.1. PARCEL (Small/Medium - Type A/B)
+특징: 택배 기사님이 직접 손으로 들거나 컨베이어에 태우는 개별 포장 방식입니다.
+테스트: 모든 방향(6면, 12능, 8코너)에 대한 낙하 강도가 골고루 중요합니다.
+넘버링: 표준 1~6번 체계를 엄격히 따르며, 주로 코너 2-3-5 (바닥-전면-왼쪽이 만나는 꼭짓점) 낙하부터 시험을 시작하는 경우가 많습니다.
+
+2.2. LTL (Large/Palletized - Type C/D/E/F)
+특징: 지게차나 팰럿 잭을 사용하여 운반하는 대형 화물(TV, 세탁기 등)입니다.
+테스트: 바닥면(2번 면) 기준의 수평 낙하와, 기울여서 떨어뜨리는 **회전 낙하(Rotational Drop)**가 주를 이룹니다.
+넘버링 차이:
+LTL 모드에서는 **물리적 바닥(Base)**이 항상 2번 면이 되어야 합니다.
+특히 TV와 같이 슬림한 대형 제품은 포장 상태에 따라 '전면(3)'과 '측면(5/6)'의 정의가 시험 장비 세팅(Clamping 등)에 따라 매우 구체적으로 지정됩니다.
+면적이 넓은 면이 1/2번이 될지, 3/4번이 될지에 따라 낙하 충격 에너지가 분산되는 양상이 다르므로 주의가 필요합니다.
+
+3. 숫자 조합을 통한 낙하 위치 정의
+숫자를 조합하면 drop_direction을 더욱 명확하게 표현할 수 있습니다.
+
+면 낙하 (Face Drop): 숫자 1개 (3 -> Front 면 낙하)
+능 낙하 (Edge Drop): 숫자 2개 (2-3 -> 바닥과 전면이 만나는 모서리 낙하)
+꼭짓점 낙하 (Corner Drop): 숫자 3개 (2-3-5 -> 바닥/전면/좌측이 만나는 꼭짓점 낙하)
+
+
+Parcel 시험
+- 1=Top, 2=Bottom, 3=Front, 4=Back, 5=Left, 6=Right.
+
+ LTL 시험 
+ - 팔레트 적재 방향을 기준으로 면 번호를 지정
+
+
+
+
+'''

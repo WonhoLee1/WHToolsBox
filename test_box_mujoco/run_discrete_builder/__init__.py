@@ -39,90 +39,110 @@ def calculate_solref(K, C):
     return round(timeconst, 5), round(dampratio, 5)
 
 def get_default_config(user_config=None):
-    """기본 모델 파라미터 설정을 반환하는 헬퍼 함수. 
-    사용자가 전달한 config에 누락된 값이 있으면 이 기본값들이 채워지며,
-    내부 연산(예: 박스 크기에 비례한 내부 구조물 크기 산출)도 여기서 처리됩니다."""
-    
+    """기본 모델 파라미터 설정을 반환하는 헬퍼 함수."""
     if user_config is None:
         user_config = {}
         
-    # [시뮬레이션/솔버 파라미터 (sim_*)]
-    # MuJoCo의 <option> 태그에 직접 반영될 파라미터들입니다.
+    # [0] 낙하 모드 및 방향 설정
+    drop_mode = user_config.get("drop_mode", "PARCEL")
+    drop_direction = user_config.get("drop_direction", "front")
+    # [1] 시뮬레이션/솔버 기본 파라미터
     sim_integrator = user_config.get("sim_integrator", "implicitfast")
     sim_timestep   = user_config.get("sim_timestep", 0.001)
     sim_iterations = user_config.get("sim_iterations", 80)
     sim_noslip_iterations = user_config.get("sim_noslip_iterations", 5)
     sim_tolerance  = user_config.get("sim_tolerance", 1e-6)
-    sim_impratio   = user_config.get("sim_impratio", 1.0) # 접촉 임피던스 비율
+    sim_impratio   = user_config.get("sim_impratio", 1.0)
     sim_gravity    = user_config.get("sim_gravity", [0, 0, -9.81])
-    sim_nthread    = user_config.get("sim_nthread", 4)  # [NEW] 멀티코어 스레드 수 (CPU 물리 코어 수 권장)
-        
-    # [솔버 파라미터 분리] 문자열 대신 개별 변수로 관리 (최적화 친화적)    
-    cush_solref_stiff = user_config.get("cush_solref_stiff", 0.02) # 쿠션 timeconst
-    cush_solref_damp = user_config.get("cush_solref_damp", 1.0) # 쿠션 dampratio
-    
-    # solimp = [dmin, dmax, width, midpoint, power] 
-    cush_solimp_dmin = user_config.get("cush_solimp_dmin", 0.95)   # 쿠션 최소 임피던스
-    cush_solimp_dmax = user_config.get("cush_solimp_dmax", 0.999)  # 쿠션 최대 임피던스
-    cush_solimp_width = user_config.get("cush_solimp_width", 0.001)  # 쿠션 임피던스 폭
-    cush_solimp_mid = user_config.get("cush_solimp_mid", 0.5)        # 쿠션 임피던스 중간점
-    cush_solimp_power = user_config.get("cush_solimp_power", 2.0)    # 쿠션 임피던스 거듭제곱
-    
-    # tape (Cohesive / Frame)
-    # 극단적인 충격(285G)에서도 버티도록 강도를 대폭 상향 (timeconst 0.02 -> 0.005)
-    tape_solref_stiff = user_config.get("tape_solref_stiff", 0.05) 
-    tape_solref_damp = user_config.get("tape_solref_damp", 1.0)
+    sim_nthread    = user_config.get("sim_nthread", 4)
 
-    tape_solimp_dmin = user_config.get("tape_solimp_dmin", 0.9)   # 테이프 최소 임피던스 
-    tape_solimp_dmax = user_config.get("tape_solimp_dmax", 0.999) # 테이프 최대 임피던스 (관통 및 분리 방지)
-    tape_solimp_width = user_config.get("tape_solimp_width", 0.001)  # 테이프 임피던스 폭
-    tape_solimp_mid = user_config.get("tape_solimp_mid", 0.5)        # 테이프 임피던스 중간점
-    tape_solimp_power = user_config.get("tape_solimp_power", 2.0)    # 테이프 임피던스 거듭제곱
+    # [2] 부품별 기본 물리 파라미터 (stiff, damp, solimp components)
+    # 이 섹션의 파라미터들은 이산화된 블록들 사이의 결합력(Weld constraint)을 정의하는 물리 설정입니다.
+    # 즉, 각 부품 내부의 이산화된 블록들이 서로 얼마나 단단하게 결합되어 있을지를 결정합니다.
+    # [소재별 권장 파라미터 가이드 테이블]
+    # | 부품/소재                | stiff (timeconst) | damp (dampratio) | solimp (dmin dmax) | width | 비고                                         |
+    # | :----------------------- | :---------------: | :--------------: | :----------------: | :---: | :------------------------------------------- |
+    # | Cushion (EPS/Foam)       | 0.03 ~ 0.05       | 0.9 ~ 1.2        | 0.1 0.95           | 0.02  | 충격 흡수 및 높은 에너지 분산(감쇠) 강조     |
+    # | Tape (Acrylic Adhesive)   | 0.01 ~ 0.02       | 1.0              | 0.1 0.99           | 0.001 | 얇고 끈적이는 점탄성 결합, 매우 좁은 전이폭  |
+    # | OpenCell (Glass/Panel)    | 0.005 ~ 0.01      | 0.1 ~ 0.3        | 0.9 0.95           | 0.005 | 고강성, 취성(Low Damping). 변형이 거의 없음  |
+    # | TV Chassis (Steel/AL)    | 0.005 ~ 0.01      | 0.5 ~ 0.8        | 0.8 0.95           | 0.01  | 구조적 강도 유지, 금속 특유의 탄성 진동 허용 |
+
+    # Cushion
+    cush_solref_stiff = user_config.get("cush_solref_stiff", 0.03)
+    cush_solref_damp = user_config.get("cush_solref_damp", 0.8)
+    cush_solimp_dmin = user_config.get("cush_solimp_dmin", 0.1)
+    cush_solimp_dmax = user_config.get("cush_solimp_dmax", 0.95)
+    cush_solimp_width = user_config.get("cush_solimp_width", 0.005)
+    cush_solimp_mid = user_config.get("cush_solimp_mid", 0.5)
+    cush_solimp_power = user_config.get("cush_solimp_power", 2.0)
     
-    # cell (TV Panel)
-    cell_solref_stiff = user_config.get("cell_solref_stiff", 0.01) # 패널 timeconst
-    cell_solref_damp = user_config.get("cell_solref_damp", 1.0) # 패널 dampratio
+    # [NEW] Plasticity
+    cush_yield_stress = user_config.get("cush_yield_stress", 0.1) # MPa (항복 강도)
     
-    cell_solimp_dmin = user_config.get("cell_solimp_dmin", 0.9)   # 패널 최소 임피던스
-    cell_solimp_dmax = user_config.get("cell_solimp_dmax", 0.999)  # 패널 최대 임피던스 (쿠션 관통 방지)
-    cell_solimp_width = user_config.get("cell_solimp_width", 0.001)  # 패널 임피던스 폭
-    cell_solimp_mid = user_config.get("cell_solimp_mid", 0.5)        # 패널 임피던스 중간점
-    cell_solimp_power = user_config.get("cell_solimp_power", 2.0)    # 패널 임피던스 거듭제곱
+    # Tape (Cohesive)
+    tape_solref_stiff = user_config.get("tape_solref_stiff", 0.01)
+    tape_solref_damp = user_config.get("tape_solref_damp", 1.0)
+    tape_solimp_dmin = user_config.get("tape_solimp_dmin", 0.1)
+    tape_solimp_dmax = user_config.get("tape_solimp_dmax", 0.99)
+    tape_solimp_width = user_config.get("tape_solimp_width", 0.001)
+    tape_solimp_mid = user_config.get("tape_solimp_mid", 0.5)
+    tape_solimp_power = user_config.get("tape_solimp_power", 2.0)
     
-    # tv (Chassis)
-    tv_solref_stiff = user_config.get("tv_solref_stiff", 0.01) # 구조물 timeconst
-    tv_solref_damp = user_config.get("tv_solref_damp", 1.0) # 구조물 dampratio
+    # Cell (Panel)
+    cell_solref_stiff = user_config.get("cell_solref_stiff", 0.01)
+    cell_solref_damp = user_config.get("cell_solref_damp", 0.3)
+    cell_solimp_dmin = user_config.get("cell_solimp_dmin", 0.5)
+    cell_solimp_dmax = user_config.get("cell_solimp_dmax", 0.95)
+    cell_solimp_width = user_config.get("cell_solimp_width", 0.001)
+    cell_solimp_mid = user_config.get("cell_solimp_mid", 0.5)
+    cell_solimp_power = user_config.get("cell_solimp_power", 2.0)
     
-    tv_solimp_dmin = user_config.get("tv_solimp_dmin", 0.9)   # 구조물 최소 임피던스
-    tv_solimp_dmax = user_config.get("tv_solimp_dmax", 0.95)  # 구조물 최대 임피던스
-    tv_solimp_width = user_config.get("tv_solimp_width", 0.001)  # 구조물 임피던스 폭
-    tv_solimp_mid = user_config.get("tv_solimp_mid", 0.5)        # 구조물 임피던스 중간점
-    tv_solimp_power = user_config.get("tv_solimp_power", 2.0)    # 구조물 임피던스 거듭제곱
+    # TV (Chassis)
+    tv_solref_stiff = user_config.get("tv_solref_stiff", 0.002)
+    tv_solref_damp = user_config.get("tv_solref_damp", 0.5)
+    tv_solimp_dmin = user_config.get("tv_solimp_dmin", 0.1)
+    tv_solimp_dmax = user_config.get("tv_solimp_dmax", 0.95)
+    tv_solimp_width = user_config.get("tv_solimp_width", 0.005)
+    tv_solimp_mid = user_config.get("tv_solimp_mid", 0.5)
+    tv_solimp_power = user_config.get("tv_solimp_power", 2.0)
     
-    # gorund contact    
-    # [BUG FIX] 사용자가 cfg["ground_solref_stiff"] 등을 직접 수정했을 때 문자열(ground_solref)에 즉각 반영되도록 유도
-    ground_solref_stiff = user_config.get("ground_solref_stiff", 0.01)
-    ground_solref_damp = user_config.get("ground_solref_damp", 1.0)
-    
-    # solref: 오리지널 (timeconst, dampratio) 방식
+    # Ground
+    ground_solref_stiff = user_config.get("ground_solref_stiff", 0.001)
+    ground_solref_damp = user_config.get("ground_solref_damp", 0.0001)
+    ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
+    if "ground_solref" in user_config and "ground_solref_stiff" not in user_config and "ground_solref_damp" not in user_config:
+        ground_solref = user_config["ground_solref"]
+
+    # [3] 문자열 조립 (Original/Fallback Strings)
     cush_solref = f"{cush_solref_stiff} {cush_solref_damp}"
     tape_solref = f"{tape_solref_stiff} {tape_solref_damp}"
     cell_solref = f"{cell_solref_stiff} {cell_solref_damp}"
     tv_solref = f"{tv_solref_stiff} {tv_solref_damp}"
     
-    # 만약 사용자가 이미 완성된 문자열 "ground_solref"를 직접 주었고, 
-    # 개별 파라미터(stiff, damp)는 고치지 않았다면 기존 문자열 유지
-    if "ground_solref" in user_config and "ground_solref_stiff" not in user_config and "ground_solref_damp" not in user_config:
-        ground_solref = user_config["ground_solref"]
-    else:
-        # 개별 파라미터가 하나라도 있으면 새로 조립
-        ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
-        print (f"rebuild ground_solref {ground_solref}")
-    
     cush_solimp = f"{cush_solimp_dmin} {cush_solimp_dmax} {cush_solimp_width} {cush_solimp_mid} {cush_solimp_power}"
     tape_solimp = f"{tape_solimp_dmin} {tape_solimp_dmax} {tape_solimp_width} {tape_solimp_mid} {tape_solimp_power}"
     cell_solimp = f"{cell_solimp_dmin} {cell_solimp_dmax} {cell_solimp_width} {cell_solimp_mid} {cell_solimp_power}"
     tv_solimp = f"{tv_solimp_dmin} {tv_solimp_dmax} {tv_solimp_width} {tv_solimp_mid} {tv_solimp_power}"
+
+    # [4] Weld/Contact 파라미터 분리 적용
+    # Weld (Internal)
+    cush_weld_solref = f"{user_config.get('cush_weld_solref_stiff', cush_solref_stiff)} {user_config.get('cush_weld_solref_damp', cush_solref_damp)}"
+    tape_weld_solref = f"{user_config.get('tape_weld_solref_stiff', tape_solref_stiff)} {user_config.get('tape_weld_solref_damp', tape_solref_damp)}"
+    cell_weld_solref = f"{user_config.get('cell_weld_solref_stiff', cell_solref_stiff)} {user_config.get('cell_weld_solref_damp', cell_solref_damp)}"
+    tv_weld_solref = f"{user_config.get('tv_weld_solref_stiff', tv_solref_stiff)} {user_config.get('tv_weld_solref_damp', tv_solref_damp)}"
+
+    cush_weld_solimp = cush_solimp # Default to base if not specified separately
+    tape_weld_solimp = tape_solimp
+    cell_weld_solimp = cell_solimp
+    tv_weld_solimp = tv_solimp
+
+    # Contact (Geometry default)
+    cush_contact_solref = user_config.get("cush_contact_solref", cush_solref)
+    cush_contact_solimp = user_config.get("cush_contact_solimp", cush_solimp)
+    
+    # [NEW] Cushion Edge/Corner Ground Contact parameters
+    cush_edge_solref = user_config.get("cush_edge_solref", ground_solref)
+    cush_edge_solimp = user_config.get("cush_edge_solimp", "0.95 0.999 0.001 0.5 2.0")
     
     # 기본 치수 설정 및 종속 변수 연산 처리
     box_w = user_config.get("box_w", 2.0)
@@ -133,7 +153,9 @@ def get_default_config(user_config=None):
     cush_w = box_w - 2 * box_thick
     cush_h = box_h - 2 * box_thick
     cush_d = box_d - 2 * box_thick
-    
+
+    # 내부 구조물(Chassis, OpenCell, Tape 등을 포함하는 AssySet) 기본 크기
+    # 만약 사용자가 넘기지 않으면, 기본값으로 외부 박스 크기 대비 적정 비율(cush_w - 0.3)로 자동 계산됩니다.
     assy_w = user_config.get("assy_w", cush_w - 0.3)
     assy_h = user_config.get("assy_h", cush_h - 0.3)
     
@@ -151,9 +173,11 @@ def get_default_config(user_config=None):
             cush_vol = max(0.01, ext_vol - int_vol)
             mass_cushion = cush_density * cush_vol
     
+    # 기본 낙하 설정
     config = {
-        "drop_mode": "PARCEL",
-        "drop_height": 0.5,
+        "drop_mode": drop_mode,
+        "drop_direction": drop_direction,
+        "drop_height": user_config.get("drop_height", 0.5),
         "include_paperbox": True,
         "include_cushion": True,
         "sim_duration": 1.0,  # 헤드리스 시뮬레이션 기본 구동 시간 (초)
@@ -166,9 +190,8 @@ def get_default_config(user_config=None):
         "cush_gap": 0.001,
         
         # 내부 구조물(Chassis, OpenCell, Tape 등을 포함하는 AssySet) 기본 크기
-        # 만약 사용자가 넘기지 않으면, 기본값으로 외부 박스 크기 대비 적정 비율(cush_w - 0.3)로 자동 계산됩니다.
-        "assy_w": user_config.get("assy_w", cush_w - 0.3),
-        "assy_h": user_config.get("assy_h", cush_h - 0.3),
+        "assy_w": assy_w, 
+        "assy_h": assy_h,
         
         # 내부 구조물(Assy) 부품별 각 두께
         "oc_d"      : 0.020,        # oc: OpenCell (TV 디스플레이 패널부) 두께
@@ -201,15 +224,48 @@ def get_default_config(user_config=None):
         "mass_chassis": 10.0,  # Chassis 질량
 
         # 재료 물성치 (솔버 제어 및 물리 특성)
-        "cush_solref": cush_solref,
-        "tape_solref": tape_solref,
-        "cush_solimp": cush_solimp,
-        "tape_solimp": tape_solimp,
-        "mat_paper": {"rgba": "0.7 0.6 0.4 0.9", "solref": "0.01 1.0", "solimp": "0.8 0.95 0.001 0.5 2", "contype": "1", "conaffinity": "1", "friction": "0.8"}, # Default init
-        "mat_cush" : {"rgba": "0.9 0.9 0.9 0.5", "solref": cush_solref, "solimp": cush_solimp, "contype": "1", "conaffinity": "1", "friction": user_config.get("cush_friction", 0.8)},
-        "mat_tape" : {"rgba": "1.0 0.1 0.1 0.8", "solref": tape_solref, "solimp": tape_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
-        "mat_cell" : {"rgba": "0.1 0.1 0.1 1.0", "solref": cell_solref, "solimp": cell_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
-        "mat_tv"   : {"rgba": "0.1 0.5 0.8 1.0", "solref": tv_solref, "solimp": tv_solimp, "contype": "1", "conaffinity": "1", "friction": "0.8"},
+        "cush_weld_solref": cush_weld_solref,
+        "cush_weld_solimp": cush_weld_solimp,
+        "cush_contact_solref": cush_contact_solref,
+        "cush_contact_solimp": cush_contact_solimp,
+        "cush_edge_solref": cush_edge_solref,
+        "cush_edge_solimp": cush_edge_solimp,
+
+        "mat_paper": {"rgba": "0.7 0.6 0.4 0.9", "solref": "0.01 1.0", "solimp": "0.1 0.95 0.005 0.5 2", "contype": "1", "conaffinity": "1", "friction": "0.8"}, # Default init
+        "mat_cush" : {
+            "rgba": "0.9 0.9 0.9 0.5", 
+            "weld_solref": cush_weld_solref, 
+            "weld_solimp": cush_weld_solimp, 
+            "solref": cush_contact_solref, 
+            "solimp": cush_contact_solimp,
+            "edge_solref": cush_edge_solref,
+            "edge_solimp": cush_edge_solimp,
+            "contype": "1", "conaffinity": "1", "friction": user_config.get("cush_friction", 0.8)
+        },
+        "mat_tape" : {
+            "rgba": "1.0 0.1 0.1 0.8", 
+            "weld_solref": tape_weld_solref, 
+            "weld_solimp": tape_weld_solimp, 
+            "solref": tape_solref, 
+            "solimp": tape_solimp,
+            "contype": "1", "conaffinity": "1", "friction": "0.8"
+        },
+        "mat_cell" : {
+            "rgba": "0.1 0.1 0.1 1.0", 
+            "weld_solref": cell_weld_solref, 
+            "weld_solimp": cell_weld_solimp, 
+            "solref": cell_solref, 
+            "solimp": cell_solimp,
+            "contype": "1", "conaffinity": "1", "friction": "0.8"
+        },
+        "mat_tv"   : {
+            "rgba": "0.1 0.5 0.8 1.0", 
+            "weld_solref": tv_weld_solref, 
+            "weld_solimp": tv_weld_solimp, 
+            "solref": tv_solref, 
+            "solimp": tv_solimp,
+            "contype": "1", "conaffinity": "1", "friction": "0.8"
+        },
         
         # 바닥(Ground) 접촉 물질 정보 (Cushion과 유사하게 처리하기 위해 추가)
         "ground_solref": ground_solref, 
@@ -246,6 +302,26 @@ def get_default_config(user_config=None):
         "sim_tolerance": sim_tolerance,
         "sim_gravity": sim_gravity,
         "sim_nthread": sim_nthread,
+
+        # [NEW] Plasticity
+        "cush_yield_stress": cush_yield_stress,
+
+        # [NEW] 개별 파라미터 (Sync용으로 보관)
+        "cush_solref_stiff": cush_solref_stiff, "cush_solref_damp": cush_solref_damp,
+        "cush_solimp_dmin": cush_solimp_dmin, "cush_solimp_dmax": cush_solimp_dmax, "cush_solimp_width": cush_solimp_width, "cush_solimp_mid": cush_solimp_mid, "cush_solimp_power": cush_solimp_power,
+        
+        "tape_solref_stiff": tape_solref_stiff, "tape_solref_damp": tape_solref_damp,
+        "tape_solimp_dmin": tape_solimp_dmin, "tape_solimp_dmax": tape_solimp_dmax, "tape_solimp_width": tape_solimp_width, "tape_solimp_mid": tape_solimp_mid, "tape_solimp_power": tape_solimp_power,
+        
+        "cell_solref_stiff": cell_solref_stiff, "cell_solref_damp": cell_solref_damp,
+        "cell_solimp_dmin": cell_solimp_dmin, "cell_solimp_dmax": cell_solimp_dmax, "cell_solimp_width": cell_solimp_width, "cell_solimp_mid": cell_solimp_mid, "cell_solimp_power": cell_solimp_power,
+        
+        "tv_solref_stiff": tv_solref_stiff, "tv_solref_damp": tv_solref_damp,
+        "tv_solimp_dmin": tv_solimp_dmin, "tv_solimp_dmax": tv_solimp_dmax, "tv_solimp_width": tv_solimp_width, "tv_solimp_mid": tv_solimp_mid, "tv_solimp_power": tv_solimp_power,
+        
+        "ground_solref_stiff": ground_solref_stiff, "ground_solref_damp": ground_solref_damp,
+        "cush_weld_solref_stiff": user_config.get('cush_weld_solref_stiff', cush_solref_stiff),
+        "cush_weld_solref_damp": user_config.get('cush_weld_solref_damp', cush_solref_damp),
     }
     
     # 사용자가 직접 전달한 나머지 설정값들을 최종 병합(덮어쓰기)합니다.
@@ -253,17 +329,73 @@ def get_default_config(user_config=None):
         config[k] = v
         
     # [FINAL SYNC] 사용자가 직접 config["ground_solref_stiff"] 등을 수정했을 경우를 대비해
-    # 모든 문자열 파라미터를 최종 병합된 값 기준으로 한 번 더 재조립합니다.
-    g_s = config.get("ground_solref_stiff", ground_solref_stiff)
-    g_d = config.get("ground_solref_damp", ground_solref_damp)
+    # 모든 문자열 파라미터를 최종 병합된 값 기준으로 한 번 더 재조립하여 mat_* 사전에 반영합니다.
+    
+    # 1. Ground Sync
+    g_s = config.get("ground_solref_stiff", 0.001)
+    g_d = config.get("ground_solref_damp", 0.0001)
     config["ground_solref"] = f"{g_s} {g_d}"
     
-    # 쿠션 및 기타 부품들도 동일하게 최종 동기화
-    c_s = config.get("cush_solref_stiff", cush_solref_stiff)
-    c_d = config.get("cush_solref_damp", cush_solref_damp)
-    config["cush_solref"] = f"{c_s} {c_d}"
+    # 2. General Material Solref & Solimp Sync
+    for prefix in ["cush", "tape", "cell", "tv"]:
+        # (A) Solref 재조립
+        s_val = config.get(f"{prefix}_solref_stiff")
+        d_val = config.get(f"{prefix}_solref_damp")
+        if s_val is not None and d_val is not None:
+            config[f"{prefix}_solref"] = f"{s_val} {d_val}"
+            
+        # (B) Solimp 재조립 (5개 성분 결합)
+        i_dmin  = config.get(f"{prefix}_solimp_dmin", 0.1)
+        i_dmax  = config.get(f"{prefix}_solimp_dmax", 0.95)
+        i_width = config.get(f"{prefix}_solimp_width", 0.005)
+        i_mid   = config.get(f"{prefix}_solimp_mid", 0.5)
+        i_power = config.get(f"{prefix}_solimp_power", 2.0)
+        config[f"{prefix}_solimp"] = f"{i_dmin} {i_dmax} {i_width} {i_mid} {i_power}"
+
+    # 3. Weld Solref Sync (Internal connections)
+    for prefix in ["cush", "tape", "cell", "tv"]:
+        ws_key = f"{prefix}_weld_solref_stiff"
+        wd_key = f"{prefix}_weld_solref_damp"
+        target_key = f"{prefix}_weld_solref"
+        
+        # weld 전용 값이 설정되어 있다면 사용, 없으면 일반 물성값 사용
+        s = config.get(ws_key, config.get(f"{prefix}_solref_stiff"))
+        d = config.get(wd_key, config.get(f"{prefix}_solref_damp"))
+        config[target_key] = f"{s} {d}"
+        
+        # Weld Solimp는 일반 Solimp를 기본으로 사용
+        config[f"{prefix}_weld_solimp"] = config.get(f"{prefix}_weld_solimp", config[f"{prefix}_solimp"])
+
+    # 4. Special Contact Parameter Sync
+    config["cush_contact_solref"] = config.get("cush_contact_solref", config["cush_solref"])
+    config["cush_contact_solimp"] = config.get("cush_contact_solimp", config["cush_solimp"])
+    config["cush_edge_solref"]    = config.get("cush_edge_solref", config["ground_solref"])
+    config["cush_edge_solimp"]    = config.get("cush_edge_solimp", "0.95 0.999 0.001 0.5 2.0")
+    
+    # 5. Nested Materials Dict Update (최종 매핑)
     if "mat_cush" in config:
-        config["mat_cush"]["solref"] = config["cush_solref"]
+        config["mat_cush"]["solref"]      = config["cush_contact_solref"]
+        config["mat_cush"]["solimp"]      = config["cush_contact_solimp"]
+        config["mat_cush"]["edge_solref"] = config["cush_edge_solref"]
+        config["mat_cush"]["edge_solimp"] = config["cush_edge_solimp"]
+        config["mat_cush"]["weld_solref"] = config["cush_weld_solref"]
+        config["mat_cush"]["weld_solimp"] = config["cush_weld_solimp"]
+        config["mat_cush"]["friction"]    = config.get("cush_friction", config["mat_cush"].get("friction", "0.8"))
+
+    # 기타 부품들 동기화
+    mat_map = {"tape": "mat_tape", "cell": "mat_cell", "tv": "mat_tv"}
+    for prefix, mat_key in mat_map.items():
+        if mat_key in config:
+            config[mat_key]["solref"]      = config[f"{prefix}_solref"]
+            config[mat_key]["solimp"]      = config[f"{prefix}_solimp"]
+            config[mat_key]["weld_solref"] = config[f"{prefix}_weld_solref"]
+            config[mat_key]["weld_solimp"] = config[f"{prefix}_weld_solimp"]
+            # 마찰계수 개별 설정 반영
+            f_key = f"{prefix}_friction"
+            if f_key in config:
+                config[mat_key]["friction"] = config[f_key]
+
+    return config
 
     return config
 
@@ -355,6 +487,10 @@ class BaseDiscreteBody:
         """특정 위치의 블록이 파여야 하는 공간인지 확인. 하위 클래스에서 오버라이딩"""
         return False
 
+    def is_edge_block(self, i, j, k):
+        """특정 인덱스의 블록이 엣지/모서리인지 확인. 하위 클래스에서 오버라이딩"""
+        return False
+
     def build_geometry(self, local_offset=[0,0,0], required_cuts_x=[], required_cuts_y=[], required_cuts_z=[]):
         """지정된 크기와 필수 절단 좌표를 기반으로 이산 블록(Geoms) 생성"""
         
@@ -384,7 +520,8 @@ class BaseDiscreteBody:
                     temp_blocks.append(blk)
                     total_vol += blk.volume
 
-        # 질량 분배 (Volumetric Mass Distribution)
+        # 질량 분배 (Volumetric Mass Distribution) 및 실제 분할 수 저장
+        self.actual_div = [len(nodes_x)-1, len(nodes_y)-1, len(nodes_z)-1]
         for blk in temp_blocks:
             blk.mass = self.total_mass * (blk.volume / total_vol)
             self.blocks[blk.idx] = blk
@@ -400,12 +537,10 @@ class BaseDiscreteBody:
                 weld_xml.extend(child.get_weld_xml_strings())
             return weld_xml
 
-        # 내부 블록 간 연결 (i기준 인접, j기준 인접, k기준 인접)
-        # 키 목록을 가져와서 인접한 것이 있으면 연결
-        solref = self.material_props.get("solref", "0.02 1.0")
-        solimp = self.material_props.get("solimp", "0.9 0.95 0.001 0.5 2")
-        
         # 3. 인접 블록 수색 및 1방향(단방향) Weld 생성
+        # [NEW] Default Class 사용: 객체의 Python 클래스명을 기반으로 클래스 참조 (일관성 확보)
+        weld_class = f"weld_{self.__class__.__name__.lower()}"
+        
         # 각 블록(blk1)에 대해 +X, +Y, +Z 방향에 인접한 블록이 있는지 검사하고 연결 (중복 방지)
         block_keys = set(self.blocks.keys())
         for (i, j, k), blk1 in self.blocks.items():
@@ -418,7 +553,7 @@ class BaseDiscreteBody:
                 if abs((blk1.cx + blk1.dx) - (blk2.cx - blk2.dx)) < 1e-4:
                     site1_name = f"s_{self.name}_{i}_{j}_{k}_PX"
                     site2_name = f"s_{self.name}_{i+1}_{j}_{k}_NX"
-                    weld_xml.append(f'        <weld site1="{site1_name}" site2="{site2_name}" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="{site1_name}" site2="{site2_name}"/>')
             
             # +Y 방향 인접
             if (i, j+1, k) in block_keys:
@@ -426,7 +561,7 @@ class BaseDiscreteBody:
                 if abs((blk1.cy + blk1.dy) - (blk2.cy - blk2.dy)) < 1e-4:
                     site1_name = f"s_{self.name}_{i}_{j}_{k}_PY"
                     site2_name = f"s_{self.name}_{i}_{j+1}_{k}_NY"
-                    weld_xml.append(f'        <weld site1="{site1_name}" site2="{site2_name}" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="{site1_name}" site2="{site2_name}"/>')
                     
             # +Z 방향 인접
             if (i, j, k+1) in block_keys:
@@ -434,7 +569,7 @@ class BaseDiscreteBody:
                 if abs((blk1.cz + blk1.dz) - (blk2.cz - blk2.dz)) < 1e-4:
                     site1_name = f"s_{self.name}_{i}_{j}_{k}_PZ"
                     site2_name = f"s_{self.name}_{i}_{j}_{k+1}_NZ"
-                    weld_xml.append(f'        <weld site1="{site1_name}" site2="{site2_name}" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="{site1_name}" site2="{site2_name}"/>')
         
         # 자식 컴포넌트들의 weld 태그도 수집
         for child in self.children:
@@ -552,65 +687,48 @@ class BaseDiscreteBody:
             final_total_moi = np.zeros(3)
             
         return total_mass, total_cog, final_total_moi, individual_details
-
-
+        
     def get_worldbody_xml_strings(self, indent_level=2):
-        """자신과 자식의 Body 구문을 재귀적으로 생성. 
-        계층적 구조(Tree)를 XML에 그대로 반영합니다."""
+        """
+        자신과 자식의 Body 구문을 재귀적으로 생성하여 계층적 구조(Tree)를 XML에 반영합니다.
+        사용자의 의도에 따라 쿠션 등은 BCushion 하위에 개별 블록 바디들이 오고,
+        내부 부품은 단일 바디 하위에 여러 Geoms 가 오는 구조를 취합니다.
+        """
         xml_outs = []
         ind = "  " * indent_level
+        ind_c = ind + "  "
         
-        # 자신이 순수 컨테이너(가상 루트 등)라면 하위 노드만 출력
-        if not self.blocks and self.children:
+        # 1. 루트 컨테이너(PackagingBox)는 수동 생성되므로 자신의 Wrapper 는 건너뛰고 자식만 출력
+        if self.parent is None:
             for child in self.children:
                 xml_outs.extend(child.get_worldbody_xml_strings(indent_level))
             return xml_outs
             
-        # [NEW] Determine geom group based on naming convention
-        lower_name = self.name.lower()
-        if "cushion" in lower_name:
-            geom_group = 1
-        elif "chassis" in lower_name or "opencell" in lower_name or "adhesive" in lower_name or "tape" in lower_name or "cohesive" in lower_name:
-            geom_group = 2
-        elif "aux" in lower_name or "speaker" in lower_name:
-            geom_group = 3
-        else:
-            geom_group = 0
-
-        # [NEW] Single-Body 모드 처리 (use_internal_weld=False 일 때)
-        # 이 모드에서는 최하위 격자마다 body 를 만들지 않고, 
-        # 하나의 부모 body 안에 모든 geom 을 직접 쏟아부어 구속조건을 0으로 만듭니다.
+        # 2. 모든 부품(Cushion, Chassis 등)은 자신의 이름을 가진 Wrapper Body 를 생성
+        xml_outs.append(f'{ind}<body name="{self.name}">')
+        
+        # 3. [Single-Body 모드] (강체: OpenCell, Chassis 등 - use_internal_weld=False)
         if not self.use_internal_weld:
-            # 부모 바디 시작
-            xml_outs.append(f'{ind}<body name="{self.name}">')
-            ind_c = ind + "  "
-            
-            # [FIX] 단일 바디 모드에서도 부모(박스/어셈블리) 대비 움직일 수 있도록 조인트 추가
-            #PackagingBox나 AssySet같은 가상/그룹 루트는 제외
+            # 부모(Wrapper) 바디가 박스 내부에서 움직일 수 있도록 6자유도 관절 추가 (AssySet 등 그룹 루트 제외)
             if self.name not in ["PackagingBox", "AssySet"]:
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="1 0 0"/>')
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="0 1 0"/>')
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="0 0 1"/>')
                 xml_outs.append(f'{ind_c}<joint type="ball"/>')
             
-            # 모든 격자 블록을 Geom으로 추가 (Body 없이)
+            # 모든 격자 블록을 단일 바디 내의 Geom 으로 추가
             for (i, j, k), blk in self.blocks.items():
-                rgba = blk.material.get("rgba", "0.8 0.8 0.8 1.0")
-                contype = blk.material.get("contype", "1")
-                conaffinity = blk.material.get("conaffinity", "1")
-                solref = blk.material.get("solref", "0.02 1.0")
-                solimp = blk.material.get("solimp", "0.9 0.95 0.001 0.5 2")
+                geom_class = f"contact_{self.__class__.__name__.lower()}"
+                if hasattr(self, 'is_edge_block') and self.is_edge_block(i, j, k):
+                    geom_class += "_edge"
                 
-                friction = blk.material.get("friction", "0.8")
-                
-                # 단일 바디이므로 pos 는 블록의 절대(로컬) 위치 적용
+                # Geom 추가 (pos 는 Wrapper Body 대비 상대 위치)
                 xml_outs.append(f'{ind_c}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
                                  f'pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}" '
                                  f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
-                                 f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" group="{geom_group}" '
-                                 f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
+                                 f'class="{geom_class}"/>')
                 
-                # 부품 간 결합(Inter-weld)을 위해 사이트는 유지
+                # 부품 간 결합(Inter-weld)을 위한 사이트 추가
                 xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.cx+blk.dx:.5f} {blk.cy:.5f} {blk.cz:.5f}"/>')
                 xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_NX" pos="{blk.cx-blk.dx:.5f} {blk.cy:.5f} {blk.cz:.5f}"/>')
                 xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PY" pos="{blk.cx:.5f} {blk.cy+blk.dy:.5f} {blk.cz:.5f}"/>')
@@ -618,50 +736,45 @@ class BaseDiscreteBody:
                 xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_PZ" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz+blk.dz:.5f}"/>')
                 xml_outs.append(f'{ind_c}<site name="s_{self.name}_{i}_{j}_{k}_NZ" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz-blk.dz:.5f}"/>')
 
-            # 자식 컴포넌트 처리
-            for child in self.children:
-                xml_outs.extend(child.get_worldbody_xml_strings(indent_level + 1))
-            
-            xml_outs.append(f'{ind}</body>')
-            return xml_outs
+        # 4. [Multi-Body 모드] (유연체: Cushion 등 - use_internal_weld=True)
+        else:
+            for (i, j, k), blk in self.blocks.items():
+                # 각 격자 블록을 독립된 하위 Body 로 생성
+                xml_outs.append(f'{ind_c}<body name="b_{self.name.lower()}_{i}_{j}_{k}" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}">')
+                ind_cc = ind_c + "  "
+                
+                # [중요] 각 블록 바디에 6자유도 관절을 부여하여 개별적인 변형이 가능하게 함
+                xml_outs.append(f'{ind_cc}<joint type="slide" axis="1 0 0"/>')
+                xml_outs.append(f'{ind_cc}<joint type="slide" axis="0 1 0"/>')
+                xml_outs.append(f'{ind_cc}<joint type="slide" axis="0 0 1"/>')
+                xml_outs.append(f'{ind_cc}<joint type="ball"/>')
+                
+                geom_class = f"contact_{self.__class__.__name__.lower()}"
+                if hasattr(self, 'is_edge_block') and self.is_edge_block(i, j, k):
+                    geom_class += "_edge"
+                
+                # Geom 추가 (이미 바디가 pos 를 가졌으므로 원점인 0 0 0 에 배치)
+                xml_outs.append(f'{ind_cc}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
+                                 f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
+                                 f'class="{geom_class}"/>')
+                
+                # 사이트들 또한 바디 로컬 좌표계 기준 (표면에 배치)
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.dx:.5f} 0 0"/>')
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_NX" pos="{-blk.dx:.5f} 0 0"/>')
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_PY" pos="0 {blk.dy:.5f} 0"/>')
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_NY" pos="0 {-blk.dy:.5f} 0"/>')
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_PZ" pos="0 0 {blk.dz:.5f}"/>')
+                xml_outs.append(f'{ind_cc}<site name="s_{self.name}_{i}_{j}_{k}_NZ" pos="0 0 {-blk.dz:.5f}"/>')
+                xml_outs.append(f'{ind_c}</body>')
 
-        # [기존] 이산 바디 모드 (Weld 가 필요한 유연한 시뮬레이션 시 사용)
-        xml_outs.append(f'{ind}<body name="{self.name}">')
-        ind_c = ind + "  "
-        for (i, j, k), blk in self.blocks.items():
-            rgba = blk.material.get("rgba", "0.8 0.8 0.8 1.0")
-            contype = blk.material.get("contype", "1")
-            conaffinity = blk.material.get("conaffinity", "1")
-            solref = blk.material.get("solref", "0.02 1.0")
-            solimp = blk.material.get("solimp", "0.9 0.95 0.001 0.5 2")
-            
-            block_body_name = f"b_{self.name.lower()}_{i}_{j}_{k}"
-            xml_outs.append(f'{ind_c}<body name="{block_body_name}" pos="{blk.cx:.5f} {blk.cy:.5f} {blk.cz:.5f}">')
-            xml_outs.append(f'{ind_c}  <joint type="slide" axis="1 0 0"/>')
-            xml_outs.append(f'{ind_c}  <joint type="slide" axis="0 1 0"/>')
-            xml_outs.append(f'{ind_c}  <joint type="slide" axis="0 0 1"/>')
-            xml_outs.append(f'{ind_c}  <joint type="ball"/>')
-            
-            friction = blk.material.get("friction", "0.8")
-            
-            xml_outs.append(f'{ind_c}  <geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
-                             f'size="{blk.dx:.5f} {blk.dy:.5f} {blk.dz:.5f}" mass="{blk.mass:.6f}" '
-                             f'rgba="{rgba}" contype="{contype}" conaffinity="{conaffinity}" group="{geom_group}" '
-                             f'friction="{friction}" solref="{solref}" solimp="{solimp}"/>')
-            
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PX" pos="{blk.dx:.5f} 0 0"/>')
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_NX" pos="{-blk.dx:.5f} 0 0"/>')
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PY" pos="0 {blk.dy:.5f} 0"/>')
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_NY" pos="0 {-blk.dy:.5f} 0"/>')
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_PZ" pos="0 0 {blk.dz:.5f}"/>')
-            xml_outs.append(f'{ind_c}  <site name="s_{self.name}_{i}_{j}_{k}_NZ" pos="0 0 {-blk.dz:.5f}"/>')
-            xml_outs.append(f'{ind_c}</body>')
-
+        # 5. 자식 컴포넌트(Nested Components) 재귀 호출하여 XML 계층 완성
         for child in self.children:
             xml_outs.extend(child.get_worldbody_xml_strings(indent_level + 1))
             
+        # Wrapper Body 닫기
         xml_outs.append(f'{ind}</body>')
         return xml_outs
+
 
 # =====================================================================
 # [4] 개별 부품 파생 클래스
@@ -673,39 +786,39 @@ class BPaperBox(BaseDiscreteBody):
         self.thick = thick
         
     def is_cavity(self, cx, cy, cz, dx, dy, dz):
-        # 종이 박스는 두께(thick) 속을 제외한 내부는 전부 공동(cavity)이다.
-        # 중심점 위치가 전체 치수에서 양쪽 껍질 두께를 뺀 내부에 속하는지 검사
-        in_x = abs(cx) < (self.width/2 - self.thick - 1e-4) # -1e-4 는 소수점 오차 마진
+        in_x = abs(cx) < (self.width/2 - self.thick - 1e-4)
         in_y = abs(cy) < (self.height/2 - self.thick - 1e-4)
         in_z = abs(cz) < (self.depth/2 - self.thick - 1e-4)
-        if in_x and in_y and in_z:
-            return True
-        return False
+        return in_x and in_y and in_z
 
 class BCushion(BaseDiscreteBody):
     def __init__(self, name, width, height, depth, mass, div, material_props, assy_bbox, gap, cushion_cutter, use_internal_weld=True):
         super().__init__(name, width, height, depth, mass, div, material_props, use_internal_weld)
-        self.assy_bbox = assy_bbox # AssySet이 차지하는 범위 [min_x, max_x, min_y, max_y, min_z, max_z]
+        self.assy_bbox = assy_bbox
         self.gap = gap
-        self.cushion_cutter = cushion_cutter # dict of {key: [cx, cy, cz, w, h, d]}
+        self.cushion_cutter = cushion_cutter
 
     def is_cavity(self, cx, cy, cz, dx, dy, dz):
-        # 1. AssySet + gap 영역에 포함되는가?
         ax_min, ax_max, ay_min, ay_max, az_min, az_max = self.assy_bbox
         if (ax_min - self.gap <= cx <= ax_max + self.gap and
             ay_min - self.gap <= cy <= ay_max + self.gap and
             az_min - self.gap <= cz <= az_max + self.gap):
             return True
-            
-        # 2. 추가 Cutter 영역에 포함되는가? (사용자 지정 형상 제거기)
         for cut_vals in self.cushion_cutter.values():
             ctx, cty, ctz, cw, ch, cd = cut_vals
             if (ctx - cw/2 <= cx <= ctx + cw/2 and
                 cty - ch/2 <= cy <= cty + ch/2 and
                 ctz - cd/2 <= cz <= ctz + cd/2):
                 return True
-                
         return False
+
+    def is_edge_block(self, i, j, k):
+        # build_geometry 시점에 계산된 실제 분할 수 사용 (필수 절단선 반영)
+        nx, ny, nz = getattr(self, 'actual_div', self.div)
+        bx = (i == 0 or i == nx - 1)
+        by = (j == 0 or j == ny - 1)
+        bz = (k == 0 or k == nz - 1)
+        return (bx and by) or (by and bz) or (bz and bx)
 
 class BOpenCellCohesive(BaseDiscreteBody):
     def __init__(self, name, width, height, depth, mass, div, ithick, material_props, use_internal_weld=True):
@@ -713,127 +826,73 @@ class BOpenCellCohesive(BaseDiscreteBody):
         self.ithick = ithick
 
     def is_cavity(self, cx, cy, cz, dx, dy, dz):
-        # 테이프(액자) 형상: 내부 (width - 2*ithick) x (height - 2*ithick) 만큼 뚫려있음
-        # 단 두께 방향(Z)으로는 전부 채워져 있음 (테이프 두께만큼 얇은 블록)
         in_x = abs(cx) < (self.width/2 - self.ithick - 1e-4)
         in_y = abs(cy) < (self.height/2 - self.ithick - 1e-4)
-        if in_x and in_y:
-            return True
-        return False
+        return in_x and in_y
 
-class BOpenCell(BaseDiscreteBody): # 단순 솔리드 블록
-    pass
-
-class BChassis(BaseDiscreteBody): # 단순 솔리드 블록
-    pass
+class BOpenCell(BaseDiscreteBody): pass
+class BChassis(BaseDiscreteBody): pass
 
 class BAuxBoxMass(BaseDiscreteBody):
-    """
-    CoG/MoI 조절을 위해 임의로 추가하는 박스 형상의 질량 블록 클래스입니다.
-    이 블록은 MuJoCo 시뮬레이션 내에서 다른 지오메트리들과 물리적인 접촉(Contact)을 
-    일으키지 않도록 설정되며(contype=0, conaffinity=0), 
-    주로 섀시(Chassis) 등 특정 부품에 용접(Weld)되어 전체 시스템의 관성 특성을 
-    변경하는 용도로 사용됩니다.
-    """
     def __init__(self, name, width, height, depth, mass, material_props=None):
-        # 사용자가 별도의 재질 정보를 주지 않을 경우, 시각적 확인이 쉽도록 반투명한 빨간색을 기본값으로 사용합니다.
         if material_props is None:
-            material_props = {
-                "rgba": "1.0 0.0 0.0 0.4",      # 반투명 빨간색
-                "solref": "0.02 1.0",           # 기본 접촉 파라미터 (접촉은 안 하지만 구조상 포함)
-                "solimp": "0.9 0.95 0.001"
-            }
-            
-        # 질량 블록은 단일 박스로 구성하므로 내부 분할(div)은 [1, 1, 1]로 고정합니다.
+            material_props = {"rgba": "1.0 0.0 0.0 0.4", "solref": "0.02 1.0", "solimp": "0.1 0.95 0.005"}
         super().__init__(name, width, height, depth, mass, [1, 1, 1], material_props)
-        
-        # 접촉(Collision) 기능을 완전히 비활성화합니다.
         self.material_props["contype"] = "0"
         self.material_props["conaffinity"] = "0"
-
     def build_geometry(self, local_offset=[0, 0, 0]):
-        """
-        주어진 오프셋 위치에 단일 이산 블록(Discrete Block)을 생성합니다.
-        """
-        # (0, 0, 0) 인덱스 하나만 가지는 단일 블록으로 처리합니다.
-        half_width  = self.width / 2.0
-        half_height = self.height / 2.0
-        half_depth  = self.depth / 2.0
-        
-        # DiscreteBlock 인스턴스를 하나 생성하여 blocks 딕셔너리에 저장합니다.
-        # local_offset은 부모 좌표계(예: Chassis) 기준의 설치 위치입니다.
-        aux_block = DiscreteBlock(
-            idx=(0, 0, 0), 
-            cx=local_offset[0], 
-            cy=local_offset[1], 
-            cz=local_offset[2],
-            dx=half_width, 
-            dy=half_height, 
-            dz=half_depth, 
-            mass=self.total_mass, 
-            material=self.material_props
-        )
+        aux_block = DiscreteBlock(idx=(0, 0, 0), cx=local_offset[0], cy=local_offset[1], cz=local_offset[2],
+                                  dx=self.width / 2.0, dy=self.height / 2.0, dz=self.depth / 2.0, mass=self.total_mass, material=self.material_props)
         self.blocks[(0, 0, 0)] = aux_block
 
-class BUnitBlock(BaseDiscreteBody): # 순수 테스트용 직육면체 단위 블록
-    pass
+class BUnitBlock(BaseDiscreteBody): pass
 
 # =====================================================================
 # [5] 메인 어셈블리 및 파일 생성
 # =====================================================================
 
-def parse_drop_target(mode_str, box_w, box_h, box_d):
+def parse_drop_target(mode_str, direction_str, box_w, box_h, box_d):
     """
-    모드 문자열(F, B, L, R, T 등 조합)을 파싱하여,
-    바닥에 닿아야 할 Local Box 기준(가장 Z축 아래를 향해야 할) 타겟 지점(벡터)을 반환합니다.
+    낙하 모드와 방향 문자열을 파싱하여 바닥에 닿을 로컬 좌표(타겟 점)를 반환합니다.
+    - drop_mode: PARCEL, LTL, CUSTOM (공정/시험 기준 분류용)
+    - drop_direction: 'Face 1', 'Edge 3-4', 'Corner 2-3-5', '235', 'front-bottom-left' 등
     """
+    import re
     mode = str(mode_str).upper()
+    direct = str(direction_str).lower().replace('face', '').replace('edge', '').replace('corner', '').strip()
     
-    # 1. Legacy compatibility
-    if mode == "PARCEL":
-        return np.array([0, 0, box_d/2]) # Front face (+Z) 가 바닥
-    if mode == "LTL":
-        return np.array([0, -box_h/2, 0]) # Bottom face (-Y) 가 바닥
-        
-    # 2. Parse ISTA string combinations
-    tokens = mode.split('-')
-    vec = [0.0, 0.0, 0.0]
+    parcel_map = {1:[0,1,0], 2:[0,-1,0], 3:[0,0,1], 4:[0,0,-1], 5:[-1,0,0], 6:[1,0,0]}
+    ltl_map = {1:[0,1,0], 2:[0,0,-1], 3:[0,-1,0], 4:[0,0,1], 5:[1,0,0], 6:[-1,0,0]}
     
-    has_L = 'L' in tokens or 'LEFT' in tokens
-    has_F = 'F' in tokens or 'FRONT' in tokens
+    face_map = ltl_map if mode == 'LTL' else parcel_map
+    vec = np.array([0.0, 0.0, 0.0])
     
-    for tk in tokens:
-        tk = tk.strip()
-        if tk in ['F', 'FRONT']:
-            vec[2] = 1.0  # Front
-        elif tk in ['T', 'TOP']:
-            vec[1] = 1.0  # Top
-        elif tk in ['B', 'BOT', 'BOTTOM']:
-            vec[1] = -1.0 # Bottom
-        elif tk in ['L', 'LEFT']:
-            vec[0] = -1.0 # Left
-        elif tk in ['R', 'RIGHT', 'REAR']:
-            # Ambiguity resolution for 'R' (Right vs Rear)
-            if tk == 'RIGHT':
-                vec[0] = 1.0
-            elif tk == 'REAR':
-                vec[2] = -1.0
-            else:
-                # L이 있으면 R은 Rear, F가 있으면 R은 Right 로 추정
-                if has_L:
-                    vec[2] = -1.0 # Rear
-                elif has_F:
-                    vec[0] = 1.0  # Right
-                else: 
-                    vec[0] = 1.0  # Default to Right
-                    
-    # Target point in local coordinates
+    nums = [int(n) for n in re.findall(r'[1-6]', direct)]
+    if nums:
+        for n in nums: vec += np.array(face_map[n])
+        # [FIX] 정규화를 하지 않고 합산된 부호값 그대로를 방향으로 사용합니다.
+        # 정규화를 하면 [1,1,1]/sqrt(3) 이 되어 박스 외곽이 아닌 안쪽을 가리키게 되며,
+        # 이로 인해 drop_height가 의도보다 낮게(박스가 지면 아래로 파고들며) 설정됩니다.
+    
+    if np.linalg.norm(vec) < 1e-6:
+        tokens = [t.strip() for t in re.split(r'[-,\s]+', direct)]
+        for tk in tokens:
+            if 'front' in tk: vec[2] = 1.0
+            elif 'rear' in tk or 'back' in tk: vec[2] = -1.0
+            elif 'top' in tk: vec[1] = 1.0
+            elif 'bottom' in tk: vec[1] = -1.0
+            elif 'left' in tk: vec[0] = -1.0
+            elif 'right' in tk: vec[0] = 1.0
+        # [FIX] 여기도 정규화 제거
+
+    if np.linalg.norm(vec) < 1e-6:
+        if mode == 'LTL': vec = np.array([0.0, -1.0, 0.0])
+        else: vec = np.array([0.0, 0.0, 1.0])
+
+    # 부호 {-1, 0, 1} 상태의 vec을 박스 절반 크기에 곱해 실제 외곽점(Target Corner) 산출
     target_pt = np.array([vec[0] * box_w/2, vec[1] * box_h/2, vec[2] * box_d/2])
-    
-    # 유효하지 않은 입력이면 기본 PARCEL 복귀
     if np.linalg.norm(target_pt) < 1e-6:
         target_pt = np.array([0, 0, box_d/2])
-        
     return target_pt
 
 def get_single_body_instance(body_name, config=None):
@@ -963,22 +1022,41 @@ def create_model(export_path, config=None, logger=print):
     
     # [NEW] 자기 충돌(Self-Collision) 방지를 위한 비트 마스크 할당
     # 각 부품별로 고유 비트를 할당하고(contype), 자기 비트를 제외한 비트들과만 충돌하게(conaffinity) 설정
-    bit_paper   = 1    # 00001
-    bit_cushion = 2    # 00010
-    bit_oc      = 4    # 00100
-    bit_occ     = 8    # 01000
-    bit_chassis = 16   # 10000
+    bit_paper   = 1    # 2^0
+    bit_cushion = 2    # 2^1
+    bit_oc      = 4    # 2^2
+    bit_occ     = 8    # 2^3
+    bit_chassis = 16   # 2^4
     
     # 모든 부품 비트의 합 (바닥과의 접촉 등을 위해 필요)
     all_bits = bit_paper | bit_cushion | bit_oc | bit_occ | bit_chassis
     
-    # 각 재질 설정에 비트 적용 (자기 자신과는 충돌하지 않도록 conaffinity 에서 자기 비트 제외)
-    # [주의] mat_cush["contype"] = bit_cushion, mat_cush["conaffinity"] = all_bits ^ bit_cushion
+    # 각 재질 설정에 비트 적용 (자기 자신 및 서로 용접된 내부 부품끼리는 충돌 제외)
     mat_paper["contype"] = f"{bit_paper}";   mat_paper["conaffinity"] = f"{all_bits ^ bit_paper}"
     mat_cush["contype"]  = f"{bit_cushion}"; mat_cush["conaffinity"]  = f"{all_bits ^ bit_cushion}"
-    mat_cell["contype"]  = f"{bit_oc}";      mat_cell["conaffinity"]  = f"{all_bits ^ bit_oc}"
-    mat_tape["contype"]  = f"{bit_occ}";     mat_tape["conaffinity"]  = f"{all_bits ^ bit_occ}"
-    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{all_bits ^ bit_chassis}"
+    
+    # 내부 조립체(OC, OCC, Chassis)는 서로 용접되어 있으므로 상호 충돌 배제 (쿠션/바닥과만 충돌)
+    mat_cell["contype"]  = f"{bit_oc}";      mat_cell["conaffinity"]  = f"{bit_paper | bit_cushion}"
+    mat_tape["contype"]  = f"{bit_occ}";     mat_tape["conaffinity"]  = f"{bit_paper | bit_cushion}"
+    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{bit_paper | bit_cushion}"
+
+    # --- [NEW] 접촉 비트마스크 정보 리포트 출력 ---
+    logger("\n" + "-"*90)
+    logger(" [Collision Mask Configuration Table]")
+    logger("-"*90)
+    logger(" | Part Name         | Bit (contype) | Mask (conaffinity) | Meaning / Collides with...    |")
+    logger(" |-------------------|---------------|--------------------|-------------------------------|")
+    logger(f" | Ground / Floor    | 1  (2^0)      | 1                  | PaperBox, Cush, OC...         |")
+    logger(f" | BPaperBox         | {bit_paper}  (2^0)      | {all_bits^bit_paper:<18} | Others ({all_bits^bit_paper}) except self (1) |")
+    logger(f" | BCushion          | {bit_cushion}  (2^1)      | {all_bits^bit_cushion:<18} | Others ({all_bits^bit_cushion}) except self (2) |")
+    logger(f" | BOpenCell         | {bit_oc}  (2^2)      | {all_bits^bit_oc:<18} | Others ({all_bits^bit_oc}) except self (4) |")
+    logger(f" | BOpenCellCohesive | {bit_occ}  (2^3)      | {all_bits^bit_occ:<18} | Others ({all_bits^bit_occ}) except self (8) |")
+    logger(f" | BChassis          | {bit_chassis} (2^4)      | {all_bits^bit_chassis:<18} | Others ({all_bits^bit_chassis}) except self (16)|")
+    logger("-"*90)
+    logger(" * Collision Rule: Collision occurs if (A.contype & B.conaffinity) is non-zero.")
+    logger(f" * Total Mask bits: {all_bits} (Sum of 1+2+4+8+16)")
+    logger(" * Note: Self-collision between discrete blocks is disabled to improve stability.")
+    logger("-"*90 + "\n")
 
     if include_paperbox:
         b_paper = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], config["box_div"], box_thick, mat_paper, config["box_use_weld"])
@@ -1071,18 +1149,20 @@ def create_model(export_path, config=None, logger=print):
     # --- 4. 이기종 부품 간 직접 Weld 연결 로직 (Inter-Component Welds) ---
     inter_weld_xml = []
     tape_solref_val = mat_tape.get("solref", "0.005 1.0")
-    tape_solimp_val = mat_tape.get("solimp", "0.9 0.999 0.001 0.5 2")
+    tape_solimp_val = mat_tape.get("solimp", "0.1 0.95 0.005 0.5 2")
     
     for (i,j,k_occ), blk_occ in b_occ.blocks.items():
         if (i,j,0) in b_opencell.blocks:
             site_occ_pz = f"s_BOpenCellCohesive_{i}_{j}_{0}_PZ"
             site_oc_nz  = f"s_BOpenCell_{i}_{j}_{0}_NZ"
-            inter_weld_xml.append(f'        <weld site1="{site_occ_pz}" site2="{site_oc_nz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
+            # [NEW] 클래스 기반 적용: 테이프(Weld Cohesive)의 특성을 클래스로 관리
+            inter_weld_xml.append(f'        <weld class="weld_bopencellcohesive" site1="{site_occ_pz}" site2="{site_oc_nz}"/>')
             
         if (i,j,0) in b_chassis.blocks:
             site_occ_nz = f"s_BOpenCellCohesive_{i}_{j}_{0}_NZ"
             site_chas_pz = f"s_BChassis_{i}_{j}_{0}_PZ"
-            inter_weld_xml.append(f'        <weld site1="{site_occ_nz}" site2="{site_chas_pz}" solref="{tape_solref_val}" solimp="{tape_solimp_val}"/>')
+            # [NEW] 클래스 기반 적용
+            inter_weld_xml.append(f'        <weld class="weld_bopencellcohesive" site1="{site_occ_nz}" site2="{site_chas_pz}"/>')
 
     for b_aux_mass in aux_mass_objects:
         blk_aux = b_aux_mass.blocks[(0, 0, 0)]
@@ -1104,13 +1184,14 @@ def create_model(export_path, config=None, logger=print):
             body_aux = b_aux_mass.name if not b_aux_mass.use_internal_weld else f"b_{b_aux_mass.name.lower()}_0_0_0"
             body_chas = b_chassis.name if not b_chassis.use_internal_weld else f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}"
             
+            # [NEW] 클래스 기반 적용: 보조 질량 전용 weld_aux 클래스 참조
             inter_weld_xml.append(
-                f'        <weld body1="{body_aux}" body2="{body_chas}" '
-                f'solref="0.002 1.0" solimp="0.9 0.999 0.001"/>'
+                f'        <weld class="weld_aux" body1="{body_aux}" body2="{body_chas}"/>'
             )
 
     # --- 5. 낙하 조건 (ISTA 6A 등) 로테이션 연산 ---
-    target_pt = parse_drop_target(drop_mode, box_w, box_h, box_d)
+    drop_direction = config.get("drop_direction", "front")
+    target_pt = parse_drop_target(drop_mode, drop_direction, box_w, box_h, box_d)
     target_dist = np.linalg.norm(target_pt)
     rot_axis = np.cross(target_pt, [0, 0, -target_dist])
     
@@ -1158,29 +1239,91 @@ def create_model(export_path, config=None, logger=print):
     xml_str_io.write('  </option>\n')
     
     xml_str_io.write('  <visual>\n')
+    xml_str_io.write('    <quality shadowsize="0"/>\n')
+    xml_str_io.write('    <global offwidth="0" offheight="0"/>\n')
     h_amb = config.get("light_head_ambient", "0.28 0.28 0.28")
     h_dif = config.get("light_head_diffuse", "0.56 0.56 0.56")
     xml_str_io.write(f'    <headlight ambient="{h_amb}" diffuse="{h_dif}" specular="0.07 0.07 0.07"/>\n')
     xml_str_io.write('    <map znear="0.01"/>\n')
-    xml_str_io.write('  </visual>\n')
+    xml_str_io.write('  </visual>\n\n')
+
+    xml_str_io.write('  <asset>\n')
+    xml_str_io.write('    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" \n')
+    xml_str_io.write('             markrgb="0.8 0.8 0.8" width="300" height="300"/>\n')
+    xml_str_io.write('    <material name="ground_mat" texture="ground_tex" texrepeat="5 5" texuniform="true" reflectance="0.0"/>\n')
+    xml_str_io.write('  </asset>\n\n')
 
     xml_str_io.write('  <default>\n')
     xml_str_io.write('    <joint armature="0.05" damping="1.0"/>\n')
-    xml_str_io.write('    <geom friction="0.8" solref="0.02 1.0" solimp="0.9 0.95 0.001"/>\n')
-    xml_str_io.write('  </default>\n')
+    xml_str_io.write('    <geom friction="0.8" solref="0.02 1.0" solimp="0.1 0.95 0.005"/>\n')
+    
+    # [NEW] 부품별 Weld 및 Contact 전용 Default Class 정의
+    # 이를 통해 XML 내 수천 개의 weld 및 geom 설정을 한 곳에서 관리할 수 있습니다.
+    for mat_name, mat_props in [("bpaperbox", mat_paper), ("bcushion", mat_cush), 
+                                ("bopencell", mat_cell), ("bopencellcohesive", mat_tape), 
+                                ("bchassis", mat_tv), ("bauxboxmass", mat_tv.copy())]:
+        
+        # 0. 공통 Geom 속성 추출 및 그룹 판별
+        m_low = mat_name.lower()
+        if "cushion" in m_low: g_grp = 1
+        elif any(x in m_low for x in ["chassis", "opencell", "adhesive", "tape", "cohesive"]): g_grp = 2
+        elif any(x in m_low for x in ["aux", "speaker"]): g_grp = 3
+        else: g_grp = 0
+        
+        c_typ = mat_props.get("contype", "1")
+        c_aff = mat_props.get("conaffinity", "1")
+        c_fric = mat_props.get("friction", "0.8")
+        c_rgba = mat_props.get("rgba", "0.8 0.8 0.8 1")
+        
+        # 보조 질량(Aux Mass)은 물리적 접촉을 하지 않도록 예외 처리
+        if "auxboxmass" in m_low:
+            c_typ, c_aff, g_grp, c_rgba = "0", "0", 3, "1 0 0 0.4"
+
+        # 1. Weld 클래스 정의
+        w_ref = mat_props.get("weld_solref", mat_props.get("solref", "0.02 1.0"))
+        w_imp = mat_props.get("weld_solimp", mat_props.get("solimp", "0.1 0.95 0.005 0.5 2"))
+        xml_str_io.write(f'    <default class="weld_{mat_name}">\n')
+        xml_str_io.write(f'      <equality solref="{w_ref}" solimp="{w_imp}"/>\n')
+        xml_str_io.write(f'    </default>\n')
+        
+        # 2. Contact(Geom) 클래스 정의 (일반)
+        c_ref = mat_props.get("solref", "0.02 1.0")
+        c_imp = mat_props.get("solimp", "0.1 0.95 0.005 0.5 2")
+        xml_str_io.write(f'    <default class="contact_{mat_name}">\n')
+        xml_str_io.write(f'      <geom solref="{c_ref}" solimp="{c_imp}" '
+                         f'contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n')
+        xml_str_io.write(f'    </default>\n')
+        
+        # 3. Contact(Geom) 클래스 정의 (모서리/코너 - 쿠션 등)
+        if "edge_solref" in mat_props:
+            e_ref = mat_props["edge_solref"]
+            e_imp = mat_props.get("edge_solimp", c_imp)
+            xml_str_io.write(f'    <default class="contact_{mat_name}_edge">\n')
+            xml_str_io.write(f'      <geom solref="{e_ref}" solimp="{e_imp}" '
+                             f'contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n')
+            xml_str_io.write(f'    </default>\n')
+    
+    # 보조 질량 전용 Weld Default Class
+    xml_str_io.write('    <default class="weld_aux">\n')
+    xml_str_io.write('      <equality solref="0.002 1.0" solimp="0.9 0.999 0.001"/>\n')
+    xml_str_io.write('    </default>\n')
+    
+    xml_str_io.write('  </default>\n\n')
     
     xml_str_io.write('  <worldbody>\n')
+    xml_str_io.write('    <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>\n')
     m_dif = config.get("light_main_diffuse", "0.49 0.49 0.49")
     m_amb = config.get("light_main_ambient", "0.21 0.21 0.21")
     s_dif = config.get("light_sub_diffuse", "0.21 0.21 0.21")
     
-    xml_str_io.write(f'    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{m_dif}" ambient="{m_amb}" castshadow="true"/>\n')
+    xml_str_io.write(f'    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{m_dif}" ambient="{m_amb}" castshadow="false"/>\n')
     xml_str_io.write(f'    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{s_dif}" castshadow="false"/>\n')
     
     g_solref = config.get("ground_solref", "0.01 1.0")
-    g_solimp = config.get("ground_solimp", "0.9 0.95 0.001 0.5 2")
+    g_solimp = config.get("ground_solimp", "0.1 0.95 0.005 0.5 2")
     g_fric   = config.get("ground_friction", 0.3)
-    xml_str_io.write(f'    <geom name="ground" type="plane" size="5 5 0.1" friction="{g_fric}" contype="1" conaffinity="1" group="0" solref="{g_solref}" solimp="{g_solimp}"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="10 10 0.1" friction="{g_fric}" contype="1" conaffinity="1" group="0" '
+                     f'material="ground_mat" solref="{g_solref}" solimp="{g_solimp}"/>\n')
     
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n')
     xml_str_io.write('      <freejoint/>\n')
@@ -1272,63 +1415,54 @@ if __name__ == "__main__":
     ]
     cfg["ground_friction"] = 0.5 # 마찰계수 변경 테스트
     
-    # 예: 전면 하단 꼭짓점 낙하 자세로 설정
-    cfg["drop_mode"] = "L-F-B" 
+    # 예: 전면-아랫면-왼쪽 꼭짓점 낙하 자세로 설정
+    cfg["drop_mode"] = "PARCEL"
+    cfg["drop_direction"] = "front-bottom-left"
     cfg["include_paperbox"] = False # 로컬 테스트용 오버라이드
     create_model(out_file, config=cfg)
     print("Generation Complete.")
 
 
-
 '''
-낙하 자세(Orientation)는 
+낙하 자세(Orientation) 및 모드 설정 가이드
 
-run_discrete_builder.py의 config 딕셔너리에 있는 drop_mode 옵션을 통해 매우 간편하게 설정할 수 있습니다.
-단순히 상하좌우를 넘어, ISTA 낙하 시험 기준에 맞춘 면(Face), 모서리(Edge), 꼭짓점(Corner) 낙하 자세를 문자열 조합으로 생성해줍니다.
-🛠️ 설정 방법 및 예시 create_model 을 호출할 때 config["drop_mode"] 값을 다음 중 하나로 변경하면 됩니다.
+본 시뮬레이션은 drop_mode(시험 종류)와 drop_direction(구체적 자세)를 구분하여 관리합니다.
+축약어를 지양하고 Full Name 사용을 권장합니다.
 
-1. 주요 면(Face) 낙하
-가장 넓은 면이나 바닥면을 아래로 향하게 합니다.
+1. drop_mode (시험 분류)
+- PARCEL : 소형 화물 낙하 시험 (기본값: 정면 낙하)
+- LTL : 대형 화물(파렛트 단위) 낙하 시험 (기본값: 아랫면 낙하)
 
-PARCEL: 전면(Front, +Z)이 바닥을 향함 (기본값)
-F (Front): +Z 방향이 바닥
-B (Bottom): -Y 방향이 하단 (TV가 똑바로 서서 떨어지는 자세)
-T (Top): +Y 방향이 하단 (거꾸로 뒤집힌 자세)
-L (Left): -X 방향이 하단
-R (Right): +X 방향이 하단
-2. 모서리(Edge) 낙하
-두 면의 문자를 하이픈(-)으로 연결하면, 그 사이 모서리가 바닥을 향하도록 자동 회전합니다. (단, 무거운 쪽이 아래로 쏠리는 물리적 무게중심을 고려하여 정렬됩니다.)
+2. drop_direction (상세 낙하 자세)
+[전면/후면]-[윗면/아랫면]-[왼쪽면/오른쪽면] 형식으로 지정합니다. (하이픈 '-' 사용)
+중간 요소를 생략하거나 능(Edge)을 지정할 경우 '--'를 사용할 수 있습니다.
 
-F-B (Front-Bottom): 전면 하단 모서리 낙하
-L-B (Left-Bottom): 좌측 하단 모서리 낙하
-3. 꼭짓점(Corner) 낙하
-세 면의 문자를 하이픈으로 연결합니다.
+예시:
+- front-top-right   : 전면-윗면-오른쪽 꼭짓점 낙하
+- front-bottom-left : 전면-아랫면-왼쪽 꼭짓점 낙하
+- bottom           : 아랫면(밑면) 낙하
+- left             : 왼쪽면 낙하
+- front--left      : 전면-왼쪽 모서리 낙하
+- front-bottom     : 전면-아랫면 모서리 낙하
 
-L-F-B (Left-Front-Bottom): 좌측 전면 하단 꼭짓점 낙하 (가장 가혹한 조건 중 하나)
-🔍 코드 적용 예시
-수정 대신 실행 시점이나 다른 스크립트에서 다음과 같이 활용하실 수 있습니다.
-
-python
+🔍 코드 적용 예시:
 cfg = get_default_config()
-# 예: 전면 하단 꼭짓점 낙하 자세로 설정
-cfg["drop_mode"] = "L-F-B" 
+cfg["drop_mode"] = "PARCEL" # 분류상 모드
+cfg["drop_direction"] = "front-bottom-left" # 실제 낙하 자세
+
 # 모델 생성 (자동으로 바닥 기준 높이 조정 및 회전 적용됨)
 create_model("test_shapes_check.xml", config=cfg)
-이 drop_mode 문자열은 내부의 
 
-parse_drop_target
- 함수가 읽어서 어떤 벡터가 지구 중심(중력 방향)을 향해야 할지 계산한 뒤, 
+---
+축약어 매핑 안내 (내부적으로는 Full Name 권장):
+F -> front
+B -> bottom
+T -> top
+L -> left
+R -> rear (주의: 과거 R은 Rear와 Right 모두 가능했으나 이제 Full Name 사용 권장)
+(단, direction_str 입력 시에는 front-bottom-left 와 같이 Full Name 입력을 강력히 권장합니다.)
 
-create_model
- 프로세스 마지막 단계에서 시뮬레이션 초기 자세(
-
-pos
-, axisangle)를 완벽하게 셋팅해 줍니다.
-
-혹시 특정 각도로 직접 돌리고 싶으시다면 axisangle 속성을 수동으로 조정하는 방법도 있으나, 위 문자열 옵션을 활용하시는 것이 가장 빠르고 직관적입니다!
-
-
-### light 여기서 다시 50%를 더 줄이고 싶다면?
+### light 조명 설정 예시
 cfg["light_main_diffuse"] = "0.25 0.25 0.25"
 cfg["light_head_diffuse"] = "0.3 0.3 0.3"
 '''
