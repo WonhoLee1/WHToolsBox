@@ -21,8 +21,12 @@ WHToolsBox는 전통적이고 무거운 유한요소해석(FEA) 상용 프로그
   사용자가 설정한 개별 물리 수치(Stiffness, Damping, Friction 등)가 시뮬레이션 모델(XML) 내의 복합 문자열(`solref`/`solimp`) 및 재질 사전에 누락 없이 동기화됩니다. 내부 결속력(Weld)과 외부 표면 접촉(Contact) 파라미터를 완전히 분리 제어할 수 있는 독자적인 피처를 제공합니다.
 - **🧠 지능형 관성 보정 (Selective Inertia Balancing)**
   Mass, CoG, MoI 중 원하는 항목만 선택적으로 보정하거나 다중 Aux Mass를 자동 배치하여 시스템의 물리적 정합성을 실시간으로 튜닝합니다. 보정 시 Baseline 값을 참조하여 최적화된 추가 질량 위치를 산출합니다.
-- **🟦 영구 변형(Plasticity) 및 시각적 모니터링**
-  충격 시 발생하는 영구적인 찌그러짐 현상을 물리적으로 계산합니다. **위치 이동(80%)**과 **크기 축소(20%)**를 결합한 메커니즘을 사용하며, 8곳의 모서리 및 두께 방향(Z-column) 패드에만 변형을 제한하여 사실감을 높였습니다. 변형된 부위는 뷰어에서 푸른색(Blue Tint)으로 강조됩니다.
+- **🟦 지능형 소성 변형(Plasticity) 및 다중 알고리즘 시스템**
+  충격 시 발생하는 영구적인 찌그러짐(Permanent Deformation) 현상을 물리적으로 계산하며, 두 가지 알고리즘을 선택적으로 사용할 수 있습니다.
+  - **Algorithm 1 (Pressure-based)**: 접촉면의 압력과 침투량을 분석하여 변형을 트리거합니다.
+  - **Algorithm 2 (Strain-based, New)**: 인접 블록 간의 **이격 거리 변화(Strain)**를 직접 측정하여 `weld soft` 환경에서도 정밀한 압착 판별이 가능합니다.
+  - **Dynamic Axis Detection**: 낙하 방향(X/Y/Z)을 자동 감지하여 실제 충격 방향으로만 변형(Size-Reduction & Pos-Shift)이 일어나도록 설계되었습니다.
+  - **Visual Feedback**: 활성화된 코너 블록은 노란색(Yellow)으로 표시되며, 변형 심화에 따라 단계별 푸른색(Blue Gradient)으로 실시간 변화합니다.
 - **📊 포괄적 데이터 내보내기 (TXT/Excel Export Data Model)**
   추출된 모든 `DropSimResult` 데이터를 직렬화(pkl)로 캐싱하며, 다중 탭을 가진 Excel 파일(`openpyxl`) 및 TXT 파일 형식으로 G-Force 및 변형도, 진무게중심(True_COG) 좌표 그래프 이미지 등과 한데 묶여 매번 자동으로 레포트화(rds 폴더)됩니다.
 

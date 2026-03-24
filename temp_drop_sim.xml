@@ -1,6 +1,6 @@
 <mujoco model="discrete_custom_box">
   <size memory="512M"/>
-  <option integrator="Euler" timestep="0.0013" iterations="50" noslip_iterations="0" tolerance="1e-05" impratio="5.0" gravity="0 0 -9.81" density="1.225" viscosity="1.81e-05">
+  <option integrator="implicitfast" timestep="0.0013" iterations="50" noslip_iterations="0" tolerance="1e-05" impratio="5.0" gravity="0 0 -9.81" density="1.225" viscosity="1.81e-05">
     <flag contact="enable"/>
   </option>
   <visual>
@@ -26,13 +26,13 @@
       <geom solref="0.01 1.0" solimp="0.1 0.95 0.005 0.5 2" contype="1" conaffinity="30" group="0" friction="0.8" rgba="0.7 0.6 0.4 0.9"/>
     </default>
     <default class="weld_bcushion">
-      <equality solref="0.02 0.6" solimp="0.1 0.95 0.005 0.5 2.0"/>
+      <equality solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
     </default>
     <default class="contact_bcushion">
-      <geom solref="0.005 0.8" solimp="0.1 0.95 0.002 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+      <geom solref="0.005 0.8" solimp="0.1 0.95 0.01 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
     </default>
     <default class="contact_bcushion_edge">
-      <geom solref="0.02 0.6" solimp="0.1 0.95 0.004 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+      <geom solref="0.005 0.8" solimp="0.1 0.95 0.01 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
     </default>
     <default class="weld_bopencell">
       <equality solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0"/>

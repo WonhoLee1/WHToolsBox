@@ -66,7 +66,7 @@ def get_default_config(user_config=None):
     # | Tape (Acrylic Adhesive)   | 0.01 ~ 0.02       | 1.0              | 0.1 0.99           | 0.001 | 얇고 끈적이는 점탄성 결합, 매우 좁은 전이폭  |
     # | OpenCell (Glass/Panel)    | 0.005 ~ 0.01      | 0.1 ~ 0.3        | 0.9 0.95           | 0.005 | 고강성, 취성(Low Damping). 변형이 거의 없음  |
     # | TV Chassis (Steel/AL)    | 0.005 ~ 0.01      | 0.5 ~ 0.8        | 0.8 0.95           | 0.01  | 구조적 강도 유지, 금속 특유의 탄성 진동 허용 |
-
+    
     # Cushion
     cush_solref_stiff = user_config.get("cush_solref_stiff", 0.03)
     cush_solref_damp = user_config.get("cush_solref_damp", 0.8)
@@ -140,7 +140,7 @@ def get_default_config(user_config=None):
     cush_contact_solref = user_config.get("cush_contact_solref", cush_solref)
     cush_contact_solimp = user_config.get("cush_contact_solimp", cush_solimp)
     
-    # [NEW] Cushion Edge/Corner Ground Contact parameters
+    # [NEW] Cushion Corner Ground Contact parameters
     cush_corner_solref = user_config.get("cush_corner_solref", ground_solref)
     cush_corner_solimp = user_config.get("cush_corner_solimp", "0.95 0.999 0.001 0.5 2.0")
     
@@ -719,8 +719,8 @@ class BaseDiscreteBody:
             # 모든 격자 블록을 단일 바디 내의 Geom 으로 추가
             for (i, j, k), blk in self.blocks.items():
                 geom_class = f"contact_{self.__class__.__name__.lower()}"
-                if hasattr(self, 'is_edge_block') and self.is_edge_block(i, j, k):
-                    geom_class += "_edge"
+                if hasattr(self, 'is_corner_block') and self.is_corner_block(i, j, k):
+                    geom_class += "_corner"
                 
                 # Geom 추가 (pos 는 Wrapper Body 대비 상대 위치)
                 xml_outs.append(f'{ind_c}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
@@ -750,8 +750,8 @@ class BaseDiscreteBody:
                 xml_outs.append(f'{ind_cc}<joint type="ball"/>')
                 
                 geom_class = f"contact_{self.__class__.__name__.lower()}"
-                if hasattr(self, 'is_edge_block') and self.is_edge_block(i, j, k):
-                    geom_class += "_edge"
+                if hasattr(self, 'is_corner_block') and self.is_corner_block(i, j, k):
+                    geom_class += "_corner"
                 
                 # Geom 추가 (이미 바디가 pos 를 가졌으므로 원점인 0 0 0 에 배치)
                 xml_outs.append(f'{ind_cc}<geom name="g_{self.name.lower()}_{i}_{j}_{k}" type="box" '
@@ -812,13 +812,15 @@ class BCushion(BaseDiscreteBody):
                 return True
         return False
 
-    def is_edge_block(self, i, j, k):
+    def is_corner_block(self, i, j, k):
         # build_geometry 시점에 계산된 실제 분할 수 사용 (필수 절단선 반영)
         nx, ny, nz = getattr(self, 'actual_div', self.div)
         bx = (i == 0 or i == nx - 1)
         by = (j == 0 or j == ny - 1)
-        bz = (k == 0 or k == nz - 1)
-        return (bx and by) or (by and bz) or (bz and bx)
+        
+        # [REFINED] 꼭짓점(8개)만 대상으로 하던 것에서, 두께 방향(Z축) 전체 모서리 블록으로 확대
+        # 코너 낙하 시 지면과 첫 접촉 및 주요 충격이 발생하는 수직 엣지에 Specialized Solref 적용
+        return bx and by
 
 class BOpenCellCohesive(BaseDiscreteBody):
     def __init__(self, name, width, height, depth, mass, div, ithick, material_props, use_internal_weld=True):
@@ -1294,11 +1296,11 @@ def create_model(export_path, config=None, logger=print):
                          f'contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n')
         xml_str_io.write(f'    </default>\n')
         
-        # 3. Contact(Geom) 클래스 정의 (모서리/코너 - 쿠션 등)
+        # 3. Contact(Geom) 클래스 정의 (코너 - 쿠션 등)
         if "corner_solref" in mat_props:
             e_ref = mat_props["corner_solref"]
             e_imp = mat_props.get("corner_solimp", c_imp)
-            xml_str_io.write(f'    <default class="contact_{mat_name}_edge">\n')
+            xml_str_io.write(f'    <default class="contact_{mat_name}_corner">\n')
             xml_str_io.write(f'      <geom solref="{e_ref}" solimp="{e_imp}" '
                              f'contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n')
             xml_str_io.write(f'    </default>\n')
