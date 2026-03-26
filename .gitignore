@@ -21,6 +21,8 @@ wheels/
 *.egg
 # Simulation & Large Files
 *.png
+!logo.png
+!ui_banner.png
 *.mp4
 *.rad
 *.pos
