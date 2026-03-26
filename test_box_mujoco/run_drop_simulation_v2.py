@@ -142,6 +142,8 @@ def format_config_report(config, timestamp):
         "ground_friction": "Ground friction coefficient",                    # 바닥 마찰 계수
         "enable_plasticity": "Enable permanent plastic deformation",           # 소성 변형(영구 변형) 활성화
         "plasticity_ratio": "Plastic deformation ratio (0~1)",                # 소성 변형 비율 (0~1)
+        "cush_yield_stress": "Yield stress threshold for cushion plasticity (MPa)", # 쿠션 소성 변형 임계값 (MPa)
+        "cush_yield_strain": "Yield strain threshold for cushion plasticity", # 쿠션 소성 변형 임계 strain
         "sim_integrator": "Numerical integrator type (Euler, RK4, etc.)",    # 수치 적분기 방식 (Euler, RK4 등)
         "sim_timestep": "Simulation time step (s)",                           # 시뮬레이션 시간 간격 (s)
         "sim_iterations": "Max solver iterations per step",                  # 스텝당 최대 솔버 반복 횟수
@@ -675,6 +677,12 @@ def run_simulation(config_or_path, sim_duration=0.5):
     air_viscous_hist = []        # 계산된 공기 점성 마찰 저항 추정치 (Estimated Air Viscous)
     air_squeeze_hist = []        # 지면 낙하 직전 공기 압축(Squeeze Film) 저항 (Air Squeeze Force)
     
+    # [NEW] 영구 변형(Plastic Deformation) 및 물리 계수 사전 계산
+    enable_plasticity = config.get("enable_plasticity", False)
+    plasticity_ratio = config.get("plasticity_ratio", 0.3)
+    yield_stress_pa = config.get("cush_yield_stress", 0.01) * 1e6 # MPa -> Pa
+    yield_strain = config.get("cush_yield_strain", 0.1) # 10% compression threshold
+
     # Metric histories per component by row (j) and individual blocks
     # [NEW] MuJoCo 물리 파라미터 (Stiffness K, Damping C) 사전 계산 및 출력
     cush_tc = config.get("cush_weld_solref_stiff", config.get("cush_solref_stiff", 0.02))
@@ -724,6 +732,9 @@ def run_simulation(config_or_path, sim_duration=0.5):
     log_and_print(f"   (Used: block_mass={m_cush_block:.6f}kg, solref={cush_weld_solref})")
     log_and_print(f"   (Geom: Avg_Area={area_avg:.6f} m^2, Avg_Depth={avg_dz:.4f} m)")
     log_and_print(f"   >> Est. Young's Modulus (E): {E_mpa:.4e} MPa ({E_kpa:.2f} kPa)")
+    if enable_plasticity:
+        yield_pressure = config.get('cush_yield_pressure', 0.0) * 1000.0 # kPa to Pa
+        log_and_print(f"   >> Yield Thresholds: Stress = {config.get('cush_yield_stress', 0.01)} MPa, Strain = {yield_strain:.2f}, Pressure = {config.get('cush_yield_pressure', 0.0)} kPa")
     log_and_print("="*80 + "\n")
 
     metrics = {}
@@ -731,10 +742,34 @@ def run_simulation(config_or_path, sim_duration=0.5):
         metrics[comp] = {}
         metrics[comp]['all_blocks_angle'] = {}
         metrics[comp]['block_nominals'] = {}
+        metrics[comp]['block_nominal_mats'] = {} # [NEW] 초기 오리엔테이션 기준값 저장용
+        metrics[comp]['total_distortion'] = [] # Overall deformation index (RMS of angles)
         for block_idx in components[comp]:
             metrics[comp]['all_blocks_angle'][block_idx] = []
             metrics[comp]['block_nominals'][block_idx] = nominal_local_pos[components[comp][block_idx]]
+            metrics[comp]['block_nominal_mats'][block_idx] = None
             
+        # [NEW] Corner Plasticity tracking (12 corner blocks)
+        metrics[comp]['corner_hists'] = {}
+        # Find corner blocks for this component (bcushion에 대해서만 데이터 트래킹 및 그래프 생성 수행)
+        if comp == 'bcushion':
+            nx_max, ny_max, nz_max = comp_max_idxs.get(comp, (0,0,0))
+            for block_idx in components[comp]:
+                ci, cj, ck = block_idx
+                if (ci == 0 or ci == nx_max) and (cj == 0 or cj == ny_max):
+                    gid = -1
+                    # Finding gid from component name and indices
+                    g_prefix = f"g_{comp}_"
+                    for g_idx in range(model.ngeom):
+                        g_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, g_idx)
+                        if g_name and g_name.lower().startswith(g_prefix) and g_name.endswith(f"_{ci}_{cj}_{ck}"):
+                            gid = g_idx
+                            break
+                    if gid != -1:
+                        metrics[comp]['corner_hists'][gid] = {
+                            'strain': [], 'pressure': [], 'disp': [], 'plastic': [], 'name': g_name
+                        }
+
         # Find unique j indices
         j_idx = set([k[1] for k in components[comp].keys()])
         for j in j_idx:
@@ -751,13 +786,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
     
     mujoco.mj_forward(model, data)
     
-    # [NEW] 영구 변형(Plastic Deformation) 로직 초기화
+    # [NEW] 영구 변형(Plastic Deformation) 로직용 상태 저장소
     geom_state_tracker = {}
-    enable_plasticity = config.get("enable_plasticity", False)
-    plasticity_ratio = config.get("plasticity_ratio", 0.3)
-    yield_stress_pa = config.get("cush_yield_stress", 0.01) * 1e6 # MPa -> Pa
-    
-    yield_strain = config.get("cush_yield_strain", 0.1) # 10% compression threshold
     
     def apply_plastic_deformation_v1():
         if not enable_plasticity: return
@@ -805,10 +835,12 @@ def run_simulation(config_or_path, sim_duration=0.5):
                         if hit['max_p'] > 1e-6:
                             if gid not in geom_state_tracker:
                                 geom_state_tracker[gid] = {'max_p': 0.0, 'major_axis': ma}
-                                log_and_print(f"  [Plasticity] Corner Activated(v1): {hit['name']} (Pressure: {pressure/1e3:.1f}kPa, Axis: {ma})")
+                                if pressure > 0:
+                                    log_and_print(f"  [Plasticity] Corner Activated(v1): {hit['name']} (Pressure: {pressure/1e3:.1f}kPa, Axis: {ma})")
                             if hit['max_p'] > geom_state_tracker[gid]['max_p']:
                                 geom_state_tracker[gid]['max_p'] = hit['max_p']
                                 geom_state_tracker[gid]['major_axis'] = ma
+                                geom_state_tracker[gid]['last_pressure'] = pressure
             except: pass
         for gid, state in geom_state_tracker.items():
             curr_p = current_penetrations.get(gid, 0.0)
@@ -831,27 +863,77 @@ def run_simulation(config_or_path, sim_duration=0.5):
                     model.geom_rgba[gid][0:3] = [0.5*(1-color_scale), 0.2*(1-color_scale), 0.6+0.4*color_scale]
                     state['max_p'] = curr_p
                     t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, gid)
-                    log_and_print(f"  [Plasticity] {t_name} Deforming(v1): -{total_shrink*1000:.1f}mm")
+                    p_val = state.get('last_pressure', 0.0)
+                    t_size = original_geom_size[gid][major_axis]
+                    curr_strain = curr_p / t_size if t_size > 0 else 0
+                    if p_val >= yield_pressure and curr_strain >= yield_strain:
+                        log_and_print(f"  [Plasticity] {t_name} Deforming(v1): -{total_shrink*1000:.1f}mm (Axis: {major_axis}, Pressure: {p_val/1e3:.1f}kPa)")
             if curr_p > state['max_p']: state['max_p'] = curr_p
 
     def apply_plasticity():
+        # [NEW] Pre-calculate contact pressures for all cushion geoms
+        current_geom_pressures = {}
+        if enable_plasticity:
+            for i in range(data.ncon):
+                con = data.contact[i]
+                for gid in [con.geom1, con.geom2]:
+                    name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, gid)
+                    if name and "cushion" in name.lower():
+                        if gid not in current_geom_pressures:
+                            current_geom_pressures[gid] = 0.0
+                        force_vec = np.zeros(6)
+                        mujoco.mj_contactForce(model, data, i, force_vec)
+                        sz = model.geom_size[gid]
+                        g_area = 4.0 * min(sz[0]*sz[1], sz[0]*sz[2], sz[1]*sz[2])
+                        if g_area > 0:
+                            current_geom_pressures[gid] += abs(force_vec[0]) / g_area
+
         algo = config.get("plasticity_algorithm", 2)
         if algo == 1:
-            apply_plastic_deformation_v1()
+            apply_plastic_deformation_v1() # v1 still uses hits internally
         else:
-            apply_plastic_deformation_v2()
+            apply_plastic_deformation_v2(current_geom_pressures)
+            
+        # [NEW] Record corner histories (12 points) for plotting and export
+        for comp in components:
+            if 'corner_hists' in metrics[comp]:
+                for cid, hist in metrics[comp]['corner_hists'].items():
+                    # Get instantaneous strain & disp from neighbor distance
+                    max_s, max_d = 0.0, 0.0
+                    for _cid, _nid, _ax, _d0 in corner_neighbor_pairs:
+                        if _cid == cid:
+                            b1, b2 = model.geom_bodyid[_cid], model.geom_bodyid[_nid]
+                            d_curr = np.linalg.norm(data.xpos[b1] - data.xpos[b2])
+                            s = (_d0 - d_curr) / _d0 if _d0 > 0 else 0
+                            if s > max_s: max_s = s
+                            if (_d0 - d_curr) > max_d: max_d = (_d0 - d_curr)
+                    
+                    hist['strain'].append(max_s)
+                    hist['pressure'].append(current_geom_pressures.get(cid, 0.0))
+                    hist['disp'].append(max(0, max_d))
+                    
+                    # Permanent deformation (Total shrinkage)
+                    if cid in geom_state_tracker:
+                        ma = geom_state_tracker[cid].get('major_axis', 2)
+                        shrink = original_geom_size[cid][ma] - model.geom_size[cid][ma]
+                    else:
+                        shrink = np.max(original_geom_size[cid] - model.geom_size[cid])
+                    hist['plastic'].append(max(0, shrink))
 
-    def apply_plastic_deformation_v2():
+    def apply_plastic_deformation_v2(current_geom_pressures):
         if not enable_plasticity: return
-        
-        # 1. Strain 기반 활성 축 및 변형량 측정
+        # current_geom_pressures is passed from apply_plasticity
+
         corner_activation = {} 
         for cid, nid, axis, d0 in corner_neighbor_pairs:
             b1, b2 = model.geom_bodyid[cid], model.geom_bodyid[nid]
             d_curr = np.linalg.norm(data.xpos[b1] - data.xpos[b2])
             
             strain = (d0 - d_curr) / d0 if d0 > 0 else 0
-            if strain > yield_strain:
+            pressure = current_geom_pressures.get(cid, 0.0)
+            
+            # [REFINED] Dual-Trigger Logic: Must exceed both strain and pressure thresholds
+            if strain > yield_strain and pressure >= yield_pressure:
                 p_val = max(0, d0 - d_curr)
                 if cid not in corner_activation or strain > corner_activation[cid]['strain']:
                     corner_activation[cid] = {'strain': strain, 'axis': axis, 'p_val': p_val}
@@ -860,12 +942,16 @@ def run_simulation(config_or_path, sim_duration=0.5):
         for cid, act in corner_activation.items():
             if cid not in geom_state_tracker:
                 geom_state_tracker[cid] = {'max_p': 0.0, 'major_axis': act['axis']}
-                t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, cid)
-                log_and_print(f"  [Plasticity] Strain Activated: {t_name} (Strain: {act['strain']:.2f}, Axis: {act['axis']})")
+                p_val_act = current_geom_pressures.get(cid, 0.0)
+                if p_val_act > 0:
+                    t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, cid)
+                    log_and_print(f"  [Plasticity] Strain Activated: {t_name} (Strain: {act['strain']:.2f}, Axis: {act['axis']}, Pressure: {p_val_act/1e3:.1f}kPa)")
             
             if act['p_val'] > geom_state_tracker[cid]['max_p']:
                 geom_state_tracker[cid]['max_p'] = act['p_val']
                 geom_state_tracker[cid]['major_axis'] = act['axis']
+                if cid in current_geom_pressures:
+                    geom_state_tracker[cid]['last_pressure'] = current_geom_pressures[cid]
 
         # 3. 실시간 소성 변형 적용
         for cid, state in geom_state_tracker.items():
@@ -900,16 +986,18 @@ def run_simulation(config_or_path, sim_duration=0.5):
                     
                     total_shrink = original_geom_size[cid][major_axis] - model.geom_size[cid][major_axis]
                     color_scale = min(1.0, total_shrink / 0.005)
-                    model.geom_rgba[cid][0] = 0.5 * (1.0 - color_scale)
-                    model.geom_rgba[cid][1] = 0.2 * (1.0 - color_scale)
-                    model.geom_rgba[cid][2] = 0.6 + 0.4 * color_scale 
-                    model.geom_rgba[cid][3] = 1.0
+                    model.geom_rgba[cid][0] = 0.5 * (1.0 - color_scale) # Red component changes
                     state['max_p'] = curr_p
                     t_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, cid)
-                    log_and_print(f"  [Plasticity] {t_name} Deforming(v2): -{total_shrink*1000:.1f}mm (Strain: {curr_p/d0_ma:.2f})")
+                    p_val = state.get('last_pressure', 0.0)
+                    curr_strain = curr_p / d0_ma if d0_ma > 0 else 0
+                    if p_val >= yield_pressure and curr_strain >= yield_strain:
+                        log_and_print(f"  [Plasticity] {t_name} Deforming(v2): -{total_shrink*1000:.1f}mm (Strain: {curr_strain:.2f}, Pressure: {p_val/1e3:.1f}kPa)")
             
             if curr_p > state['max_p']: 
                 state['max_p'] = curr_p
+                if cid in current_geom_pressures:
+                    state['last_pressure'] = current_geom_pressures[cid]
     # [NEW] Control Callback 등록 (mjcb_control)
     def mjcb_aerodynamics(model, data):
         apply_aerodynamics(model, data, config)
@@ -1104,12 +1192,29 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 l_pos = mat_inv @ rel_pos
                 current_local[(curr_i, curr_j, curr_k)] = l_pos
                 
-                # Calculate angular deformation (angle of rotation relative to root)
+                # [REFINED] Calculate angular deformation (Deviation from Initial Orientation)
+                # 단순 Root와의 각도 차이가 아니라, 초기(t=0)의 상대적 각도 대비 얼마나 '비틀렸는지'를 계산합니다.
                 rot_rel = mat_inv @ g_mat
-                tr = np.clip(np.trace(rot_rel), -1.0, 3.0)
+                if metrics[comp]['block_nominal_mats'][(curr_i, curr_j, curr_k)] is None:
+                    metrics[comp]['block_nominal_mats'][(curr_i, curr_j, curr_k)] = rot_rel.copy()
+                
+                initial_rot_rel = metrics[comp]['block_nominal_mats'][(curr_i, curr_j, curr_k)]
+                # Distortion measurement relative to initial configuration
+                # distortion = R_rel_init^T * R_rel_curr
+                rot_dist = initial_rot_rel.T @ rot_rel
+                tr = np.clip(np.trace(rot_dist), -1.0, 3.0)
                 theta = np.arccos((tr - 1.0) / 2.0)
                 block_angle_deg = np.degrees(theta)
                 metrics[comp]['all_blocks_angle'][(curr_i, curr_j, curr_k)].append(block_angle_deg)
+            
+            # [NEW] Total Distortion Index (TDI) Calculation
+            # SDI/TDI = RMS of all block rotation angles
+            all_angles = [metrics[comp]['all_blocks_angle'][b_idx][-1] for b_idx in blocks]
+            if all_angles:
+                tdi_val = np.sqrt(np.mean(np.array(all_angles)**2))
+                metrics[comp]['total_distortion'].append(tdi_val)
+            else:
+                metrics[comp]['total_distortion'].append(0.0)
                 
             # Process by row (j)
             j_indices = sorted(list(set([k[1] for k in blocks.keys()])))
@@ -1132,8 +1237,16 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 energies = {}
                 dz_vals = {}
                 
+                # [NEW] 현 컴포넌트의 격자 범위 획득
+                nx_max, ny_max, nz_max = comp_max_idxs.get(comp, (0,0,0))
+
                 for (curr_i, curr_j, curr_k), l_pos in current_local.items():
                     if curr_j == j:
+                        # [NEW] Cushion인 경우 코너 단일 블록은 구조적 굽힘/비틂에서 제외하여 가독성 향상
+                        is_corner_block = (curr_i == 0 or curr_i == nx_max) and (curr_j == 0 or curr_j == ny_max)
+                        if "cushion" in comp and is_corner_block:
+                            continue
+                        
                         b_id = blocks[(curr_i, curr_j, curr_k)]
                         nom_pos = nominal_local_pos[b_id]
                         delta = l_pos - nom_pos
@@ -1201,6 +1314,31 @@ def run_simulation(config_or_path, sim_duration=0.5):
     log_and_print("-" * 50)
     log_and_print(f"Peak Assembly G-Force: {max_g_force:.2f} G")
     log_and_print("-" * 50)
+
+    # [NEW] Generate Final Summary Performance Table in Console & Log
+    log_and_print("\n" + "="*95)
+    log_and_print(f"  [ MuJoCo DROP TEST - FINAL PERFORMANCE SUMMARY ]")
+    log_and_print("="*95)
+    log_and_print(f"{'Component':<20} | {'Root Max G':<12} | {'Max Bend(deg)':<15} | {'Max Twist(deg)':<15} | {'Max Plastic(mm)':<15}")
+    log_and_print("-" * 95)
+    
+    log_and_print(f"{'Total Assembly':<20} | {max_g_force:<12.2f} | {'-':<15} | {'-':<15} | {'-':<15}")
+    
+    for comp in sorted(components.keys()):
+        if len(components[comp]) <= 1: continue
+        # Calculate peaks for this component
+        max_b, max_t, max_p = 0.0, 0.0, 0.0
+        j_keys = [k for k in metrics[comp].keys() if isinstance(k, int)]
+        for j in j_keys:
+            if metrics[comp][j]['bending']: max_b = max(max_b, max(metrics[comp][j]['bending']))
+            if metrics[comp][j]['twist']:   max_t = max(max_t, max(metrics[comp][j]['twist']))
+        if 'corner_hists' in metrics[comp]:
+            for cid in metrics[comp]['corner_hists']:
+                if metrics[comp]['corner_hists'][cid]['plastic']:
+                    max_p = max(max_p, max(metrics[comp]['corner_hists'][cid]['plastic']))
+        
+        log_and_print(f"{comp:<20} | {'-':<12} | {max_b:<15.2f} | {max_t:<15.2f} | {max_p*1000:<15.2f}")
+    log_and_print("="*95 + "\n")
 
     for comp, j_data in metrics.items():
         # [NEW] 리지드 바디(Rigid Body) 및 단일 블록(Aux Mass) 제외 로직
@@ -1375,7 +1513,10 @@ def run_simulation(config_or_path, sim_duration=0.5):
             'CORNER_R-T-B': {'pos': c_pos_np[:,6,:], 'vel': c_vel_np[:,6,:], 'acc': c_acc_np[:,6,:]},
             'CORNER_R-T-F': {'pos': c_pos_np[:,7,:], 'vel': c_vel_np[:,7,:], 'acc': c_acc_np[:,7,:]}
         }
-        ordered_keys = ['Center', 'True_COG', 'CORNER_L-T-F', 'CORNER_R-T-F', 'CORNER_L-T-B', 'CORNER_R-T-B', 'CORNER_L-B-F', 'CORNER_R-B-F', 'CORNER_L-B-B', 'CORNER_R-B-B']
+        # [REORDERED] Legend 순서를 Corner 우선, Root-relative(Center/COG)를 후순위로 배치함
+        ordered_keys = ['CORNER_L-T-F', 'CORNER_R-T-F', 'CORNER_L-T-B', 'CORNER_R-T-B', 
+                        'CORNER_L-B-F', 'CORNER_R-B-F', 'CORNER_L-B-B', 'CORNER_R-B-B',
+                        'Center', 'True_COG']
         
         # rds-Motion_All.png
         fig, axs = plt.subplots(3, 3, figsize=(18, 12))
@@ -1389,7 +1530,11 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 subplot_dict = {}
                 for k in ordered_keys:
                     metric = 'pos' if row == 0 else ('vel' if row == 1 else 'acc')
-                    ax.plot(time_history, curves[k][metric][:, col], label=k)
+                    # [STYLING] Center와 True_COG는 얇은 점선으로 표시하여 가독성 증대
+                    if k in ['Center', 'True_COG']:
+                        ax.plot(time_history, curves[k][metric][:, col], label=k, linestyle='--', linewidth=1.0, alpha=0.7)
+                    else:
+                        ax.plot(time_history, curves[k][metric][:, col], label=k)
                     subplot_dict[k] = curves[k][metric][:, col]
                 if row == 2: ax.set_xlabel('Time (s)')
                 if col == 0: ax.set_ylabel(labels_row[row])
@@ -1413,7 +1558,11 @@ def run_simulation(config_or_path, sim_duration=0.5):
             ax = axs[i]
             subplot_dict = {}
             for k in ordered_keys:
-                ax.plot(time_history, curves[k][metric][:, 2], label=k)
+                # [STYLING] Z-Axis 차트에서도 Center/COG를 점선으로 처리
+                if k in ['Center', 'True_COG']:
+                    ax.plot(time_history, curves[k][metric][:, 2], label=k, linestyle='--', linewidth=1.0, alpha=0.7)
+                else:
+                    ax.plot(time_history, curves[k][metric][:, 2], label=k)
                 subplot_dict[k] = curves[k][metric][:, 2]
             ax.set_xlabel('Time (s)')
             ax.set_ylabel(titles_z[i])
@@ -1522,6 +1671,51 @@ def run_simulation(config_or_path, sim_duration=0.5):
                 plt.close()
                 export_plot_data(f'{comp} Block Angle Deformation (Relative to Root)', time_history, block_dict, f'{comp[:15]}_def_all', png_def_all)
             
+            # [NEW] Total Distortion (SDI/TDI) Plot
+            tdi_hist = metrics[comp].get('total_distortion', [])
+            if tdi_hist:
+                plt.figure(figsize=(10, 5))
+                plt.plot(time_history, tdi_hist, color='purple', linewidth=2.0)
+                plt.xlabel('Time (s)')
+                plt.ylabel('TDI (RMS Angle Deg)')
+                plt.title(f'{comp} Total Structural Distortion Index (SDI)')
+                plt.grid(True)
+                plt.tight_layout()
+                png_tdi = os.path.join(output_dir, f'rds-{comp}_total_distortion.png')
+                plt.savefig(png_tdi)
+                plt.close()
+                export_plot_data(f'{comp} Total Structural Distortion Index (SDI)', time_history, {'SDI': tdi_hist}, f'{comp[:15]}_SDI', png_tdi)
+
+            # [NEW] 2x2 Subplot for Corner Plasticity
+            corner_hists = metrics[comp].get('corner_hists', {})
+            if corner_hists:
+                fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+                fig.suptitle(f'{comp} Corner Impact Plasticity Analysis (12 Points)', fontsize=16)
+                
+                titles = ['Instant. Strain', 'Contact Pressure (kPa)', 'Instant. Compression (m)', 'Permanent Deformation (m)']
+                keys = ['strain', 'pressure', 'disp', 'plastic']
+                
+                plot_data_collect = {}
+                for idx, key in enumerate(keys):
+                    row, col = idx // 2, idx % 2
+                    ax = axs[row, col]
+                    for cid, hist in corner_hists.items():
+                        vals = np.array(hist[key])
+                        if key == 'pressure': vals = vals / 1e3 # Pa to kPa
+                        ax.plot(time_history, vals, label=hist['name'], alpha=0.7)
+                        plot_data_collect[f"{hist['name']}_{key}"] = list(vals)
+                    ax.set_title(titles[idx])
+                    ax.set_xlabel('Time (s)')
+                    ax.set_ylabel(titles[idx])
+                    ax.grid(True)
+                
+                axs[0, 1].legend(loc='upper left', bbox_to_anchor=(1.05, 1.0), fontsize=6)
+                plt.tight_layout(rect=[0, 0, 0.85, 0.95])
+                png_corner = os.path.join(output_dir, f'rds-{comp}_corner_analysis.png')
+                plt.savefig(png_corner)
+                plt.close()
+                export_plot_data(f'{comp} Corner Plasticity Analysis', time_history, plot_data_collect, f'{comp[:12]}_corner', png_corner)
+
         f_txt.close()
         if has_xl:
             xl_wb.save(export_xl_path)
@@ -1661,6 +1855,17 @@ def calculate_required_aux_masses(cfg, target_mass, target_cog, target_moi):
 def test_run_case_1():
     # Get basic defaults, override specifically if needed    
     cfg = get_default_config()
+
+    # [GEOMETRY OPTIONS] 포장재 및 제품의 기본 치수 정의 (m 단위)
+    cfg["box_w"] = 1.841          # 포장 박스 가로 (m)
+    cfg["box_h"] = 1.103          # 포장 박스 세로 (m)
+    cfg["box_d"] = 0.170          # 포장 박스 깊이 (m)
+    cfg["box_thick"] = 0.008      # 박스 골판지 두께 (m)
+    
+    cfg["assy_w"] = 1.670         # 내부 제품(TV 등) 가로 (m)
+    cfg["assy_h"] = 0.960         # 내부 제품(TV 등) 세로 (m)
+    cfg["cush_gap"] = 0.005       # 부품 간 간격 (Clearance)
+    
     # 낙하 모드 및 구체적인 방향 설정 (Full Name 사용: front/back, top/bottom, left/right)
     # 형식: [Front/Back]-[Top/Bottom]-[Left/Right] (필요 없는 축은 '--'로 표시)
     # PARCEL 모드 (Standard Mapping):
@@ -1678,32 +1883,37 @@ def test_run_case_1():
 
     # [COMPONENTS OPTIONS] 부품별 해상도(div) 및 결합 방식(use_weld) 설정
     # use_weld=False 설정 시, 해당 부품은 내부 구속조건이 없는 '단일 강체'로 취급되어 연산 속도가 비약적으로 향상됩니다.
-    cfg["chassis_div"]      = [4, 4, 1]    # 샤시 분할 수
-    cfg["chassis_use_weld"] = False        # 샤시는 강체로 취급 (속도 향상)
+    cfg["chassis_div"]      = [3, 3, 1]    # 샤시 분할 수
+    cfg["chassis_use_weld"] = True        # 샤시는 강체로 취급 (속도 향상)
     
-    cfg["oc_div"]           = [4, 4, 1]    # 오픈셀(패널) 분할 수
-    cfg["oc_use_weld"]      = False         # 오픈셀은 강체로 취급 (속도 향상)
+    cfg["oc_div"]           = [3, 3, 1]    # 오픈셀(패널) 분할 수
+    cfg["oc_use_weld"]      = True         # 오픈셀은 강체로 취급 (속도 향상)
     
-    cfg["occ_div"]          = [4, 4, 1]    # 테이프(Cohesive) 분할 수
-    cfg["occ_use_weld"]     = False         # 테이프는 유연성 유지를 위해 Weld 사용
+    cfg["occ_div"]          = [3, 3, 1]    # 테이프(Cohesive) 분할 수
+    cfg["occ_use_weld"]     = True         # 테이프는 유연성 유지를 위해 Weld 사용
     
-    cfg["cush_div"]         = [5, 4, 3]    # 쿠션 분할 수
+    cfg["cush_div"]         = [5, 5, 3]    # 쿠션 분할 수
     cfg["cush_use_weld"]    = True         # 쿠션은 변형이 중요하므로 Weld 사용
     
-    cfg["box_div"]          = [5, 4, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
+    cfg["box_div"]          = [5, 5, 2]    # 외곽 박스 분할 수 (성능을 위해 낮춤)
     cfg["box_use_weld"]     = False        # 박스는 강체로 취급
     
     # [NEW] 물리 파라미터 고도화 (Weld vs Contact 분리 및 엣지 특화)
     # 1. 쿠션 (Cushion)
-    cfg["cush_weld_solref_stiff"] = 0.008    # 쿠션 블록 간 결합 강성 (Stiffness)
-    cfg["cush_weld_solref_damp"]  = 0.8     # 쿠션 블록 간 결합 감쇠 (Damping)
-    cfg["cush_contact_solref"]    = "0.005 0.8" # 일반 접촉 (Center)
-    cfg["cush_contact_solimp"]    = "0.1 0.95 0.01 0.5 2" 
-    cfg["cush_corner_solref"]     = "0.005 0.8" # 엣지/모너리 전용 접촉 (Edge/Corner)
-    cfg["cush_corner_solimp"]     = "0.1 0.95 0.01 0.5 2"
+    cfg["cush_weld_solref_stiff"] = 0.004      # 쿠션 전체 구조적 벤딩 강성 (Stiffness)
+    cfg["cush_weld_solref_damp"]  = 1.0      # 쿠션 전체 구조적 감쇠 (Damping)
+    
+    # [NEW] 코너 쿠션 전용 Weld 강성 (구조 강성과 분리하여 코너 압축 특성 특화)
+    cfg["cush_weld_corner_solref_timec"] = 0.02 # 코너 부위 전용 stiffness (timeconst)
+    cfg["cush_weld_corner_solref_dampr"] = 1.0  # 코너 부위 전용 damping (dampratio)
+    
+    cfg["cush_contact_solref"]    = "0.01 0.8" # 일반 접촉 (Center)
+    cfg["cush_contact_solimp"]    = "0.1 0.95 0.005 0.5 2" 
+    cfg["cush_corner_solref"]     = "0.01 0.8" # 엣지/모너리 전용 접촉 (Edge/Corner)
+    cfg["cush_corner_solimp"]     = "0.1 0.95 0.005 0.5 2"
     # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    cfg["cush_solref_stiff"] = 0.01 # 쿠션 timeconst
-    cfg["cush_solref_damp"]  = 0.1 # 쿠션 dampratio
+    #cfg["cush_solref_stiff"] = 0.01 # 쿠션 timeconst
+    #cfg["cush_solref_damp"]  = 0.1 # 쿠션 dampratio
 
     # 2. 테이프/접착제 (Tape)
     #cfg["tape_weld_solref"] = "0.01 1.0"
@@ -1716,8 +1926,9 @@ def test_run_case_1():
     # [NEW] 영구 변형 테스트 활성화
     cfg["enable_plasticity"] = True
     cfg["plasticity_ratio"] = 1.0
-    cfg["cush_yield_strain"] = 0.01 # 10% 변형 시 소성 변형 발생
-    cfg["plasticity_algorithm"] = 2 # 1: Pressure/Penetration, 2: Strain(Neighbor Distance)
+    cfg["cush_yield_strain"] = 0.01   # 1% 변형 시 소성 변형 가능성 (알고리즘 2번용)
+    cfg["cush_yield_pressure"] = 80.0  # [NEW] 최소 0.5kPa 이상의 압력이 있어야 소성 변형 발생
+    cfg["plasticity_algorithm"] = 2  # 1: Pressure/Penetration, 2: Strain(Neighbor Distance)
     
     cfg["mass_paper"] = 4.0
     cfg["mass_cushion"] = 2.0
@@ -1736,7 +1947,7 @@ def test_run_case_1():
     
     # [SIMULATION OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sim_*)
     cfg["sim_integrator"] = "implicitfast" # 통합기 (Euler, RK4, implicit, implicitfast 등)
-    cfg['sim_duration'] = 2.0
+    cfg['sim_duration'] = 2.1
     cfg["sim_timestep"]   = 0.0013         # 시뮬레이션 타임스텝 (s)
     cfg["sim_iterations"] = 50             # 솔버 최대 반복 횟수 (1~200)
     cfg["sim_noslip_iterations"] = 0       # 마찰 고정(미끄러짐 방지)을 위한 추가 반복 횟수
@@ -1756,7 +1967,7 @@ def test_run_case_1():
     cfg["air_squeeze_hmax"] = 0.20      # Squeeze Film 활성화 최대 높이 (m)
     cfg["air_squeeze_hmin"] = 0.005      # Squeeze Film 최소 높이 (분모 안전값, m)
     cfg["enable_air_drag"]    = True   # MuJoCo 빌트인 Drag/Viscous 활성화 여부
-    cfg["enable_air_squeeze"] = True   # 수동 Squeeze Film 활성화 여부
+    cfg["enable_air_squeeze"] = False   # 수동 Squeeze Film 활성화 여부
 
     # [STEP 1] 보정 전 설계 원안 검토 (Baseline Review)
     print_inertia_report(cfg, title="Baseline Inertia Report (Pre-Correction)", logger=print)

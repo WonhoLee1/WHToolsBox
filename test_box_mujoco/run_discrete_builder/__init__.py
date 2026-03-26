@@ -144,6 +144,13 @@ def get_default_config(user_config=None):
     cush_corner_solref = user_config.get("cush_corner_solref", ground_solref)
     cush_corner_solimp = user_config.get("cush_corner_solimp", "0.95 0.999 0.001 0.5 2.0")
     
+    # [NEW] Corner-specific Weld parameters (Structural vs Local Compression)
+    cush_weld_corner_solref_timec = user_config.get("cush_weld_corner_solref_timec", None)
+    cush_weld_corner_solref_dampr = user_config.get("cush_weld_corner_solref_dampr", 1.0)
+    cush_weld_corner_solref = None
+    if cush_weld_corner_solref_timec is not None:
+        cush_weld_corner_solref = f"{cush_weld_corner_solref_timec} {cush_weld_corner_solref_dampr}"
+    
     # 기본 치수 설정 및 종속 변수 연산 처리
     box_w = user_config.get("box_w", 2.0)
     box_h = user_config.get("box_h", 1.4)
@@ -192,7 +199,6 @@ def get_default_config(user_config=None):
         # 내부 구조물(Chassis, OpenCell, Tape 등을 포함하는 AssySet) 기본 크기
         "assy_w": assy_w, 
         "assy_h": assy_h,
-        
         # 내부 구조물(Assy) 부품별 각 두께
         "oc_d"      : 0.020,        # oc: OpenCell (TV 디스플레이 패널부) 두께
         "occ_d"     : 0.005,      # occ: OpenCell Cohesive (패널 부착용 테이프/액자 프레임) 두께
@@ -208,13 +214,14 @@ def get_default_config(user_config=None):
         "assy_div": user_config.get("assy_div", [5, 4, 1]), # Legacy/Fallback
 
         # [NEW] 내부 Weld 구속조건 사용 여부 (Zero Weld 모드 선택권)
-        # False 설정 시, 해당 부품의 모든 블록이 하나의 바디(Single-Body)에 Geom으로 직접 추가되어 
-        # 구속조건(Equality)이 0개가 되며 시뮬레이션 속도가 비약적으로 향상됩니다.
         "box_use_weld": user_config.get("box_use_weld", True),
         "cush_use_weld": user_config.get("cush_use_weld", True),
         "oc_use_weld": user_config.get("oc_use_weld", True),
         "occ_use_weld": user_config.get("occ_use_weld", True),
         "chassis_use_weld": user_config.get("chassis_use_weld", True),
+        
+        # [NEW] 로깅 제어
+        "print_corner_plasticity": user_config.get("print_corner_plasticity", False),
 
         # 질량 (Mass, kg)
         "mass_paper": 4.0,
@@ -230,6 +237,7 @@ def get_default_config(user_config=None):
         "cush_contact_solimp": cush_contact_solimp,
         "cush_corner_solref": cush_corner_solref,
         "cush_corner_solimp": cush_corner_solimp,
+        "cush_weld_corner_solref": cush_weld_corner_solref,
 
         "mat_paper": {"rgba": "0.7 0.6 0.4 0.9", "solref": "0.01 1.0", "solimp": "0.1 0.95 0.005 0.5 2", "contype": "1", "conaffinity": "1", "friction": "0.8"}, # Default init
         "mat_cush" : {
@@ -372,6 +380,14 @@ def get_default_config(user_config=None):
     config["cush_corner_solref"]    = config.get("cush_corner_solref", config["ground_solref"])
     config["cush_corner_solimp"]    = config.get("cush_corner_solimp", "0.95 0.999 0.001 0.5 2.0")
     
+    # Corner Weld Sync
+    if "cush_weld_corner_solref_timec" in config and config["cush_weld_corner_solref_timec"] is not None:
+        cw_s = config["cush_weld_corner_solref_timec"]
+        cw_d = config.get("cush_weld_corner_solref_dampr", 1.0)
+        config["cush_weld_corner_solref"] = f"{cw_s} {cw_d}"
+    else:
+        config["cush_weld_corner_solref"] = config.get("cush_weld_corner_solref", None)
+    
     # 5. Nested Materials Dict Update (최종 매핑)
     if "mat_cush" in config:
         config["mat_cush"]["solref"]      = config["cush_contact_solref"]
@@ -380,6 +396,7 @@ def get_default_config(user_config=None):
         config["mat_cush"]["corner_solimp"] = config["cush_corner_solimp"]
         config["mat_cush"]["weld_solref"] = config["cush_weld_solref"]
         config["mat_cush"]["weld_solimp"] = config["cush_weld_solimp"]
+        config["mat_cush"]["corner_weld_solref"] = config.get("cush_weld_corner_solref")
         config["mat_cush"]["friction"]    = config.get("cush_friction", config["mat_cush"].get("friction", "0.8"))
 
     # 기타 부품들 동기화
@@ -451,9 +468,12 @@ class BaseDiscreteBody:
                 edges.add(cut)
         edges = sorted(list(edges))
         
+        # [NEW] 이미 필수 절단선만으로도 사용자가 요청한 div를 채웠거나 넘었다면, 추가 분할은 하지 않음
+        current_segments = len(edges) - 1
+        if current_segments >= num_div:
+            return edges
+
         # 2. 필수 절단선 사이의 구간을 div로 추가 분할 시도
-        # 사용자의 요청: "나머지 길이는 기본 분할에 맞춰 진행. 육면체로 분할 할 수 있는 것은 다 분할"
-        # 구현: 원래 등분 간격인 (length / num_div) 보다 구간이 길면, 해당 구간을 쪼갠다.
         target_step = length / num_div
         final_nodes = []
         
@@ -472,7 +492,8 @@ class BaseDiscreteBody:
                 final_nodes.append(start)
                 
             # 구간이 타겟 스텝보다 눈에 띄게 큰 경우 그 안을 다시 등분
-            if segment_len > target_step * 1.01:
+            # [보정] 1.2배 이상의 여유를 두어 불필요한 미세 분할 방지
+            if segment_len > target_step * 1.2:
                 # 구간 내 몇 개로 나눌 것인가?
                 sub_divs = max(1, int(round(segment_len / target_step)))
                 sub_nodes = np.linspace(start, end, sub_divs + 1)
@@ -819,6 +840,49 @@ class BCushion(BaseDiscreteBody):
         by = (j == 0 or j == ny - 1)
         bz = (k == 0 or k == nz - 1)
         return (bx and by) or (by and bz) or (bz and bx)
+
+    def get_weld_xml_strings(self):
+        """
+        BCushion 전용 Weld 생성: 코너 블록(Edge/Vertex)이 포함된 경우 
+        weld_bcushion_corner 클래스를 사용하여 국부적 압축 특성을 별도 관리합니다.
+        """
+        weld_xml = []
+        if not self.use_internal_weld:
+            return weld_xml
+
+        weld_class_base = "weld_bcushion"
+        has_corner_weld = "corner_weld_solref" in self.material_props and self.material_props["corner_weld_solref"]
+        
+        block_keys = set(self.blocks.keys())
+        for (i, j, k), blk1 in self.blocks.items():
+            is_c1 = self.is_edge_block(i, j, k)
+            
+            # +X, +Y, +Z 방향 인접 블록 검사
+            for di, dj, dk, suffix in [(1,0,0, "PX"), (0,1,0, "PY"), (0,0,1, "PZ")]:
+                ni, nj, nk = i+di, j+dj, k+dk
+                if (ni, nj, nk) in block_keys:
+                    blk2 = self.blocks[(ni, nj, nk)]
+                    # 물리적 접촉면 확인
+                    match = False
+                    if di == 1: match = abs((blk1.cx + blk1.dx) - (blk2.cx - blk2.dx)) < 1e-4
+                    elif dj == 1: match = abs((blk1.cy + blk1.dy) - (blk2.cy - blk2.dy)) < 1e-4
+                    elif dk == 1: match = abs((blk1.cz + blk1.dz) - (blk2.cz - blk2.dz)) < 1e-4
+                    
+                    if match:
+                        is_c2 = self.is_edge_block(ni, nj, nk)
+                        # 어느 한 쪽이라도 코너 블록이면 코너 전용 클래스 적용
+                        w_cls = weld_class_base
+                        if has_corner_weld and (is_c1 or is_c2):
+                            w_cls = "weld_bcushion_corner"
+                            
+                        site1_name = f"s_{self.name}_{i}_{j}_{k}_{suffix}"
+                        opp_suffix = "NX" if suffix=="PX" else "NY" if suffix=="PY" else "NZ"
+                        site2_name = f"s_{self.name}_{ni}_{nj}_{nk}_{opp_suffix}"
+                        weld_xml.append(f'        <weld class="{w_cls}" site1="{site1_name}" site2="{site2_name}"/>')
+        
+        for child in self.children:
+            weld_xml.extend(child.get_weld_xml_strings())
+        return weld_xml
 
 class BOpenCellCohesive(BaseDiscreteBody):
     def __init__(self, name, width, height, depth, mass, div, ithick, material_props, use_internal_weld=True):
@@ -1285,6 +1349,12 @@ def create_model(export_path, config=None, logger=print):
         xml_str_io.write(f'    <default class="weld_{mat_name}">\n')
         xml_str_io.write(f'      <equality solref="{w_ref}" solimp="{w_imp}"/>\n')
         xml_str_io.write(f'    </default>\n')
+        
+        # 1.5. Special Corner Weld class (if provided)
+        if "corner_weld_solref" in mat_props and mat_props["corner_weld_solref"]:
+            xml_str_io.write(f'    <default class="weld_{mat_name}_corner">\n')
+            xml_str_io.write(f'      <equality solref="{mat_props["corner_weld_solref"]}" solimp="{w_imp}"/>\n')
+            xml_str_io.write(f'    </default>\n')
         
         # 2. Contact(Geom) 클래스 정의 (일반)
         c_ref = mat_props.get("solref", "0.02 1.0")
