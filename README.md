@@ -1,45 +1,45 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/WonhoLee1/WHToolsBox/main/logo.png" alt="WHToolsBox Logo" width="220" />
 
-  # 📦 WHToolsBox
-  ### 고성능 MuJoCo 기반 이산 블록 낙하 시뮬레이션 및 파라미터 최적화 프레임워크
-  **Advanced MuJoCo Drop Simulation & Structural Parameter Matching Framework**
+  # 📦 WHToolsBox (v4.x)
+
+  ### 고성능 MuJoCo 기반 정밀 구조 해석 및 이산 블록 낙하 시뮬레이션 프레임워크
+  **High-Fidelity MuJoCo Drop Simulation & Structural Surface Reconstruction (SSR) Framework**
 </div>
 
 ---
 
 ## 📖 프로젝트 개요 (Overview)
 
-**WHToolsBox**는 전통적인 FEA(유한요소해석) 소프트웨어의 무거운 연산 비용과 복잡한 라이선스 제약에서 벗어나, **Python**과 **MuJoCo** 물리 엔진을 결합해 초고속 구조 해석 파이프라인을 구축하는 프로젝트입니다. 
+**WHToolsBox v4.x**는 MuJoCo 물리 엔진의 고속 연산 능력을 극한으로 끌어올려, 단순한 낙하 거동 모의를 넘어 **정밀한 구조 해석(Structural Analysis)**을 수행하는 지능형 엔지니어링 툴킷입니다.
 
-기존 상용 프로그램 대비 **압도적인 연산 속도**를 바탕으로 수천 번의 반복 해석(Iterative Simulation)이 가능하며, 이를 통해 실제 낙하 시험 데이터(Physical Test Data)와 시뮬레이션 결과 간의 오차를 최소화하는 **소재 파라미터 자동 매칭(Automatic Parameter Matching)**을 최종 목표로 합니다.
+수천 개의 이산 블록으로 구성된 복잡한 어셈블리(Open Cell, Chassis, Cushion 등)를 대상으로 **물리 기반 표면 재구성(SSR)** 알고리즘을 적용하여, FEA 수준의 응력 분포 및 변형 맵을 실시간으로 도출합니다.
 
 ---
 
-## ✨ 핵심 기술 및 특징 (Key Features)
+## ✨ 핵심 기술 패키지 (V4 New Features)
 
-### 1. ⚡ 초고속 이산 블록 모델러 (Discrete Builder)
-- **자동 모델 생성**: 박스, 쿠션, 패널, 섀시 등 복잡한 적층 구조를 수천 개의 이산 블록과 가상 용접점(Weld Constraints)으로 자동 변환합니다.
-- **Zero-Weld 고속 모드**: 내부 구속조건을 제거하고 단일 강체 바디에 지오메트리를 통합하여 연산 속도를 10배 이상 향상시키는 최적화 옵션을 제공합니다.
+### 1. 🏗️ 정밀 구조 해석 지표 (High-Fidelity Metrics)
 
-### 2. 🧠 지능형 관성 보정 (Inertia Balancer)
-- **8-포인트 대칭 보정**: 설계 원안(Baseline)의 질량, 무게중심(CoG), 관성모멘트(MoI)를 분석하여 타겟 사양에 맞게 8개의 보조 질량을 대칭 배치함으로써 시스템의 물리적 정합성을 완벽히 맞춤니다.
+- **PBA (Principal Bending Axis)**: 평면 기반 주곡률 해석을 통해 패널의 지배적인 휨 축을 회전 불변(Rotationally Invariant) 특성으로 산출합니다.
+- **RRG (Relative Resistance Gradient)**: 국부적인 강성 변화와 변형 저항 기울기를 분석하여 파손 취약 지점을 정밀 탐색합니다.
+- **물리적 응력 계산 (BS/TS)**: 쉘 이론(Shell Theory)을 적용하여 굽힘/비틀림 모멘트 및 MPa 단위의 물리적 응력을 정밀하게 계산합니다.
 
-### 3. 🌊 정밀 공기 역학 엔진 (Advanced Aerodynamics)
-- **Drag & Squeeze 효과**: 낙하 시 발생하는 공기 저항(Drag)과 지면 착지 직전의 압축 공기 쿠션 현상(Squeeze Film Effect)을 실시간으로 계산하여 해석의 정밀도를 극대화합니다.
-- **연산 호이스팅**: 루프 내 중복 연산을 제거하여 고속 해석 환경에서도 물리적 정확도를 유지합니다.
+### 2. 🌊 SSR 표면 재구성 엔진 (Structural Surface Reconstruction)
 
-### 4. 🟦 듀얼 트리거 소성 변형 알고리즘 (Plasticity v2)
-- **Strain-Pressure 기반 판별**: 인접 블록 간의 **이격 변화(Strain)**와 **충격 지압(Pressure)**을 동시에 감지하여, 단순 탄성 한계를 넘어서는 영구적인 찌그러짐 현상을 물리적으로 재현합니다.
-- **Dynamic Axis Detection**: 충격 방향을 자동 감지하여 실제 압착이 일어나는 축 방향으로만 기하학적 형상 축소 및 위치 이동이 일어납니다.
+- **Discrete-to-Field Mapping**: 불연속적인 블록 데이터로부터 물리적 연속성을 가진 고해상도 컨투어 맵을 복원하는 전용 엔진입니다.
+- **Bicubic Interpolation**: 데이터 스미어링(Smearing) 현상을 억제하고 날카로운 피크 응력을 보존하는 고정밀 보간법을 적용합니다.
 
-### 5. 🔍 지능형 포스트 프로세싱 (Post-Processing UI)
-- **전용 분석 익스플로러**: 시뮬레이션 종료 후 자동으로 실행되는 Tkinter 기반 UI를 통해 2D 왜곡 맵, G-Force 트레이스 등을 직관적으로 분석합니다.
-- **바디별 상세 분석**: 콤보 박스를 통해 특정 컴포넌트(쿠션, 섀시 등)를 선택하여 국부적인 변형 패턴을 정밀하게 검토할 수 있습니다.
+### 3. 🖥️ 지능형 포스트 UI (Responsive Post-UI)
 
-### 6. 🎨 랭크 기반 시각화 및 2D 맵핑 (Rank-based Heatmap)
-- **최대 대비 가시화**: 절대적인 변형량 대신 부품 내 변형 순위(Rank)를 기반으로 컬러를 배분하여, 미세한 변형 차이도 명확하게 식별합니다.
-- **고해상도 2D 컨투어**: Matplotlib의 `RdYlBu_r` 컬러맵과 Bilinear 보간을 적용한 2D 굽힘/비틀림 맵을 생성하여 전문적인 해석 리포트를 제공합니다.
+- **2D Temporal Animation**: 시계열에 따른 컨투어 변화를 실시간 애니메이션으로 분석하며, 특정 시점의 캡처 기능을 지원합니다.
+- **마스터 응답형 레이아웃**: 모든 컨트롤 패널에 마스터 스크롤바와 가로 너비 동기화(Width Sync)를 적용하여 저해상도 환경에서도 완벽한 가독성을 제공합니다.
+- **인터랙티브 툴팁**: 멀티 서브플롯 환경에서 마우스 오버 시 모든 그래프의 데이터를 동시에 추적하는 동기화 십자선 기능을 지원합니다.
+
+### 4. 📊 자동화된 리포팅 시스템
+
+- **Final Report v4**: 시뮬레이션 종료 즉시 각 부품별 최댓값 위치(Block Index)와 수치를 테이블 형태로 자동 정렬하여 출력합니다.
+- **Data Persistence**: 시뮬레이션 전 과정의 시계열 데이터를 `.pkl` 및 `.xlsx` 형식으로 보존하여 외부 분석 도구와의 호환성을 확보합니다.
 
 ---
 
@@ -47,16 +47,16 @@
 
 ```mermaid
 graph TD
-    A[Config / User Input] --> B[run_discrete_builder]
-    B --> C{XML Model Generation}
-    C -->|Body Hierarchy| D[DropSimulator Class]
-    C -->|Inertia Balancer| D
-    D --> E[Simulation Loop]
-    E --> F[Aerodynamics Callback]
-    E --> G[Plasticity v2 Logic]
-    E --> H[Metric Collection]
-    H --> I[Post-Analysis & Plotting]
-    I --> J[pkl Result / Excel / PNGs]
+    A[WHTB Config] --> B[Discrete Builder]
+    B --> C{XML Assembly Model}
+    C --> D[v4 Engine: DropSimulator]
+    D --> E[Physics Loop]
+    E --> F[Aerodynamics / Squeeze]
+    E --> G[Plasticity v2 / DCA]
+    E --> H[Time-series Collection]
+    H --> I[SSR Surface Engine]
+    I --> J[Post-UI Explorer]
+    J --> K[Interactive Analysis / Final Report]
 ```
 
 ---
@@ -64,49 +64,76 @@ graph TD
 ## 🚀 시작하기 (Getting Started)
 
 ### 📂 주요 실행 파일 가이드
-1. **`run_drop_simulation_v3.py`**: 객체지향(OO) 구조로 리팩토링된 최신 시뮬레이션 엔진입니다. 단독 실행 시 기본 케이스에 대한 해석을 수행합니다.
-2. **`run_drop_simulation_cases.py`**: 표준화된 테스트 케이스 러너입니다. (예: 0.5m Corner Drop, 1.0m Face Drop 등)
-3. **`run_discrete_builder/__init__.py`**: MuJoCo XML 모델을 생성하는 핵심 빌더 로직입니다.
+
+1. **`run_drop_simulation_cases_v4.py`**: 표준화된 낙하 테스트 시나리오를 실행하는 메인 러너입니다.
+2. **`run_drop_simulator/whts_engine.py`**: 물리 연산 및 데이터 수집을 담당하는 v4 핵심 엔진입니다.
+3. **`run_drop_simulator/whts_postprocess_ui.py`**: 정밀 분석 UI 프레임워크입니다.
 
 ### 💻 실행 방법
+
 ```powershell
-# 표준 테스트 케이스 실행
-python run_drop_simulation_cases.py
+# 고정밀 낙하 시뮬레이션 배치 실행
+python run_drop_simulation_cases_v4.py
 ```
 
-### ⌨️ 단축키 안내 (Viewer Mode)
-- `Space`: 일시정지 / 재생
-- `R`: 시뮬레이션 초기화 (Reset)
-- `RightArrow`: 한 스텝(dt)씩 진행
-- `Esc`: 시뮬레이션 종료
+### ⌨️ 분석 UI 단축키
+
+- `Mouse Wheel`: 컨트롤 패널 및 설정 영역 스크롤
+- `Slider / Mouse Over`: 그래프 위에서 실시간 데이터 좌표 및 화살표 가이드 표시
+- `SSR Mode Toggle`: 고정밀 표면 재구성 모드 활성화/비활성화
 
 ---
 
-## 💡 주요 설정 (Configuration)
+## 💡 주요 설정 및 팁 (Configuration & Tips)
 
 > [!important]
-> `solref` 및 `solimp` 파라미터는 모델의 강성과 감쇠를 결정하는 핵심 요소입니다.
-> - **Cushion**: `0.05 1.0` (부드러운 흡수)
-> - **Chassis**: `0.01 1.0` (강체 거동)
-> - **Plasticity**: `cush_yield_strain` 값을 통해 찌그러짐이 시작되는 임계점을 제어합니다.
+> **성능 최적화**: `whts_engine`의 `sim_duration`을 조정하여 필요한 착지 구간만 집중적으로 해석할 수 있습니다.
+> - **Cushion Mapping**: `all_blocks_` 접두사가 붙은 지표를 활성화하면 블록 단위의 세밀한 파손 분석이 가능합니다.
 
 ---
 
 ## 📈 로드맵 (Roadmap)
-- [x] 객체지향 DropSimulator 클래스 전환
-- [x] 듀얼 트리거 기반 소성 변형 알고리즘 정교화
-- [x] 고해상도 분석 리포트 자동 생성 시스템 구축
-- [ ] 실제 실험 CSV 데이터 로드 및 시뮬레이션 커브 매칭 (Parameter Fitter)
-- [ ] 베이지안 최적화 기반 자동 소재 튜닝 모듈 통합
+
+- [x] PBA/RRG 기반 정밀 구조 해석 지표 통합
+- [x] SSR 표면 재구성 엔진 및 고해상도 컨투어 구현
+- [x] 마스터 스크롤바 기반 응답형 UI 최적화 (v4.8.x)
+- [ ] AI 기반 파라미터 자동 최적화 (Auto-Tuning) 모듈 통합
+- [ ] 실시간 충돌 에너지 흡수율(C.E.A) 분석 시스템 구축
 
 ---
+
+## 📝 릴리즈 노트 (Release Notes)
+
+### [v4.8.9] - 2026-03-30
+- **UI 최적화**: 필드 컨투어 탭의 [Control] 패널을 수직 스태킹 레이아웃으로 변경하여 가시성 확보.
+- **마스터 스크롤바**: 모든 분석 탭에 마스터 스크롤바 및 가로 너비 동기화(Width Sync) 적용.
+
+### [v4.8.7] - 2026-03-29
+- **버그 수정**: `ttk.Frame`의 `padx` 속성 충돌로 인한 UI 런타임 에러(`unknown option -padx`) 해결.
+
+### [v4.8.6] - 2026-03-29
+- **리포트 개선**: 최종 시뮬레이션 결과 테이블의 컬럼 정렬 최적화 및 튜플 인덱스 정렬 기능 보완.
+
+### [v4.8.5] - 2026-03-29
+- **워크플로우 개선**: 구조 해석 탭의 플롯 상세 옵션(Max vs All) 위치를 부품 선택 영역 하단으로 이동.
+
+### [v4.8.4] - 2026-03-28
+- **인터랙티브 보정**: 멀티 서브플롯 환경에서 마우스 오버 툴팁이 첫 번째 그래프에 고정되던 버그 수정.
+
+### [v4.0.0] - 2026-03-27
+- **구조 해석 프레임워크 v4**: PBA, RRG 지표 도입 및 SSR 표면 재구성 엔진 최초 구현.
+
+---
+
 > [!info]
-> 안녕하세요, **WHTOOLS**입니다. 본 프로젝트는 정교한 물리 시뮬레이션을 통해 공학적 생산성을 높이려는 엔지니어들을 위해 개발되었습니다. 시행착오를 통해 검증된 물리 파라미터와 알고리즘이 여러분의 업무 효율화에 도움이 되길 바랍니다.
+> 안녕하세요, **WHTOOLS**입니다. 본 프레임워크는 단순히 물리 법칙을 모사하는 것을 넘어, 실제 설계 변경에 즉각적인 통찰을 줄 수 있는 **엔지니어링 결과물**을 도출하는 데 최적화되어 있습니다. v4.x의 정교한 지표들이 여러분의 설계 검증 프로세스에 강력한 힘이 되길 바랍니다.
 
 ### ⚙️ Environment Details
-- **Language**: Python 3 (Anaconda)
-- **Engine**: Google DeepMind MuJoCo `mujoco` / `mujoco.viewer`
-- **Output Processors**: `matplotlib.pyplot`, `openpyxl`, `numpy`, `scipy`
+
+- **Engine**: MuJoCo 3.x+ (Google DeepMind)
+- **Environment**: Python 3.11+ (Conda Recommended)
+- **Key Libs**: `mujoco`, `tkinter`, `matplotlib`, `scipy`, `numpy`
 
 ---
+
 Copyright (c) 2026 **WHTOOLS** All rights reserved.
