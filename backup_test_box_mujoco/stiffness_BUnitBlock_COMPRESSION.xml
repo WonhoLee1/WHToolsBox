@@ -1,0 +1,445 @@
+<mujoco model="stiffness_test">
+  <option integrator="implicitfast" timestep="0.001" gravity="0 0 0"><flag contact="enable"/></option>
+  <default>
+    <joint armature="0.01" damping="5.0"/>
+    <geom friction="0.8" solref="0.02 1.0" solimp="0.9 0.95 0.001"/>
+  </default>
+  <worldbody>
+    <light pos="0 0 5" dir="0 0 -1"/>
+    <body name="BUnitBlock">
+      <body name="b_bunitblock_0_0_0" pos="-0.33333 -0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_0_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_0_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_0_1" pos="-0.33333 -0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_0_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_0_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_0_2" pos="-0.33333 -0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_0_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_0_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_0_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_0_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_1_0" pos="-0.33333 0.00000 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_1_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_1_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_1_1" pos="-0.33333 0.00000 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_1_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_1_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_1_2" pos="-0.33333 0.00000 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_1_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_1_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_1_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_1_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_2_0" pos="-0.33333 0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_2_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_2_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_2_1" pos="-0.33333 0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_2_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_2_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_0_2_2" pos="-0.33333 0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_0_2_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_0_2_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_0_2_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_0_2_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_0_0" pos="0.00000 -0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_0_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_0_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_0_1" pos="0.00000 -0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_0_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_0_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_0_2" pos="0.00000 -0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_0_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_0_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_0_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_0_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_1_0" pos="0.00000 0.00000 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_1_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_1_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_1_1" pos="0.00000 0.00000 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037039" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_1_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_1_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_1_2" pos="0.00000 0.00000 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_1_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_1_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_1_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_1_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_2_0" pos="0.00000 0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_2_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_2_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_2_1" pos="0.00000 0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_2_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_2_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_1_2_2" pos="0.00000 0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_1_2_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_1_2_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_1_2_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_1_2_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_0_0" pos="0.33333 -0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_0_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_0_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_0_1" pos="0.33333 -0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_0_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_0_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_0_2" pos="0.33333 -0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_0_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_0_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_0_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_0_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_1_0" pos="0.33333 0.00000 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_1_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_1_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_1_1" pos="0.33333 0.00000 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037038" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_1_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_1_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_1_2" pos="0.33333 0.00000 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_1_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_1_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_1_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_1_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_2_0" pos="0.33333 0.33333 -0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_2_0_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_0_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_0_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_0_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_0_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_2_0_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_2_1" pos="0.33333 0.33333 0.00000">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037037" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_2_1_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_1_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_1_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_1_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_1_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_2_1_NZ" pos="0 0 -0.16667"/>
+      </body>
+      <body name="b_bunitblock_2_2_2" pos="0.33333 0.33333 0.33333">
+        <joint type="slide" axis="1 0 0"/>
+        <joint type="slide" axis="0 1 0"/>
+        <joint type="slide" axis="0 0 1"/>
+        <joint type="ball"/>
+        <geom type="box" size="0.16667 0.16667 0.16667" mass="0.037036" rgba="0.9 0.9 0.9 0.5" contype="2" conaffinity="5" friction="0.8" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <site name="s_BUnitBlock_2_2_2_PX" pos="0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_2_NX" pos="-0.16667 0 0"/>
+        <site name="s_BUnitBlock_2_2_2_PY" pos="0 0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_2_NY" pos="0 -0.16667 0"/>
+        <site name="s_BUnitBlock_2_2_2_PZ" pos="0 0 0.16667"/>
+        <site name="s_BUnitBlock_2_2_2_NZ" pos="0 0 -0.16667"/>
+      </body>
+    </body>
+    <body name="clamp_B" pos="0 0 -0.511"><geom type="box" size="0.5 0.5 0.01" rgba="1 0 0 0.5" contype="0" conaffinity="0"/></body>
+    <body name="ram" pos="0 0 0.511">
+      <joint name="ram_z" type="slide" axis="0 0 1"/>
+      <geom type="box" size="0.5 0.5 0.01" rgba="0 1 0 0.5" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="act_ram" joint="ram_z" kp="200000000" kv="100000"/>
+  </actuator>
+  <equality>
+        <weld site1="s_BUnitBlock_0_0_0_PX" site2="s_BUnitBlock_1_0_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_0_PY" site2="s_BUnitBlock_0_1_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_0_PZ" site2="s_BUnitBlock_0_0_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_1_PX" site2="s_BUnitBlock_1_0_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_1_PY" site2="s_BUnitBlock_0_1_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_1_PZ" site2="s_BUnitBlock_0_0_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_2_PX" site2="s_BUnitBlock_1_0_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_0_2_PY" site2="s_BUnitBlock_0_1_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_0_PX" site2="s_BUnitBlock_1_1_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_0_PY" site2="s_BUnitBlock_0_2_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_0_PZ" site2="s_BUnitBlock_0_1_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_1_PX" site2="s_BUnitBlock_1_1_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_1_PY" site2="s_BUnitBlock_0_2_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_1_PZ" site2="s_BUnitBlock_0_1_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_2_PX" site2="s_BUnitBlock_1_1_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_1_2_PY" site2="s_BUnitBlock_0_2_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_2_0_PX" site2="s_BUnitBlock_1_2_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_2_0_PZ" site2="s_BUnitBlock_0_2_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_2_1_PX" site2="s_BUnitBlock_1_2_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_2_1_PZ" site2="s_BUnitBlock_0_2_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_0_2_2_PX" site2="s_BUnitBlock_1_2_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_0_PX" site2="s_BUnitBlock_2_0_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_0_PY" site2="s_BUnitBlock_1_1_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_0_PZ" site2="s_BUnitBlock_1_0_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_1_PX" site2="s_BUnitBlock_2_0_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_1_PY" site2="s_BUnitBlock_1_1_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_1_PZ" site2="s_BUnitBlock_1_0_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_2_PX" site2="s_BUnitBlock_2_0_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_0_2_PY" site2="s_BUnitBlock_1_1_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_0_PX" site2="s_BUnitBlock_2_1_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_0_PY" site2="s_BUnitBlock_1_2_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_0_PZ" site2="s_BUnitBlock_1_1_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_1_PX" site2="s_BUnitBlock_2_1_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_1_PY" site2="s_BUnitBlock_1_2_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_1_PZ" site2="s_BUnitBlock_1_1_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_2_PX" site2="s_BUnitBlock_2_1_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_1_2_PY" site2="s_BUnitBlock_1_2_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_2_0_PX" site2="s_BUnitBlock_2_2_0_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_2_0_PZ" site2="s_BUnitBlock_1_2_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_2_1_PX" site2="s_BUnitBlock_2_2_1_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_2_1_PZ" site2="s_BUnitBlock_1_2_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_1_2_2_PX" site2="s_BUnitBlock_2_2_2_NX" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_0_0_PY" site2="s_BUnitBlock_2_1_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_0_0_PZ" site2="s_BUnitBlock_2_0_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_0_1_PY" site2="s_BUnitBlock_2_1_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_0_1_PZ" site2="s_BUnitBlock_2_0_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_0_2_PY" site2="s_BUnitBlock_2_1_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_1_0_PY" site2="s_BUnitBlock_2_2_0_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_1_0_PZ" site2="s_BUnitBlock_2_1_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_1_1_PY" site2="s_BUnitBlock_2_2_1_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_1_1_PZ" site2="s_BUnitBlock_2_1_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_1_2_PY" site2="s_BUnitBlock_2_2_2_NY" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_2_0_PZ" site2="s_BUnitBlock_2_2_1_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+        <weld site1="s_BUnitBlock_2_2_1_PZ" site2="s_BUnitBlock_2_2_2_NZ" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_0_0_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_0_0_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_0_1_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_0_1_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_0_2_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_0_2_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_1_0_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_1_0_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_1_1_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_1_1_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_1_2_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_1_2_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_2_0_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_2_0_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_2_1_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_2_1_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="clamp_B" body2="b_bunitblock_2_2_0" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+    <weld body1="ram" body2="b_bunitblock_2_2_2" solref="2.137679884733914 0.029221532980609206" solimp="0.006535260076180927 0.20329863348244356 0.002904285626645951 0.2325599963959532 3.3014774263521036"/>
+  </equality>
+</mujoco>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WHTOOLS Structural Metrics Theory (v4.0)</title>
+    <!-- MathJax for rendering equations -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; }
+        .container { background-color: #ffffff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #2980b9; margin-top: 30px; }
+        h3 { color: #34495e; }
+        .callout { background-color: #ebf5fb; border-left: 5px solid #3498db; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        .callout strong { color: #2980b9; }
+        .img-container { text-align: center; margin: 30px 0; }
+        .img-container img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        .formula { background-color: #fcfcfc; padding: 10px; border: 1px solid #eee; border-radius: 5px; margin: 15px 0; overflow-x: auto; }
+        .references { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #555; }
+        .references li { margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WHTOOLS Structural Analysis Metrics (v4.0) - Theoretical Background</h1>
+        
+        <p>안녕하세요, <strong>WHTOOLS</strong>입니다.</p>
+        <p>본 문서는 WHTOOLS TVPackageMotionSim v4에 적용된 구조 해석 지표(Structural Metrics)의 공학적 정의, 상세 수식 및 이론적 배경을 기술합니다. 시뮬레이션된 다물체 역학(Multibody Dynamics, MBD) 결과를 기반으로, 유한요소해석(FEA) 수준의 재료 역학적 응력(Stress)과 변형 에너지(Strain Energy)를 역산하여 패키징의 신뢰성을 판단할 수 있는 정량적 지표를 제공합니다.</p>
+
+        <div class="callout">
+            <p><strong>💡 Note:</strong> 본 모델에 적용된 응력 및 에너지 환산은 Euler-Bernoulli 보 이론과 일반화된 Hooke의 법칙을 기초로 하며, <code>solref</code>를 통한 등가 강성 치환 모델을 차용하였습니다.</p>
+        </div>
+
+        <h2>1. 개념 시각화 (Concept Visualization)</h2>
+        <div class="img-container">
+            <img src="file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/dev_log/str_metrics_overview_premium.png" alt="Structural Metrics Concept">
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-top: 10px;">Fig 1. TV 포장 상자 및 완충재(Cushion) 낙하 충격 시 응력 집중(Stress Concentration) 및 주 굽힘 축(PBA) 개념도</p>
+        </div>
+
+        <h2>2. 국부 지표 (Local Metrics)</h2>
+        <p>개별 요소(Geom/Block) 단위의 극한값을 추적하여, 파손이 가장 먼저 발생할 수 있는 취약 지점을 찾아내는 지표입니다.</p>
+
+        <h3>2.1. 굽힘 응력 및 모멘트 (Bending Stress & Moment)</h3>
+        <div class="img-container">
+            <img src="file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/dev_log/str_metrics_bs_premium.png" alt="Bending Stress">
+        </div>
+        <p>각 지점에서의 등가 굽힘 모멘트는 회전 강성(\(K_{rot}\))과 굽힘 각도(\(\theta\))에 비례하며, 이를 통해 요소 단면에 걸리는 최대 굽힘 응력(\(\sigma_{bend}\))을 도출합니다.</p>
+        <div class="formula">
+            <p>$$\text{Moment } M = K_{rot} \cdot \theta = \left( \frac{E_{eff} \cdot I}{L} \right) \cdot \theta$$</p>
+            <p>$$\text{Stress } \sigma_{bend} = \frac{M \cdot c}{I} = \frac{E_{eff} \cdot \theta \cdot (t / 2)}{L}$$</p>
+        </div>
+        <p><em>(여기서 \(t\)는 블록의 두께(Thickness) 방향 차원으로, 최외곽 파이버 응력을 산출하는 주요 변수입니다.)</em></p>
+
+        <h3>2.2. 비틀림 응력 (Torsional Stress)</h3>
+        <p>로컬 Z축 중심 회전 변형(\(TA\))에 의한 최대 전단 응력(\(\tau_{twist}\))입니다.</p>
+        <div class="formula">
+            <p>$$\tau_{twist} = \frac{T \cdot r}{J} = \frac{(K_{tor} \cdot \theta_{twist}) \cdot r}{J}$$</p>
+        </div>
+
+        <h3>2.3. RRG (Relative Rotation Gradient)</h3>
+        <div class="img-container">
+            <img src="file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/dev_log/str_metrics_rrg_premium.png" alt="RRG Analysis">
+        </div>
+        <p>인접 블록 간의 각도 구배 수치로, 패널 구조에서 국부적인 '꺾임/주름' 발생을 경고합니다.</p>
+        <div class="formula">
+            <p>$$RRG_{i} = \max_{j \in N(i)} \left( \cos^{-1}\left( \frac{\text{Trace}(R_i^T R_j) - 1}{2} \right) \right)$$</p>
+        </div>
+
+        <h2>3. 전역 지표 (Global Mechanics & Energy)</h2>
+        <p>부품 전체(Component)를 아우르는 통계적, 에너지적 거동 지표입니다.</p>
+
+        <h3>3.1. 전단 변형 에너지 (Total Strain Energy, \(TSE\))</h3>
+        <div class="img-container">
+            <img src="file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/dev_log/str_metrics_tse_premium.png" alt="Strain Energy Flow">
+        </div>
+        <p>낙하 충격에 의해 완충재가 흡수한 총 에너지(Joule)입니다. 시뮬레이션에서 쿠션의 감쇠율 및 충격 흡수 효율을 정량적으로 입증하는 데이터로 활용됩니다.</p>
+        <div class="formula">
+            <p>$$U_{Total} = \sum_{i=1}^{N} \left( \frac{1}{2} k_{lin,i} (\Delta x_i)^2 + \frac{1}{2} k_{rot,i} (\theta_i)^2 \right)$$</p>
+        </div>
+
+        <h3>3.2. 주 굽힘 축 (Principal Bending Axis, \(PBA\))</h3>
+        <div class="img-container">
+            <img src="file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/dev_log/str_metrics_pba_premium.png" alt="PBA Visualization">
+        </div>
+        <p>Open Cell 패널을 개별 블록의 회전 벡터 집합체로 보고, 이에 대해 공분산 분석(PCA)을 수행하여 <strong>면내에서 회전된 임의의 주축(Principal Axis)</strong> 중 가장 지배적인 굽힘 모드가 발생하는 방향과 그 크기를 도출합니다. 이는 기하학적인 X, Y축에 국한되지 않고 실제 물리적으로 에너지가 집중되는 굴곡의 방향성을 제시합니다.</p>
+        <div class="formula">
+            <p>$$\mathbf{C} = \frac{1}{N} \sum_{i} \mathbf{u}_i \mathbf{u}_i^T \quad \rightarrow \quad (\mathbf{C} \mathbf{v} = \lambda \mathbf{v}), PBA = \mathbf{v}_{max}$$</p>
+        </div>
+
+        <div class="references">
+            <h3>4. 의존/참조 이론 (References)</h3>
+            <ul>
+                <li>Ugural, A. C., & Fenster, S. K. (2011). <em>Advanced Mechanics of Materials and Applied Elasticity</em>. Prentice Hall. (Euler-Bernoulli Beam Theory, Torsion)</li>
+                <li>Belytschko, T., Liu, W. K., Moran, B., & Elkhodary, K. (2013). <em>Nonlinear Finite Elements for Continua and Structures</em>. John Wiley & Sons. (Strain Energy Density Formulation)</li>
+                <li>Jolliffe, I. T. (2002). <em>Principal Component Analysis</em>. Springer. (Principal Bending Axis Theory derivation)</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

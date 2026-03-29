@@ -1,0 +1,11 @@
+- [x] `generate_image`를 통한 **Open Cell 패널 중심** 프리미엄 에셋 재생성 (5종)
+    - [x] Bending Stress (BS) - 얇은 Open Cell 유리 패널 굽힘 강조, 순백색 배경
+    - [x] Relative Rotation Gradient (RRG) - Open Cell 유리 표면 미세 변형 진단 샷, 순백색 배경
+    - [x] Principal Bending Axis (PBA) - **면내 임의 회전축** 및 유리 패널 강조, 순백색 배경
+    - [x] Total Strain Energy (TSE) - 패널 레이어 내 에너지 투과/흡수 강조, 순백색 배경
+    - [x] Overview - 박스 내 Open Cell 패널 가시성 강조, 순백색 배경
+- [x] 재생성된 에셋 `dev_log` 폴더로 이동 및 기존 파일 덮어쓰기
+- [x] 이론 문서(Markdown, HTML) PBA 정의 수정 (임의 회전축 개념 명시)
+- [x] 이론 문서 이미지 반영 및 마크다운 린트 수정
+- [x] 최종 검토 및 문서 정돈
+- [x] 마무리 Walkthrough 작성

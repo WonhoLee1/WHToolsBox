@@ -1,0 +1,8 @@
+- [x] Extract utility functions to `whtb_utils.py`
+- [x] Extract configuration logic to `whtb_config.py`
+- [x] Extract base classes to `whtb_base.py`
+- [x] Extract component models to `whtb_models.py`
+- [x] Extract orchestration logic to `whtb_builder.py`
+- [x] Refactor `__init__.py` to use new modules
+- [x] Verify refactored code by generating a test XML
+- [x] Update walkthrough

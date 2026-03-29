@@ -1,0 +1,1429 @@
+<mujoco model="discrete_custom_box">
+  <size memory="512M"/>
+  <option integrator="implicitfast" timestep="0.0013" iterations="50" noslip_iterations="0" tolerance="1e-05" impratio="5.0" gravity="0 0 -9.81" density="1.225" viscosity="1.81e-05">
+    <flag contact="enable"/>
+  </option>
+  <visual>
+    <quality shadowsize="0"/>
+    <global offwidth="0" offheight="0"/>
+    <headlight ambient="0.28 0.28 0.28" diffuse="0.56 0.56 0.56" specular="0.07 0.07 0.07"/>
+    <map znear="0.01"/>
+  </visual>
+
+  <asset>
+    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" 
+             markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="ground_mat" texture="ground_tex" texrepeat="5 5" texuniform="true" reflectance="0.0"/>
+  </asset>
+
+  <default>
+    <joint armature="0.05" damping="1.0"/>
+    <geom friction="0.8" solref="0.02 1.0" solimp="0.1 0.95 0.005"/>
+    <default class="weld_bpaperbox">
+      <equality solref="0.01 1.0" solimp="0.1 0.95 0.005 0.5 2"/>
+    </default>
+    <default class="contact_bpaperbox">
+      <geom solref="0.01 1.0" solimp="0.1 0.95 0.005 0.5 2" contype="1" conaffinity="30" group="0" friction="0.8" rgba="0.7 0.6 0.4 0.9"/>
+    </default>
+    <default class="weld_bcushion">
+      <equality solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
+    </default>
+    <default class="weld_bcushion_corner">
+      <equality solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
+    </default>
+    <default class="contact_bcushion">
+      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+    </default>
+    <default class="contact_bcushion_edge">
+      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+    </default>
+    <default class="weld_bopencell">
+      <equality solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0"/>
+    </default>
+    <default class="contact_bopencell">
+      <geom solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0" contype="4" conaffinity="3" group="2" friction="0.8" rgba="0.1 0.1 0.1 1.0"/>
+    </default>
+    <default class="weld_bopencellcohesive">
+      <equality solref="0.01 1.0" solimp="0.1 0.99 0.001 0.5 2.0"/>
+    </default>
+    <default class="contact_bopencellcohesive">
+      <geom solref="0.01 1.0" solimp="0.1 0.99 0.001 0.5 2.0" contype="8" conaffinity="3" group="2" friction="0.8" rgba="1.0 0.1 0.1 0.8"/>
+    </default>
+    <default class="weld_bchassis">
+      <equality solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0"/>
+    </default>
+    <default class="contact_bchassis">
+      <geom solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0" contype="16" conaffinity="3" group="2" friction="0.8" rgba="0.1 0.5 0.8 1.0"/>
+    </default>
+    <default class="weld_bauxboxmass">
+      <equality solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0"/>
+    </default>
+    <default class="contact_bauxboxmass">
+      <geom solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0" contype="0" conaffinity="0" group="3" friction="0.8" rgba="1 0 0 0.4"/>
+    </default>
+    <default class="weld_aux">
+      <equality solref="0.002 1.0" solimp="0.9 0.999 0.001"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>
+    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="0.49 0.49 0.49" ambient="0.21 0.21 0.21" castshadow="false"/>
+    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="0.21 0.21 0.21" castshadow="false"/>
+    <geom name="ground" type="plane" size="10 10 0.1" friction="0.1" contype="1" conaffinity="1" group="0" material="ground_mat" solref="0.001 0.0001" solimp="0.1 0.95 0.001 0.5 2"/>
+    <body name="BPackagingBox" pos="0.00000 0.00000 1.57643" axisangle="0.5139 0.8578 0.0000 85.4709">
+      <freejoint/>
+      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>
+      <body name="BCushion">
+        <body name="b_bcushion_0_0_0" pos="-0.87625 -0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_0_0" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_0_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_0_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_0_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_0_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_0_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_0_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_0_1" pos="-0.87625 -0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_0_1" type="box" size="0.03625 0.02925 0.04250" mass="0.005431" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_0_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_0_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_0_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_0_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_0_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_0_0_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_0_0_2" pos="-0.87625 -0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_0_2" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_0_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_0_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_0_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_0_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_0_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_0_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_1_0" pos="-0.87625 -0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_1_0" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_1_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_1_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_1_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_1_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_1_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_1_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_1_1" pos="-0.87625 -0.37838 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_1_1" type="box" size="0.03625 0.10662 0.04250" mass="0.019797" class="contact_bcushion"/>
+          <site name="s_BCushion_0_1_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_1_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_1_1_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_1_1_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_1_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_0_1_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_0_1_2" pos="-0.87625 -0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_1_2" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_1_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_1_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_1_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_1_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_1_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_1_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_2_0" pos="-0.87625 0.00000 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_2_0" type="box" size="0.03625 0.27175 0.01725" mass="0.020479" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_2_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_2_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_2_0_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_0_2_0_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_0_2_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_2_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_2_1" pos="-0.87625 0.00000 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_2_1" type="box" size="0.03625 0.27175 0.04250" mass="0.050455" class="contact_bcushion"/>
+          <site name="s_BCushion_0_2_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_2_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_2_1_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_0_2_1_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_0_2_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_0_2_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_0_2_2" pos="-0.87625 0.00000 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_2_2" type="box" size="0.03625 0.27175 0.01725" mass="0.020479" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_2_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_2_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_2_2_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_0_2_2_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_0_2_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_2_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_3_0" pos="-0.87625 0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_3_0" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_3_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_3_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_3_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_3_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_3_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_3_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_3_1" pos="-0.87625 0.37838 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_3_1" type="box" size="0.03625 0.10662 0.04250" mass="0.019797" class="contact_bcushion"/>
+          <site name="s_BCushion_0_3_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_3_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_3_1_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_3_1_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_3_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_0_3_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_0_3_2" pos="-0.87625 0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_3_2" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_3_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_3_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_3_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_0_3_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_0_3_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_3_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_4_0" pos="-0.87625 0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_4_0" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_4_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_4_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_4_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_4_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_4_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_4_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_0_4_1" pos="-0.87625 0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_4_1" type="box" size="0.03625 0.02925 0.04250" mass="0.005431" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_4_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_4_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_4_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_4_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_4_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_0_4_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_0_4_2" pos="-0.87625 0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_0_4_2" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_0_4_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_0_4_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_0_4_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_0_4_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_0_4_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_0_4_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_0_0" pos="-0.64812 -0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_0_0" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_1_0_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_0_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_0_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_0_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_0_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_0_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_0_1" pos="-0.64812 -0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_0_1" type="box" size="0.19187 0.02925 0.04250" mass="0.028745" class="contact_bcushion"/>
+          <site name="s_BCushion_1_0_1_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_0_1_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_0_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_0_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_0_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_1_0_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_1_0_2" pos="-0.64812 -0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_0_2" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_1_0_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_0_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_0_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_0_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_0_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_0_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_1_0" pos="-0.64812 -0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_1_0" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_1_1_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_1_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_1_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_1_1_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_1_1_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_1_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_1_2" pos="-0.64812 -0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_1_2" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_1_1_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_1_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_1_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_1_1_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_1_1_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_1_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_2_0" pos="-0.64812 0.00000 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_2_0" type="box" size="0.19187 0.27175 0.01725" mass="0.108396" class="contact_bcushion"/>
+          <site name="s_BCushion_1_2_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_2_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_2_0_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_1_2_0_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_1_2_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_2_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_2_2" pos="-0.64812 0.00000 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_2_2" type="box" size="0.19187 0.27175 0.01725" mass="0.108396" class="contact_bcushion"/>
+          <site name="s_BCushion_1_2_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_2_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_2_2_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_1_2_2_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_1_2_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_2_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_3_0" pos="-0.64812 0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_3_0" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_1_3_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_3_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_3_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_1_3_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_1_3_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_3_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_3_2" pos="-0.64812 0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_3_2" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_1_3_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_3_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_3_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_1_3_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_1_3_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_3_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_4_0" pos="-0.64812 0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_4_0" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_1_4_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_4_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_4_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_4_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_4_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_4_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_1_4_1" pos="-0.64812 0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_4_1" type="box" size="0.19187 0.02925 0.04250" mass="0.028745" class="contact_bcushion"/>
+          <site name="s_BCushion_1_4_1_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_4_1_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_4_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_4_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_4_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_1_4_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_1_4_2" pos="-0.64812 0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_1_4_2" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_1_4_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_1_4_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_1_4_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_1_4_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_1_4_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_1_4_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_0_0" pos="0.00000 -0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_0_0" type="box" size="0.45625 0.02925 0.01725" mass="0.027743" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_2_0_0_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_0_0_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_0_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_0_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_0_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_0_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_0_1" pos="0.00000 -0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_0_1" type="box" size="0.45625 0.02925 0.04250" mass="0.068352" class="contact_bcushion"/>
+          <site name="s_BCushion_2_0_1_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_0_1_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_0_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_0_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_0_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_2_0_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_2_0_2" pos="0.00000 -0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_0_2" type="box" size="0.45625 0.02925 0.01725" mass="0.027743" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_2_0_2_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_0_2_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_0_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_0_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_0_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_0_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_1_0" pos="0.00000 -0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_1_0" type="box" size="0.45625 0.10662 0.01725" mass="0.101132" class="contact_bcushion"/>
+          <site name="s_BCushion_2_1_0_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_1_0_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_1_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_2_1_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_2_1_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_1_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_1_2" pos="0.00000 -0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_1_2" type="box" size="0.45625 0.10662 0.01725" mass="0.101132" class="contact_bcushion"/>
+          <site name="s_BCushion_2_1_2_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_1_2_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_1_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_2_1_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_2_1_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_1_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_3_0" pos="0.00000 0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_3_0" type="box" size="0.45625 0.10662 0.01725" mass="0.101132" class="contact_bcushion"/>
+          <site name="s_BCushion_2_3_0_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_3_0_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_3_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_2_3_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_2_3_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_3_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_3_2" pos="0.00000 0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_3_2" type="box" size="0.45625 0.10662 0.01725" mass="0.101132" class="contact_bcushion"/>
+          <site name="s_BCushion_2_3_2_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_3_2_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_3_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_2_3_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_2_3_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_3_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_4_0" pos="0.00000 0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_4_0" type="box" size="0.45625 0.02925 0.01725" mass="0.027743" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_2_4_0_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_4_0_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_4_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_4_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_4_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_4_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_2_4_1" pos="0.00000 0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_4_1" type="box" size="0.45625 0.02925 0.04250" mass="0.068352" class="contact_bcushion"/>
+          <site name="s_BCushion_2_4_1_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_4_1_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_4_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_4_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_4_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_2_4_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_2_4_2" pos="0.00000 0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_2_4_2" type="box" size="0.45625 0.02925 0.01725" mass="0.027743" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_2_4_2_PX" pos="0.45625 0 0"/>
+          <site name="s_BCushion_2_4_2_NX" pos="-0.45625 0 0"/>
+          <site name="s_BCushion_2_4_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_2_4_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_2_4_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_2_4_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_0_0" pos="0.64812 -0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_0_0" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_3_0_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_0_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_0_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_0_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_0_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_0_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_0_1" pos="0.64812 -0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_0_1" type="box" size="0.19187 0.02925 0.04250" mass="0.028745" class="contact_bcushion"/>
+          <site name="s_BCushion_3_0_1_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_0_1_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_0_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_0_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_0_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_3_0_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_3_0_2" pos="0.64812 -0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_0_2" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_3_0_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_0_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_0_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_0_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_0_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_0_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_1_0" pos="0.64812 -0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_1_0" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_3_1_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_1_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_1_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_3_1_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_3_1_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_1_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_1_2" pos="0.64812 -0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_1_2" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_3_1_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_1_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_1_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_3_1_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_3_1_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_1_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_2_0" pos="0.64812 0.00000 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_2_0" type="box" size="0.19187 0.27175 0.01725" mass="0.108396" class="contact_bcushion"/>
+          <site name="s_BCushion_3_2_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_2_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_2_0_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_3_2_0_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_3_2_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_2_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_2_2" pos="0.64812 0.00000 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_2_2" type="box" size="0.19187 0.27175 0.01725" mass="0.108396" class="contact_bcushion"/>
+          <site name="s_BCushion_3_2_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_2_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_2_2_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_3_2_2_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_3_2_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_2_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_3_0" pos="0.64812 0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_3_0" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_3_3_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_3_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_3_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_3_3_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_3_3_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_3_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_3_2" pos="0.64812 0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_3_2" type="box" size="0.19187 0.10662 0.01725" mass="0.042531" class="contact_bcushion"/>
+          <site name="s_BCushion_3_3_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_3_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_3_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_3_3_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_3_3_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_3_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_4_0" pos="0.64812 0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_4_0" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_3_4_0_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_4_0_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_4_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_4_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_4_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_4_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_3_4_1" pos="0.64812 0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_4_1" type="box" size="0.19187 0.02925 0.04250" mass="0.028745" class="contact_bcushion"/>
+          <site name="s_BCushion_3_4_1_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_4_1_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_4_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_4_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_4_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_3_4_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_3_4_2" pos="0.64812 0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_3_4_2" type="box" size="0.19187 0.02925 0.01725" mass="0.011667" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_3_4_2_PX" pos="0.19187 0 0"/>
+          <site name="s_BCushion_3_4_2_NX" pos="-0.19187 0 0"/>
+          <site name="s_BCushion_3_4_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_3_4_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_3_4_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_3_4_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_0_0" pos="0.87625 -0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_0_0" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_0_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_0_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_0_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_0_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_0_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_0_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_0_1" pos="0.87625 -0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_0_1" type="box" size="0.03625 0.02925 0.04250" mass="0.005431" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_0_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_0_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_0_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_0_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_0_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_4_0_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_4_0_2" pos="0.87625 -0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_0_2" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_0_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_0_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_0_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_0_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_0_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_0_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_1_0" pos="0.87625 -0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_1_0" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_1_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_1_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_1_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_1_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_1_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_1_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_1_1" pos="0.87625 -0.37838 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_1_1" type="box" size="0.03625 0.10662 0.04250" mass="0.019797" class="contact_bcushion"/>
+          <site name="s_BCushion_4_1_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_1_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_1_1_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_1_1_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_1_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_4_1_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_4_1_2" pos="0.87625 -0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_1_2" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_1_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_1_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_1_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_1_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_1_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_1_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_2_0" pos="0.87625 0.00000 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_2_0" type="box" size="0.03625 0.27175 0.01725" mass="0.020479" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_2_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_2_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_2_0_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_4_2_0_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_4_2_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_2_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_2_1" pos="0.87625 0.00000 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_2_1" type="box" size="0.03625 0.27175 0.04250" mass="0.050455" class="contact_bcushion"/>
+          <site name="s_BCushion_4_2_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_2_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_2_1_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_4_2_1_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_4_2_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_4_2_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_4_2_2" pos="0.87625 0.00000 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_2_2" type="box" size="0.03625 0.27175 0.01725" mass="0.020479" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_2_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_2_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_2_2_PY" pos="0 0.27175 0"/>
+          <site name="s_BCushion_4_2_2_NY" pos="0 -0.27175 0"/>
+          <site name="s_BCushion_4_2_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_2_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_3_0" pos="0.87625 0.37838 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_3_0" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_3_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_3_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_3_0_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_3_0_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_3_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_3_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_3_1" pos="0.87625 0.37838 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_3_1" type="box" size="0.03625 0.10662 0.04250" mass="0.019797" class="contact_bcushion"/>
+          <site name="s_BCushion_4_3_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_3_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_3_1_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_3_1_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_3_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_4_3_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_4_3_2" pos="0.87625 0.37838 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_3_2" type="box" size="0.03625 0.10662 0.01725" mass="0.008035" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_3_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_3_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_3_2_PY" pos="0 0.10662 0"/>
+          <site name="s_BCushion_4_3_2_NY" pos="0 -0.10662 0"/>
+          <site name="s_BCushion_4_3_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_3_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_4_0" pos="0.87625 0.51425 -0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_4_0" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_4_0_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_4_0_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_4_0_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_4_0_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_4_0_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_4_0_NZ" pos="0 0 -0.01725"/>
+        </body>
+        <body name="b_bcushion_4_4_1" pos="0.87625 0.51425 0.00000">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_4_1" type="box" size="0.03625 0.02925 0.04250" mass="0.005431" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_4_1_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_4_1_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_4_1_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_4_1_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_4_1_PZ" pos="0 0 0.04250"/>
+          <site name="s_BCushion_4_4_1_NZ" pos="0 0 -0.04250"/>
+        </body>
+        <body name="b_bcushion_4_4_2" pos="0.87625 0.51425 0.05975">
+          <joint type="slide" axis="1 0 0"/>
+          <joint type="slide" axis="0 1 0"/>
+          <joint type="slide" axis="0 0 1"/>
+          <joint type="ball"/>
+          <geom name="g_bcushion_4_4_2" type="box" size="0.03625 0.02925 0.01725" mass="0.002204" class="contact_bcushion_edge"/>
+          <site name="s_BCushion_4_4_2_PX" pos="0.03625 0 0"/>
+          <site name="s_BCushion_4_4_2_NX" pos="-0.03625 0 0"/>
+          <site name="s_BCushion_4_4_2_PY" pos="0 0.02925 0"/>
+          <site name="s_BCushion_4_4_2_NY" pos="0 -0.02925 0"/>
+          <site name="s_BCushion_4_4_2_PZ" pos="0 0 0.01725"/>
+          <site name="s_BCushion_4_4_2_NZ" pos="0 0 -0.01725"/>
+        </body>
+      </body>
+      <body name="AssySet">
+        <body name="BOpenCell">
+          <body name="b_bopencell_0_0_0" pos="-0.81000 -0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_0_0_0" type="box" size="0.02500 0.02500 0.01000" mass="0.007797" class="contact_bopencell"/>
+            <site name="s_BOpenCell_0_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_0_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_0_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_0_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_0_0_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_0_0_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_0_1_0" pos="-0.81000 0.00000 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_0_1_0" type="box" size="0.02500 0.43000 0.01000" mass="0.134107" class="contact_bopencell"/>
+            <site name="s_BOpenCell_0_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_0_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_0_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BOpenCell_0_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BOpenCell_0_1_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_0_1_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_0_2_0" pos="-0.81000 0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_0_2_0" type="box" size="0.02500 0.02500 0.01000" mass="0.007797" class="contact_bopencell"/>
+            <site name="s_BOpenCell_0_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_0_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_0_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_0_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_0_2_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_0_2_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_1_0_0" pos="0.00000 -0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_1_0_0" type="box" size="0.78500 0.02500 0.01000" mass="0.244823" class="contact_bopencell"/>
+            <site name="s_BOpenCell_1_0_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BOpenCell_1_0_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BOpenCell_1_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_1_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_1_0_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_1_0_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_1_1_0" pos="0.00000 0.00000 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_1_1_0" type="box" size="0.78500 0.43000 0.01000" mass="4.210953" class="contact_bopencell"/>
+            <site name="s_BOpenCell_1_1_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BOpenCell_1_1_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BOpenCell_1_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BOpenCell_1_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BOpenCell_1_1_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_1_1_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_1_2_0" pos="0.00000 0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_1_2_0" type="box" size="0.78500 0.02500 0.01000" mass="0.244823" class="contact_bopencell"/>
+            <site name="s_BOpenCell_1_2_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BOpenCell_1_2_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BOpenCell_1_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_1_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_1_2_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_1_2_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_2_0_0" pos="0.81000 -0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_2_0_0" type="box" size="0.02500 0.02500 0.01000" mass="0.007797" class="contact_bopencell"/>
+            <site name="s_BOpenCell_2_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_2_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_2_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_2_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_2_0_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_2_0_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_2_1_0" pos="0.81000 0.00000 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_2_1_0" type="box" size="0.02500 0.43000 0.01000" mass="0.134107" class="contact_bopencell"/>
+            <site name="s_BOpenCell_2_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_2_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_2_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BOpenCell_2_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BOpenCell_2_1_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_2_1_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+          <body name="b_bopencell_2_2_0" pos="0.81000 0.45500 0.02750">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencell_2_2_0" type="box" size="0.02500 0.02500 0.01000" mass="0.007797" class="contact_bopencell"/>
+            <site name="s_BOpenCell_2_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCell_2_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCell_2_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCell_2_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCell_2_2_0_PZ" pos="0 0 0.01000"/>
+            <site name="s_BOpenCell_2_2_0_NZ" pos="0 0 -0.01000"/>
+          </body>
+        </body>
+        <body name="BOpenCellCohesive">
+          <body name="b_bopencellcohesive_0_0_0" pos="-0.81000 -0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_0_0_0" type="box" size="0.02500 0.02500 0.00250" mass="0.000988" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_0_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_0_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_0_0_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_0_0_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_0_1_0" pos="-0.81000 0.00000 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_0_1_0" type="box" size="0.02500 0.43000 0.00250" mass="0.016996" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_0_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BOpenCellCohesive_0_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BOpenCellCohesive_0_1_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_0_1_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_0_2_0" pos="-0.81000 0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_0_2_0" type="box" size="0.02500 0.02500 0.00250" mass="0.000988" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_0_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_0_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_0_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_0_2_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_0_2_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_1_0_0" pos="0.00000 -0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_1_0_0" type="box" size="0.78500 0.02500 0.00250" mass="0.031028" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_1_0_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BOpenCellCohesive_1_0_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BOpenCellCohesive_1_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_1_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_1_0_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_1_0_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_1_2_0" pos="0.00000 0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_1_2_0" type="box" size="0.78500 0.02500 0.00250" mass="0.031028" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_1_2_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BOpenCellCohesive_1_2_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BOpenCellCohesive_1_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_1_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_1_2_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_1_2_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_2_0_0" pos="0.81000 -0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_2_0_0" type="box" size="0.02500 0.02500 0.00250" mass="0.000988" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_2_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_2_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_2_0_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_2_0_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_2_1_0" pos="0.81000 0.00000 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_2_1_0" type="box" size="0.02500 0.43000 0.00250" mass="0.016996" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_2_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BOpenCellCohesive_2_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BOpenCellCohesive_2_1_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_2_1_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+          <body name="b_bopencellcohesive_2_2_0" pos="0.81000 0.45500 0.01500">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bopencellcohesive_2_2_0" type="box" size="0.02500 0.02500 0.00250" mass="0.000988" class="contact_bopencellcohesive"/>
+            <site name="s_BOpenCellCohesive_2_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BOpenCellCohesive_2_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BOpenCellCohesive_2_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BOpenCellCohesive_2_2_0_PZ" pos="0 0 0.00250"/>
+            <site name="s_BOpenCellCohesive_2_2_0_NZ" pos="0 0 -0.00250"/>
+          </body>
+        </body>
+        <body name="BChassis">
+          <body name="b_bchassis_0_0_0" pos="-0.81000 -0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_0_0_0" type="box" size="0.02500 0.02500 0.02500" mass="0.015594" class="contact_bchassis"/>
+            <site name="s_BChassis_0_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_0_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_0_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_0_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_0_0_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_0_0_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_0_1_0" pos="-0.81000 0.00000 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_0_1_0" type="box" size="0.02500 0.43000 0.02500" mass="0.268214" class="contact_bchassis"/>
+            <site name="s_BChassis_0_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_0_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_0_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BChassis_0_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BChassis_0_1_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_0_1_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_0_2_0" pos="-0.81000 0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_0_2_0" type="box" size="0.02500 0.02500 0.02500" mass="0.015594" class="contact_bchassis"/>
+            <site name="s_BChassis_0_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_0_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_0_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_0_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_0_2_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_0_2_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_1_0_0" pos="0.00000 -0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_1_0_0" type="box" size="0.78500 0.02500 0.02500" mass="0.489646" class="contact_bchassis"/>
+            <site name="s_BChassis_1_0_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BChassis_1_0_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BChassis_1_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_1_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_1_0_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_1_0_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_1_1_0" pos="0.00000 0.00000 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_1_1_0" type="box" size="0.78500 0.43000 0.02500" mass="8.421906" class="contact_bchassis"/>
+            <site name="s_BChassis_1_1_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BChassis_1_1_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BChassis_1_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BChassis_1_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BChassis_1_1_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_1_1_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_1_2_0" pos="0.00000 0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_1_2_0" type="box" size="0.78500 0.02500 0.02500" mass="0.489646" class="contact_bchassis"/>
+            <site name="s_BChassis_1_2_0_PX" pos="0.78500 0 0"/>
+            <site name="s_BChassis_1_2_0_NX" pos="-0.78500 0 0"/>
+            <site name="s_BChassis_1_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_1_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_1_2_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_1_2_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_2_0_0" pos="0.81000 -0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_2_0_0" type="box" size="0.02500 0.02500 0.02500" mass="0.015594" class="contact_bchassis"/>
+            <site name="s_BChassis_2_0_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_2_0_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_2_0_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_2_0_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_2_0_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_2_0_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_2_1_0" pos="0.81000 0.00000 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_2_1_0" type="box" size="0.02500 0.43000 0.02500" mass="0.268214" class="contact_bchassis"/>
+            <site name="s_BChassis_2_1_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_2_1_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_2_1_0_PY" pos="0 0.43000 0"/>
+            <site name="s_BChassis_2_1_0_NY" pos="0 -0.43000 0"/>
+            <site name="s_BChassis_2_1_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_2_1_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+          <body name="b_bchassis_2_2_0" pos="0.81000 0.45500 -0.01250">
+            <joint type="slide" axis="1 0 0"/>
+            <joint type="slide" axis="0 1 0"/>
+            <joint type="slide" axis="0 0 1"/>
+            <joint type="ball"/>
+            <geom name="g_bchassis_2_2_0" type="box" size="0.02500 0.02500 0.02500" mass="0.015594" class="contact_bchassis"/>
+            <site name="s_BChassis_2_2_0_PX" pos="0.02500 0 0"/>
+            <site name="s_BChassis_2_2_0_NX" pos="-0.02500 0 0"/>
+            <site name="s_BChassis_2_2_0_PY" pos="0 0.02500 0"/>
+            <site name="s_BChassis_2_2_0_NY" pos="0 -0.02500 0"/>
+            <site name="s_BChassis_2_2_0_PZ" pos="0 0 0.02500"/>
+            <site name="s_BChassis_2_2_0_NZ" pos="0 0 -0.02500"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <equality>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_0_PX" site2="s_BCushion_1_0_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_0_PY" site2="s_BCushion_0_1_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_0_PZ" site2="s_BCushion_0_0_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_1_PX" site2="s_BCushion_1_0_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_1_PY" site2="s_BCushion_0_1_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_1_PZ" site2="s_BCushion_0_0_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_2_PX" site2="s_BCushion_1_0_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_0_2_PY" site2="s_BCushion_0_1_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_0_PX" site2="s_BCushion_1_1_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_0_PY" site2="s_BCushion_0_2_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_0_PZ" site2="s_BCushion_0_1_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_0_1_1_PY" site2="s_BCushion_0_2_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_1_PZ" site2="s_BCushion_0_1_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_2_PX" site2="s_BCushion_1_1_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_1_2_PY" site2="s_BCushion_0_2_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_0_PX" site2="s_BCushion_1_2_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_0_PY" site2="s_BCushion_0_3_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_0_PZ" site2="s_BCushion_0_2_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_0_2_1_PY" site2="s_BCushion_0_3_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_1_PZ" site2="s_BCushion_0_2_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_2_PX" site2="s_BCushion_1_2_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_2_2_PY" site2="s_BCushion_0_3_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_0_PX" site2="s_BCushion_1_3_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_0_PY" site2="s_BCushion_0_4_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_0_PZ" site2="s_BCushion_0_3_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_1_PY" site2="s_BCushion_0_4_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_1_PZ" site2="s_BCushion_0_3_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_2_PX" site2="s_BCushion_1_3_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_3_2_PY" site2="s_BCushion_0_4_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_4_0_PX" site2="s_BCushion_1_4_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_4_0_PZ" site2="s_BCushion_0_4_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_4_1_PX" site2="s_BCushion_1_4_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_4_1_PZ" site2="s_BCushion_0_4_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_0_4_2_PX" site2="s_BCushion_1_4_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_0_PX" site2="s_BCushion_2_0_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_0_PY" site2="s_BCushion_1_1_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_0_PZ" site2="s_BCushion_1_0_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_0_1_PX" site2="s_BCushion_2_0_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_1_PZ" site2="s_BCushion_1_0_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_2_PX" site2="s_BCushion_2_0_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_0_2_PY" site2="s_BCushion_1_1_2_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_1_0_PX" site2="s_BCushion_2_1_0_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_1_0_PY" site2="s_BCushion_1_2_0_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_1_2_PX" site2="s_BCushion_2_1_2_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_1_2_PY" site2="s_BCushion_1_2_2_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_2_0_PY" site2="s_BCushion_1_3_0_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_2_2_PY" site2="s_BCushion_1_3_2_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_3_0_PX" site2="s_BCushion_2_3_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_3_0_PY" site2="s_BCushion_1_4_0_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_3_2_PX" site2="s_BCushion_2_3_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_3_2_PY" site2="s_BCushion_1_4_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_4_0_PX" site2="s_BCushion_2_4_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_4_0_PZ" site2="s_BCushion_1_4_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_1_4_1_PX" site2="s_BCushion_2_4_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_4_1_PZ" site2="s_BCushion_1_4_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_1_4_2_PX" site2="s_BCushion_2_4_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_0_PX" site2="s_BCushion_3_0_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_0_PY" site2="s_BCushion_2_1_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_0_PZ" site2="s_BCushion_2_0_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_0_1_PX" site2="s_BCushion_3_0_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_1_PZ" site2="s_BCushion_2_0_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_2_PX" site2="s_BCushion_3_0_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_0_2_PY" site2="s_BCushion_2_1_2_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_1_0_PX" site2="s_BCushion_3_1_0_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_1_2_PX" site2="s_BCushion_3_1_2_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_3_0_PX" site2="s_BCushion_3_3_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_3_0_PY" site2="s_BCushion_2_4_0_NY"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_3_2_PX" site2="s_BCushion_3_3_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_3_2_PY" site2="s_BCushion_2_4_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_4_0_PX" site2="s_BCushion_3_4_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_4_0_PZ" site2="s_BCushion_2_4_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_2_4_1_PX" site2="s_BCushion_3_4_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_4_1_PZ" site2="s_BCushion_2_4_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_2_4_2_PX" site2="s_BCushion_3_4_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_0_PX" site2="s_BCushion_4_0_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_0_PY" site2="s_BCushion_3_1_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_0_PZ" site2="s_BCushion_3_0_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_1_PX" site2="s_BCushion_4_0_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_1_PZ" site2="s_BCushion_3_0_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_2_PX" site2="s_BCushion_4_0_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_0_2_PY" site2="s_BCushion_3_1_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_1_0_PX" site2="s_BCushion_4_1_0_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_3_1_0_PY" site2="s_BCushion_3_2_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_1_2_PX" site2="s_BCushion_4_1_2_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_3_1_2_PY" site2="s_BCushion_3_2_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_2_0_PX" site2="s_BCushion_4_2_0_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_3_2_0_PY" site2="s_BCushion_3_3_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_2_2_PX" site2="s_BCushion_4_2_2_NX"/>
+        <weld class="weld_bcushion" site1="s_BCushion_3_2_2_PY" site2="s_BCushion_3_3_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_3_0_PX" site2="s_BCushion_4_3_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_3_0_PY" site2="s_BCushion_3_4_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_3_2_PX" site2="s_BCushion_4_3_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_3_2_PY" site2="s_BCushion_3_4_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_4_0_PX" site2="s_BCushion_4_4_0_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_4_0_PZ" site2="s_BCushion_3_4_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_4_1_PX" site2="s_BCushion_4_4_1_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_4_1_PZ" site2="s_BCushion_3_4_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_3_4_2_PX" site2="s_BCushion_4_4_2_NX"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_0_0_PY" site2="s_BCushion_4_1_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_0_0_PZ" site2="s_BCushion_4_0_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_0_1_PY" site2="s_BCushion_4_1_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_0_1_PZ" site2="s_BCushion_4_0_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_0_2_PY" site2="s_BCushion_4_1_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_1_0_PY" site2="s_BCushion_4_2_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_1_0_PZ" site2="s_BCushion_4_1_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_4_1_1_PY" site2="s_BCushion_4_2_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_1_1_PZ" site2="s_BCushion_4_1_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_1_2_PY" site2="s_BCushion_4_2_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_2_0_PY" site2="s_BCushion_4_3_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_2_0_PZ" site2="s_BCushion_4_2_1_NZ"/>
+        <weld class="weld_bcushion" site1="s_BCushion_4_2_1_PY" site2="s_BCushion_4_3_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_2_1_PZ" site2="s_BCushion_4_2_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_2_2_PY" site2="s_BCushion_4_3_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_3_0_PY" site2="s_BCushion_4_4_0_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_3_0_PZ" site2="s_BCushion_4_3_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_3_1_PY" site2="s_BCushion_4_4_1_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_3_1_PZ" site2="s_BCushion_4_3_2_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_3_2_PY" site2="s_BCushion_4_4_2_NY"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_4_0_PZ" site2="s_BCushion_4_4_1_NZ"/>
+        <weld class="weld_bcushion_corner" site1="s_BCushion_4_4_1_PZ" site2="s_BCushion_4_4_2_NZ"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_0_0_0_PX" site2="s_BOpenCell_1_0_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_0_0_0_PY" site2="s_BOpenCell_0_1_0_NY"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_0_1_0_PX" site2="s_BOpenCell_1_1_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_0_1_0_PY" site2="s_BOpenCell_0_2_0_NY"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_0_2_0_PX" site2="s_BOpenCell_1_2_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_1_0_0_PX" site2="s_BOpenCell_2_0_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_1_0_0_PY" site2="s_BOpenCell_1_1_0_NY"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_1_1_0_PX" site2="s_BOpenCell_2_1_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_1_1_0_PY" site2="s_BOpenCell_1_2_0_NY"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_1_2_0_PX" site2="s_BOpenCell_2_2_0_NX"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_2_0_0_PY" site2="s_BOpenCell_2_1_0_NY"/>
+        <weld class="weld_bopencell" site1="s_BOpenCell_2_1_0_PY" site2="s_BOpenCell_2_2_0_NY"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_0_0_PX" site2="s_BOpenCellCohesive_1_0_0_NX"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_0_0_PY" site2="s_BOpenCellCohesive_0_1_0_NY"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_1_0_PY" site2="s_BOpenCellCohesive_0_2_0_NY"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_2_0_PX" site2="s_BOpenCellCohesive_1_2_0_NX"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_0_0_PX" site2="s_BOpenCellCohesive_2_0_0_NX"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_2_0_PX" site2="s_BOpenCellCohesive_2_2_0_NX"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_0_0_PY" site2="s_BOpenCellCohesive_2_1_0_NY"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_1_0_PY" site2="s_BOpenCellCohesive_2_2_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_0_0_0_PX" site2="s_BChassis_1_0_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_0_0_0_PY" site2="s_BChassis_0_1_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_0_1_0_PX" site2="s_BChassis_1_1_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_0_1_0_PY" site2="s_BChassis_0_2_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_0_2_0_PX" site2="s_BChassis_1_2_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_1_0_0_PX" site2="s_BChassis_2_0_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_1_0_0_PY" site2="s_BChassis_1_1_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_1_1_0_PX" site2="s_BChassis_2_1_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_1_1_0_PY" site2="s_BChassis_1_2_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_1_2_0_PX" site2="s_BChassis_2_2_0_NX"/>
+        <weld class="weld_bchassis" site1="s_BChassis_2_0_0_PY" site2="s_BChassis_2_1_0_NY"/>
+        <weld class="weld_bchassis" site1="s_BChassis_2_1_0_PY" site2="s_BChassis_2_2_0_NY"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_0_0_PZ" site2="s_BOpenCell_0_0_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_0_0_NZ" site2="s_BChassis_0_0_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_1_0_PZ" site2="s_BOpenCell_0_1_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_1_0_NZ" site2="s_BChassis_0_1_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_2_0_PZ" site2="s_BOpenCell_0_2_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_0_2_0_NZ" site2="s_BChassis_0_2_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_0_0_PZ" site2="s_BOpenCell_1_0_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_0_0_NZ" site2="s_BChassis_1_0_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_2_0_PZ" site2="s_BOpenCell_1_2_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_1_2_0_NZ" site2="s_BChassis_1_2_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_0_0_PZ" site2="s_BOpenCell_2_0_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_0_0_NZ" site2="s_BChassis_2_0_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_1_0_PZ" site2="s_BOpenCell_2_1_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_1_0_NZ" site2="s_BChassis_2_1_0_PZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_2_0_PZ" site2="s_BOpenCell_2_2_0_NZ"/>
+        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_2_2_0_NZ" site2="s_BChassis_2_2_0_PZ"/>
+  </equality>
+</mujoco>

@@ -45,18 +45,11 @@ class DropSimResult:
     이 객체는 바이너리(Pickle) 파일로 저장되어 추후 대량의 DOE 데이터 분석이나 
     실험 데이터와의 매칭(Correlation) 작업에서 핵심 자산으로 활용됩니다.
     
-    Attributes:
-        config (Dict): 시뮬레이션 수행 시 사용된 모든 설정값 (Physics/Geometry)
-        metrics (Dict): 부품별 굽힘(Bending), 비틂(Twist), 뒤틀림(Distortion) 분석 지표
-        max_g_force (float): 전체 조립체(Packaging Box)의 무게중심에서 측정된 최대 충격 가속도 (G)
-        time_history (List[float]): 시뮬레이션 각 스텝의 타임스탬프 리스트
-        z_hist (List[float]): 패키징 박스 중심점의 수직(Z축) 높이 변화 이력
-        root_acc_history (List[float]): 시간별 패키징 박스의 절대 가속도 이력 (G-unit)
-        pos_hist (List[np.ndarray]): 패키징 박스의 3차원 위치 좌표 [x, y, z] 이력
-        cog_pos_hist (List[np.ndarray]): 전체 시스템의 통합 질량 중심(CoG) 이동 이력
-        ground_impact_hist (List[float]): 지면과의 총 수직 충격력 합산 이력 (Newton)
-        air_drag_hist (List[float]): 공기 저항력(Drag) 인가 이력
-        air_squeeze_hist (List[float]): 충격 직전 발생하는 공기 스퀴즈 필름(Squeeze Film) 저항력 이력
+    [v4] 확장 항목:
+        - geo_center_hist: 기하 중심(Geometric Center) 3축 위치/속도/가속도 이력
+        - corner_vel_hist, corner_acc_hist: 8개 모서리의 3축 속도/가속도 이력
+        - structural_metrics: PBA(주 벤딩 축), RRG(상대 회전 그래디언트), Curvature(곡률) 시계열
+        - critical_timestamps: 핵심 시점 자동 검출 결과 (local_peak, global_avg_peak)
     """
     config: Dict[str, Any]
     metrics: Dict[str, Any]
@@ -74,6 +67,11 @@ class DropSimResult:
     cog_vel_hist: List[Any] = field(default_factory=list)
     cog_acc_hist: List[Any] = field(default_factory=list)
     
+    # [v4] 기하 중심(Geometric Center) 이력
+    geo_center_pos_hist: List[Any] = field(default_factory=list)
+    geo_center_vel_hist: List[Any] = field(default_factory=list)
+    geo_center_acc_hist: List[Any] = field(default_factory=list)
+    
     corner_pos_hist: List[Any] = field(default_factory=list)
     corner_vel_hist: List[Any] = field(default_factory=list)
     
@@ -81,6 +79,10 @@ class DropSimResult:
     air_drag_hist: List[float] = field(default_factory=list)
     air_viscous_hist: List[float] = field(default_factory=list)
     air_squeeze_hist: List[float] = field(default_factory=list)
+    
+    # [v4] 구조 해석 지표 시계열
+    structural_metrics: Dict[str, Any] = field(default_factory=dict)
+    critical_timestamps: Dict[str, Any] = field(default_factory=dict)
     
     def save(self, filepath: str):
         """시뮬레이션 결과(self)를 지정된 경로에 Pickle 형식으로 저장합니다."""
@@ -93,6 +95,63 @@ class DropSimResult:
         with open(filepath, "rb") as f:
             return pickle.load(f)
 
+
+def compute_corner_kinematics(center_pos, center_mat, center_vel, center_acc, box_w, box_h, box_d):
+    """
+    [v2 Parity] 조립체 중심의 위치, 회전, 속도, 가속도 데이터로부터
+    8개 모서리 꼭지점의 위치/속도/가속도를 강체 운동학 공식으로 역산합니다.
+    
+    Args:
+        center_pos (np.ndarray): 중심점의 3차원 글로벌 위치 [x, y, z]
+        center_mat (np.ndarray): 3x3 회전 행렬 (body xmat)
+        center_vel (np.ndarray): 6자유도 속도 [wx, wy, wz, vx, vy, vz]
+        center_acc (np.ndarray): 6자유도 가속도 [alpha_x, alpha_y, alpha_z, ax, ay, az]
+        box_w (float): 박스 가로 길이 (m)
+        box_h (float): 박스 세로 길이 (m)
+        box_d (float): 박스 깊이 (m)
+    
+    Returns:
+        List[Dict]: 8개 모서리 각각의 {'pos': ndarray, 'vel': ndarray, 'acc': ndarray} 딕셔너리 리스트
+    """
+    w = center_vel[0:3]     # 각속도 (Angular velocity)
+    v = center_vel[3:6]     # 선속도 (Linear velocity)
+    alpha = center_acc[0:3] # 각가속도 (Angular acceleration)
+    a = center_acc[3:6]     # 선가속도 (Linear acceleration)
+    
+    corners_local = []
+    for x in [-box_w / 2, box_w / 2]:
+        for y in [-box_h / 2, box_h / 2]:
+            for z in [-box_d / 2, box_d / 2]:
+                corners_local.append(np.array([x, y, z]))
+    
+    results = []
+    for loc in corners_local:
+        # 글로벌 오프셋 벡터 (중심으로부터의 상대 위치)
+        r = center_mat @ loc
+        
+        # 속도 = v + w × r
+        v_corner = v + np.cross(w, r)
+        
+        # 가속도 = a + α × r + w × (w × r)
+        a_corner = a + np.cross(alpha, r) + np.cross(w, np.cross(w, r))
+        
+        results.append({
+            'pos': center_pos + r,
+            'vel': v_corner,
+            'acc': a_corner
+        })
+    return results
+
+
+
+# =====================================================================
+# [1.5] GUI: Post-Processing UI (v4 - postprocess_ui.py 에서 import)
+# =====================================================================
+try:
+    from postprocess_ui import PostProcessingUI
+except ImportError:
+    PostProcessingUI = None
+    print("[Warning] postprocess_ui.py 를 찾을 수 없습니다. Post-Processing UI가 비활성화됩니다.")
 
 # =====================================================================
 # [1.5] GUI: Config Control & Editor (Tkinter Based)
@@ -413,105 +472,6 @@ MuJoCo의 'solref'는 접촉/구속의 강성과 감쇠를 정의하는 하방 �
         self.destroy()
 
 
-class PostProcessingUI(tk.Toplevel):
-    """
-    [WHTOOLS] 시뮬레이션 완료 후 결과 분석을 위한 전용 포스트 프로세싱 UI입니다.
-    """
-    def __init__(self, parent_sim):
-        super().__init__()
-        self.sim = parent_sim
-        self.title("WHTOOLS Post-Processing Explorer")
-        self.geometry("600x450")
-        self.attributes("-topmost", True)
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
-        
-        self.build_ui()
-
-    def build_ui(self):
-        # 1. 상단 배너 (ConfigEditor와 동일 스타일)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        banner_path = os.path.join(script_dir, "ui_banner.png")
-        if os.path.exists(banner_path):
-            try:
-                img = Image.open(banner_path)
-                w, h = img.size
-                target_w = 580
-                target_h = int(h * (target_w / w))
-                img = img.resize((target_w, target_h), Image.LANCZOS)
-                self.banner_img = ImageTk.PhotoImage(img)
-                lbl = tk.Label(self, image=self.banner_img, bg="#1a1a1a")
-                lbl.pack(fill="x", padx=10, pady=5)
-            except: pass
-
-        # 2. 메인 안내문 (Grid-based layout for better spacing)
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        ttk.Label(main_frame, text="Simulation Analysis Complete", font=("Consolas", 14, "bold"), foreground="#d9534f").pack()
-        ttk.Label(main_frame, text="Select analysis tools to visualize structural integrity.", font=("NanumGothic", 10)).pack(pady=5)
-
-        # (NEW) 2.5 Body Selection Area
-        select_frame = ttk.LabelFrame(main_frame, text=" 1. Target Body Selection ")
-        select_frame.pack(fill="x", pady=10)
-        
-        ttk.Label(select_frame, text="Select Component:").pack(side="left", padx=10, pady=5)
-        
-        # 필드가 존재하는 바디 목록 추출
-        comp_list = sorted(list(self.sim.metrics.keys()))
-        self.comp_var = tk.StringVar(value=comp_list[0] if comp_list else "")
-        self.comp_combo = ttk.Combobox(select_frame, textvariable=self.comp_var, values=comp_list, state="readonly", width=25)
-        self.comp_combo.pack(side="left", padx=10, pady=5)
-
-        # 3. 분석 도구 버튼 영역
-        tools_frame = ttk.LabelFrame(main_frame, text=" 2. Analysis & Visualization ")
-        tools_frame.pack(fill="both", expand=True, pady=10)
-
-        # (1) MuJoCo Heatmap (Rank-based + RdYlBu_r)
-        btn1 = ttk.Button(tools_frame, text="Apply Distortion Heatmap (MuJoCo)", 
-                          command=self.on_apply_heatmap)
-        btn1.pack(fill="x", padx=10, pady=5)
-        ttk.Label(tools_frame, text=">> Rank-based gradient (RdYlBu_r) for maximum contrast.", 
-                  foreground="gray", font=("NanumGothic", 8)).pack()
-
-        # (2) Matplotlib 2D Map (Selected Body)
-        btn2 = ttk.Button(tools_frame, text="Show 2D Distortion Map (Matplotlib)", 
-                          command=self.on_show_plot)
-        btn2.pack(fill="x", padx=10, pady=5)
-        ttk.Label(tools_frame, text=">> 2D interpolated map for selected body (Equal Aspect).", 
-                  foreground="gray", font=("NanumGothic", 8)).pack()
-
-        # (3) [NEW] Show Impact Analysis
-        btn3 = ttk.Button(tools_frame, text="Show Impact Analysis (G-Force/Motion)", 
-                          command=self.on_show_impact)
-        btn3.pack(fill="x", padx=10, pady=5)
-        ttk.Label(tools_frame, text=">> Displays simulation trace plots (G-Force, Kinematics).", 
-                  foreground="gray", font=("NanumGothic", 8)).pack()
-
-        # 4. 하단 닫기
-        footer = ttk.Frame(self)
-        footer.pack(fill="x", pady=10)
-        ttk.Button(footer, text="Exit Analysis", command=self.on_close).pack(side="right", padx=20)
-
-    def on_apply_heatmap(self):
-        self.sim.apply_rank_distortion_heatmap()
-        messagebox.showinfo("Success", "Distortion Heatmap (RdYlBu_r Rank-based) applied.")
-
-    def on_show_plot(self):
-        # 선택된 바디 전달
-        target_comp = self.comp_var.get()
-        if target_comp:
-            self.sim.plot_2d_distortion_map(target_comp)
-        else:
-            messagebox.showwarning("Warning", "Please select a component first.")
-
-    def on_show_impact(self):
-        # 기존 plot_results의 팝업 버전 실행
-        self.sim.show_impact_plots()
-
-    def on_close(self):
-        self.destroy()
-
-
 # =====================================================================
 # [2] 핵심 엔진 클래스: DropSimulator
 # =====================================================================
@@ -609,6 +569,10 @@ class DropSimulator:
         self.cog_pos_hist = []
         self.cog_vel_hist = []
         self.cog_acc_hist = []
+        # [v4] 기하 중심(Geometric Center) 이력
+        self.geo_center_pos_hist = []
+        self.geo_center_vel_hist = []
+        self.geo_center_acc_hist = []
         self.corner_pos_hist = []
         self.corner_vel_hist = []
         self.corner_acc_hist = []
@@ -617,6 +581,17 @@ class DropSimulator:
         self.air_viscous_hist = []
         self.air_squeeze_hist = []
         self.metrics = {}  # 분석 메트릭스 (Bending/Twist 등)
+        # [v4] 구조 해석 시계열 지표 (PBA, RRG, Curvature)
+        self.structural_time_series = {
+            'pba_magnitude': [],    # Principal Bending Axis magnitude (deg)
+            'pba_angle': [],        # Principal Bending Axis direction (deg, 0~180)
+            'pba_vector': [],       # PBA unit vector at each timestep
+            'rrg_max': [],          # Max Relative Rotation Gradient at each timestep
+            'rrg_max_location': [], # Location (grid_idx) of max RRG
+            'curvature_max': [],    # Max discrete curvature value
+            'curvature_axis': [],   # Curvature principal axis (deg)
+            'mean_distortion': [],  # Mean distortion across all blocks
+        }
 
     # -----------------------------------------------------------------
     # (A) 로깅 및 설정 출력 유틸리티
@@ -1015,6 +990,8 @@ class DropSimulator:
     def _initialize_tracking_containers(self):
         """
         부품별 구조 지표(Bending, Twist, Energy 등)와 고위험 블록의 상태를 기록할 분석 데이터 구조를 초기화합니다.
+        [v4] RRG(Relative Rotation Gradient) 및 PBA(Principal Bending Axis) 연산을 위한
+             이웃 인접 맵(Neighbor Map)과 시계열 텐서 저장소도 함께 초기화합니다.
         """
         self.metrics = {}
         
@@ -1025,7 +1002,11 @@ class DropSimulator:
                 'all_blocks_twist'   : {idx: [] for idx in self.components[comp]},
                 'block_nominal_mats' : {idx: None for idx in self.components[comp]},
                 'total_distortion'   : [],
-                'corner_hists'       : {}
+                'corner_hists'       : {},
+                # [v4] 블록 간 상대 회전 (RRG: Relative Rotation Gradient)
+                'all_blocks_rrg'     : {idx: [] for idx in self.components[comp]},
+                # [v4] 블록별 회전 벡터 (Rotation Vector) - PBA/Curvature 연산 원천
+                'all_blocks_rotvec'  : {idx: [] for idx in self.components[comp]},
             }
             
             # 시뮬레이션 중 row(j)별 지표 계산을 위한 키 생성
@@ -1059,6 +1040,22 @@ class DropSimulator:
             for coord, body_id in self.components['bbox'].items():
                 if (coord[0] in (0, nx_max)) and (coord[1] in (0, ny_max)) and (coord[2] in (0, nz_max)):
                     self.corner_body_ids.append(body_id)
+        
+        # [v4] 이웃 인접 맵(Neighbor Map) 구축 - RRG 연산의 핵심 인프라
+        # 각 블록 (i,j,k)에 대해 인접한 블록들의 grid_idx를 저장합니다.
+        self.neighbor_map = {}  # comp_name -> {grid_idx: [neighbor_grid_idx_1, ...]}
+        for comp_name, comp_blocks in self.components.items():
+            self.neighbor_map[comp_name] = {}
+            all_idxs = set(comp_blocks.keys())
+            for idx in all_idxs:
+                neighbors = []
+                i, j, k = idx
+                # 6방향 인접 탐색 (±i, ±j, ±k)
+                for di, dj, dk in [(1,0,0), (-1,0,0), (0,1,0), (0,-1,0), (0,0,1), (0,0,-1)]:
+                    n_idx = (i + di, j + dj, k + dk)
+                    if n_idx in all_idxs:
+                        neighbors.append(n_idx)
+                self.neighbor_map[comp_name][idx] = neighbors
 
     def _find_geom_by_index(self, component_name, grid_idx):
         """컴포넌트 이름과 격자 인덱스를 사용하여 MuJoCo Geom ID를 역추적합니다."""
@@ -1625,7 +1622,8 @@ class DropSimulator:
         self.log("\n>> [Simulator] 시스템 상태가 초기화되었습니다.")
 
     def _collect_step_data(self):
-        """매 시뮬레이션 타임 스텝에서 필요한 물리 지표를 추출하여 메모리에 저장합니다."""
+        """매 시뮬레이션 타임 스텝에서 필요한 물리 지표를 추출하여 메모리에 저장합니다.
+        [v4] Full kinematics (8 corners + geo center), RRG, rotation vector 추가."""
         d = self.data
         m = self.model
         
@@ -1636,11 +1634,13 @@ class DropSimulator:
         if root_id != -1:
             global_pos = d.xpos[root_id].copy()
             rot_mat    = d.xmat[root_id].reshape(3, 3).copy()
+            root_vel   = d.cvel[root_id].copy()
+            root_acc   = d.cacc[root_id].copy()
             
             self.z_hist.append(global_pos[2])
             self.pos_hist.append(global_pos)
-            self.vel_hist.append(d.cvel[root_id].copy())
-            self.acc_hist.append(d.cacc[root_id].copy())
+            self.vel_hist.append(root_vel)
+            self.acc_hist.append(root_acc)
             self.cog_pos_hist.append(d.subtree_com[root_id].copy())
             
             # [2] 지면 충격력(Ground Reaction Force) 적산
@@ -1656,11 +1656,32 @@ class DropSimulator:
             self.air_drag_hist.append(self._last_f_drag)
             self.air_squeeze_hist.append(self._last_f_sq)
 
-            # [4] 코너(8-Points) 기구학 추적
+            # [4] 코너(8-Points) 기구학 추적 - [v4] Full Kinematics (v2 Parity)
             c_pos_now = []
             for cb_id in self.corner_body_ids:
                 c_pos_now.append(d.xpos[cb_id].copy())
             self.corner_pos_hist.append(c_pos_now)
+            
+            # [v4] 8개 모서리의 속도/가속도를 강체 운동학으로 역산
+            bw = self.config.get('box_w', 2.0)
+            bh = self.config.get('box_h', 1.4)
+            bd = self.config.get('box_d', 0.25)
+            corner_kin = compute_corner_kinematics(global_pos, rot_mat, root_vel, root_acc, bw, bh, bd)
+            self.corner_vel_hist.append([ck['vel'] for ck in corner_kin])
+            self.corner_acc_hist.append([ck['acc'] for ck in corner_kin])
+            
+            # [v4] 기하 중심(Geometric Center) = 8개 코너의 평균
+            if c_pos_now and len(c_pos_now) >= 8:
+                geo_center_pos = np.mean(c_pos_now, axis=0)
+                geo_center_vel = np.mean([ck['vel'] for ck in corner_kin], axis=0)
+                geo_center_acc = np.mean([ck['acc'] for ck in corner_kin], axis=0)
+            else:
+                geo_center_pos = global_pos.copy()
+                geo_center_vel = root_vel[3:6].copy()
+                geo_center_acc = root_acc[3:6].copy()
+            self.geo_center_pos_hist.append(geo_center_pos)
+            self.geo_center_vel_hist.append(geo_center_vel)
+            self.geo_center_acc_hist.append(geo_center_acc)
             
             # (구조적 변형 분석을 위한 회전 행렬 확보)
             current_rot_mat = rot_mat
@@ -1675,6 +1696,11 @@ class DropSimulator:
             self.air_drag_hist.append(0.0)
             self.air_squeeze_hist.append(0.0)
             self.corner_pos_hist.append([np.zeros(3)] * len(self.corner_body_ids))
+            self.corner_vel_hist.append([np.zeros(3)] * 8)
+            self.corner_acc_hist.append([np.zeros(3)] * 8)
+            self.geo_center_pos_hist.append(np.zeros(3))
+            self.geo_center_vel_hist.append(np.zeros(3))
+            self.geo_center_acc_hist.append(np.zeros(3))
             current_rot_mat = np.eye(3)
 
         # [3] 구조적 변형 분석 (Component-level Metrics) - 성능을 위해 5스텝마다 수행 (Decimation)
@@ -1692,11 +1718,29 @@ class DropSimulator:
                         for k in ['strain', 'press', 'disp', 'plastic']:
                             last_val = h_data[k][-1] if h_data[k] else 0.0
                             h_data[k].append(last_val)
+            
+            # [v4] 구조 해석 시계열값도 동일하게 Decimation 복제
+            for ts_key in self.structural_time_series:
+                ts_list = self.structural_time_series[ts_key]
+                last_v = ts_list[-1] if ts_list else (0.0 if 'vector' not in ts_key else np.zeros(3))
+                ts_list.append(last_v)
             return
 
         inv_root_mat = current_rot_mat.T
+        
+        # [v4] PBA 연산을 위한 전역 회전 벡터 수집기
+        global_rot_vectors = []  # (grid_idx, rotvec) 쌍 리스트
+        global_rot_positions = []  # 블록의 공간 좌표 (i, j)
+        
+        # [v4] RRG 글로벌 최대값 추적
+        step_rrg_max = 0.0
+        step_rrg_max_loc = None
+        
         for comp_name, comp_metric in self.metrics.items():
             list_of_angles = []
+            
+            # [v4] 현재 스텝의 deviation matrix 캐시 (RRG 연산용)
+            step_deviation_cache = {}
             
             # 해당 컴포넌트 내 모든 블록들에 대한 상대 회전 분석
             for grid_idx, body_uid in self.components[comp_name].items():
@@ -1711,6 +1755,7 @@ class DropSimulator:
                 
                 # 초기 상대 자세와의 편차(Angular Distortion) 계산
                 deviation_mat = comp_metric['block_nominal_mats'][grid_idx].T @ relative_rot
+                step_deviation_cache[grid_idx] = deviation_mat
                 
                 # [DECOMPOSITION] Bending (Tilt) and Twist (Torsion)
                 # Bending: Rotation of the local Z axis away from nominal
@@ -1726,6 +1771,57 @@ class DropSimulator:
                 rotation_angle = np.degrees(np.arccos(np.clip((trace_val - 1.0) / 2.0, -1.0, 1.0)))
                 comp_metric['all_blocks_angle'][grid_idx].append(rotation_angle)
                 list_of_angles.append(rotation_angle)
+                
+                # [v4] Rotation Vector 추출 (Axis-Angle 분해)
+                # deviation_mat에서 회전축(u)과 회전각(theta) 추출
+                cos_theta = np.clip((trace_val - 1.0) / 2.0, -1.0, 1.0)
+                theta = np.arccos(cos_theta)
+                if abs(theta) > 1e-6:
+                    # 스큐 대칭 행렬로부터 회전축 추출: u = [R32-R23, R13-R31, R21-R12] / (2*sin(theta))
+                    sin_theta = np.sin(theta)
+                    if abs(sin_theta) > 1e-8:
+                        ux = (deviation_mat[2, 1] - deviation_mat[1, 2]) / (2.0 * sin_theta)
+                        uy = (deviation_mat[0, 2] - deviation_mat[2, 0]) / (2.0 * sin_theta)
+                        uz = (deviation_mat[1, 0] - deviation_mat[0, 1]) / (2.0 * sin_theta)
+                        rot_vec = theta * np.array([ux, uy, uz])
+                    else:
+                        rot_vec = np.zeros(3)
+                else:
+                    rot_vec = np.zeros(3)
+                
+                comp_metric['all_blocks_rotvec'][grid_idx].append(rot_vec)
+                
+                # PBA용 글로벌 수집 (XY 평면 성분만: 벤딩축에 해당)
+                global_rot_vectors.append(rot_vec)
+                global_rot_positions.append(grid_idx[:2])  # (i, j) 좌표
+            
+            # [v4] RRG (Relative Rotation Gradient) 연산 - 이웃 블록 대비 상대 회전
+            if comp_name in self.neighbor_map:
+                for grid_idx in self.components[comp_name]:
+                    neighbors = self.neighbor_map[comp_name].get(grid_idx, [])
+                    if not neighbors or grid_idx not in step_deviation_cache:
+                        comp_metric['all_blocks_rrg'][grid_idx].append(0.0)
+                        continue
+                    
+                    max_relative_angle = 0.0
+                    dev_i = step_deviation_cache[grid_idx]
+                    
+                    for n_idx in neighbors:
+                        if n_idx in step_deviation_cache:
+                            dev_j = step_deviation_cache[n_idx]
+                            # 상대 회전 행렬: R_i^(-1) * R_j
+                            r_rel = dev_i.T @ dev_j
+                            trace_rel = np.trace(r_rel)
+                            rel_angle = np.degrees(np.arccos(np.clip((trace_rel - 1.0) / 2.0, -1.0, 1.0)))
+                            if rel_angle > max_relative_angle:
+                                max_relative_angle = rel_angle
+                    
+                    comp_metric['all_blocks_rrg'][grid_idx].append(max_relative_angle)
+                    
+                    # 글로벌 최대 RRG 추적
+                    if max_relative_angle > step_rrg_max:
+                        step_rrg_max = max_relative_angle
+                        step_rrg_max_loc = grid_idx
             
             # [NEW] 코너 히스토리 데이터 실시간 수집
             if 'corner_hists' in comp_metric:
@@ -1747,6 +1843,51 @@ class DropSimulator:
                 comp_metric['total_distortion'].append(rms_distortion)
             else:
                 comp_metric['total_distortion'].append(0.0)
+        
+        # [v4] PBA (Principal Bending Axis) 연산 - 전체 블록의 회전 벡터 집단 분석
+        if global_rot_vectors and len(global_rot_vectors) > 2:
+            rv_array = np.array(global_rot_vectors)  # (N, 3)
+            # XY 평면 벤딩 성분만 추출 (Z축 회전 = 트위스트는 제외)
+            rv_xy = rv_array[:, :2]  # (N, 2)
+            rv_norms = np.linalg.norm(rv_xy, axis=1)
+            valid_mask = rv_norms > np.radians(0.1)  # 0.1도 이상만 유효
+            
+            if np.sum(valid_mask) > 2:
+                valid_rv = rv_xy[valid_mask]
+                # 2x2 공분산 행렬의 고유값 분해 (주축 탐지)
+                cov_mat = np.cov(valid_rv.T)
+                eigenvalues, eigenvectors = np.linalg.eigh(cov_mat)
+                
+                # 최대 고유값의 고유벡터 = 주 벤딩 축 방향
+                principal_idx = np.argmax(eigenvalues)
+                pba_vec_2d = eigenvectors[:, principal_idx]
+                pba_magnitude = np.degrees(np.sqrt(eigenvalues[principal_idx]))
+                pba_angle = np.degrees(np.arctan2(pba_vec_2d[1], pba_vec_2d[0])) % 180
+                pba_vec_3d = np.array([pba_vec_2d[0], pba_vec_2d[1], 0.0])
+            else:
+                pba_magnitude = 0.0
+                pba_angle = 0.0
+                pba_vec_3d = np.zeros(3)
+        else:
+            pba_magnitude = 0.0
+            pba_angle = 0.0
+            pba_vec_3d = np.zeros(3)
+        
+        # [v4] Mean distortion 계산
+        all_angles_flat = []
+        for comp_name, comp_metric in self.metrics.items():
+            for grid_idx in comp_metric['all_blocks_angle']:
+                if comp_metric['all_blocks_angle'][grid_idx]:
+                    all_angles_flat.append(comp_metric['all_blocks_angle'][grid_idx][-1])
+        mean_dist = np.mean(all_angles_flat) if all_angles_flat else 0.0
+        
+        # [v4] 구조 해석 시계열 업데이트
+        self.structural_time_series['pba_magnitude'].append(pba_magnitude)
+        self.structural_time_series['pba_angle'].append(pba_angle)
+        self.structural_time_series['pba_vector'].append(pba_vec_3d)
+        self.structural_time_series['rrg_max'].append(step_rrg_max)
+        self.structural_time_series['rrg_max_location'].append(step_rrg_max_loc)
+        self.structural_time_series['mean_distortion'].append(mean_dist)
 
     def _finalize_simulation(self):
         """시뮬레이션 루프가 끝난 뒤 결과 데이터의 최종 가공 및 객체 저장을 수행합니다."""
@@ -1852,6 +1993,32 @@ class DropSimulator:
                 
                 print(f" {str(g_idx):<18} | {m_bend_val:15.2f} | {m_twist_val:15.2f}")
             print("-" * 60)
+        
+        # [v4] 구조 해석 고급 지표 요약 출력
+        print("\n" + "=" * 80)
+        print(" [v4 Advanced Structural Analysis Summary]")
+        print("=" * 80)
+        
+        sts = self.structural_time_series
+        if sts['pba_magnitude']:
+            pba_max = max(sts['pba_magnitude'])
+            pba_max_idx = int(np.argmax(sts['pba_magnitude']))
+            pba_angle_at_max = sts['pba_angle'][pba_max_idx] if pba_max_idx < len(sts['pba_angle']) else 0.0
+            print(f"  - PBA (Principal Bending Axis) Max Magnitude : {pba_max:.4f} deg")
+            print(f"  - PBA Direction at Peak                      : {pba_angle_at_max:.1f} deg")
+            
+        if sts['rrg_max']:
+            rrg_max_val = max(sts['rrg_max'])
+            rrg_max_idx = int(np.argmax(sts['rrg_max']))
+            rrg_max_loc = sts['rrg_max_location'][rrg_max_idx] if rrg_max_idx < len(sts['rrg_max_location']) else None
+            print(f"  - RRG (Relative Rotation Gradient) Max       : {rrg_max_val:.4f} deg")
+            print(f"  - RRG Max Location (grid_idx)                : {rrg_max_loc}")
+        
+        if sts['mean_distortion']:
+            mean_max = max(sts['mean_distortion'])
+            print(f"  - Mean Distortion Peak                       : {mean_max:.4f} deg")
+        
+        print("-" * 80)
             
         # [NEW v10] Post-Processing UI 실행
         self.tk_root.after(100, self.open_post_ui)
@@ -1978,6 +2145,34 @@ class DropSimulator:
             max_peak_g = 0.0
             
         # 결과 데이터 컨테이너 생성
+        # [v4] 임계 시점(Critical Timestamps) 자동 검출
+        critical_ts = {}
+        if self.structural_time_series['rrg_max']:
+            rrg_arr = np.array(self.structural_time_series['rrg_max'])
+            if len(rrg_arr) > 0:
+                local_peak_step = int(np.argmax(rrg_arr))
+                # 실제 시뮬레이션 시간으로 환산 (Decimation 5배 고려)
+                local_peak_time = local_peak_step * 5 * self.model.opt.timestep if len(self.time_history) > 0 else 0.0
+                critical_ts['local_peak_time'] = float(local_peak_time)
+                critical_ts['local_peak_rrg'] = float(rrg_arr[local_peak_step])
+        
+        if self.structural_time_series['mean_distortion']:
+            mean_arr = np.array(self.structural_time_series['mean_distortion'])
+            if len(mean_arr) > 0:
+                avg_peak_step = int(np.argmax(mean_arr))
+                avg_peak_time = avg_peak_step * 5 * self.model.opt.timestep if len(self.time_history) > 0 else 0.0
+                critical_ts['global_avg_peak_time'] = float(avg_peak_time)
+                critical_ts['global_avg_peak_val'] = float(mean_arr[avg_peak_step])
+        
+        if self.structural_time_series['pba_magnitude']:
+            pba_arr = np.array(self.structural_time_series['pba_magnitude'])
+            if len(pba_arr) > 0:
+                pba_peak_step = int(np.argmax(pba_arr))
+                pba_peak_time = pba_peak_step * 5 * self.model.opt.timestep if len(self.time_history) > 0 else 0.0
+                critical_ts['pba_peak_time'] = float(pba_peak_time)
+                pba_angle_at_peak = self.structural_time_series['pba_angle'][pba_peak_step] if pba_peak_step < len(self.structural_time_series['pba_angle']) else 0.0
+                critical_ts['pba_peak_angle'] = float(pba_angle_at_peak)
+        
         self.result = DropSimResult(
             config             = self.config,
             metrics            = self.metrics,
@@ -1985,14 +2180,24 @@ class DropSimulator:
             time_history       = self.time_history,
             z_hist             = self.z_hist,
             root_acc_history   = list(root_acc_g),
-            corner_acc_hist    = [],
+            corner_acc_hist    = self.corner_acc_hist,
             pos_hist           = self.pos_hist,
             vel_hist           = self.vel_hist,
             acc_hist           = self.acc_hist,
             cog_pos_hist       = self.cog_pos_hist,
+            # [v4] 기하 중심 데이터
+            geo_center_pos_hist = self.geo_center_pos_hist,
+            geo_center_vel_hist = self.geo_center_vel_hist,
+            geo_center_acc_hist = self.geo_center_acc_hist,
+            # [v4] Full corner kinematics
+            corner_pos_hist    = self.corner_pos_hist,
+            corner_vel_hist    = self.corner_vel_hist,
             ground_impact_hist = self.ground_impact_hist,
             air_drag_hist      = self.air_drag_hist,
-            air_squeeze_hist   = self.air_squeeze_hist
+            air_squeeze_hist   = self.air_squeeze_hist,
+            # [v4] 구조 해석 시계열 및 임계 시점
+            structural_metrics = self.structural_time_series,
+            critical_timestamps = critical_ts
         )
         
         self.log("\n" + "=" * 70)
