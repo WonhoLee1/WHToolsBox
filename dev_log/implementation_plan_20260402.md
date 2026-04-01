@@ -1,17 +1,16 @@
-# Qt-Based Plate Deformation Analyzer (v2)
+# 3-Way Split UI with Global & Local Views
 
-This plan integrates **PySide6** to create a professional engineering UI that synchronizes **PyVista** and **Matplotlib** visualizers. It also refines the mechanics algorithm to focus on *relative deformation* from an initial planar fit.
+This plan expands the UI to a 3-way split to visualize the **Global Motion** (Spatial) and **Local Deformation** (Material) side-by-side, along with the analytical plots.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Qt Architecture**: I will use a `QMainWindow` with a horizontal split. Left: PyVista (3D View + Marker Spheres). Right: Matplotlib (Strain Field + Energy/Stress Plots).
-> - **Unified Control**: A fixed slider at the bottom will control the global frame index.
-> - **Algorithm Update**: 
->   - Frame 0 is used to define the **Reference Plane** via PCA.
->   - Displacement $\Delta Z$ is calculated as the local height change from Frame 0 markers to current markers.
->   - This $\Delta Z$ is interpolated using `RBFInterpolator` and mapped onto the flat grid.
-> - **Visualization**: Marker positions will be rendered as **Sphere Glyphs** in the 3D view to clarify context.
+> - **3-Way Split Layout**: 
+>   - **Panel 1 (Left)**: Global View (Spatial). Shows the raw rigid body motion (Rotation + Translation) of the plate and markers.
+>   - **Panel 2 (Middle)**: Local View (Material). Shows only the deformation relative to the initial frame.
+>   - **Panel 3 (Right)**: Matplotlib Analysis. Shows strain map and energy/stress curves.
+> - **Coordinate Sync**: Both 3D views will be synchronized (if possible) or have optimized camera settings to show the scale of motion.
+> - **Inverse Transformation**: The mesh in the Global View will be transformed using the inverse Kabsch result to match the raw marker positions.
 
 ## Proposed Changes
 
@@ -19,42 +18,30 @@ This plan integrates **PySide6** to create a professional engineering UI that sy
 
 #### [MODIFY] [plate_by_markers.py](file:///c:/Users/GOODMAN/WHToolsBox/plate_by_markers.py)
 
-- **Import Update**:
-    - `PySide6.QtWidgets, QtCore, QtGui`.
-    - `pyvistaqt.QtInteractor`.
-    - `matplotlib.backends.backend_qtagg.FigureCanvasQTAgg`.
-- **`PlateMechanicsSolver` Refinement**:
-    - Add `initialize_reference(markers_0)`: Fits a plane and saves the reference mesh $S_0$.
-    - `solve_relative(markers_current, markers_0)`:
-        - Project current markers to reference coordinate system.
-        - Calculate relative displacement $\Delta Z$.
-        - Interpolate $\Delta Z$ over the grid.
-        - Derive **Equivalent Strain** $\epsilon_{eq}$ from curvatures.
-- **`PlateVisualizerApp` (New Class)**:
-    - Inherit from `QMainWindow`.
-    - `setup_ui()`:
-        - `QSplitter` for PyVista and Matplotlib.
-        - `QSlider` for frames.
-        - `QLabel` for frame info (8pt, Noto Sans KR / Segoe UI).
-    - `update_views(frame_idx)`:
-        - Update PyVista mesh and markers (polydata).
-        - Update Matplotlib canvas (re-render plots).
-- **Algorithm Check**:
-    - Ensure Kabsch alignment is performed *correctly* to maintain the frame-to-frame correspondence for relative displacement.
+- **`QtVisualizer` Refactoring**:
+  - Update `_init_ui` to add two `QtInteractor` widgets to the `QSplitter`.
+  - Add `_setup_global_view()` and `_setup_local_view()`.
+- **`update_frame` Logic**:
+  - Calculate **Global Mesh Points**:
+    - $P_{global} = (P_{local} \cdot L^{T} + \text{centroid}_0 - c_P) \cdot R + c_Q$.
+  - Update the **Left Plotter** (Global) with $P_{global}$ and raw markers ($M_{global}$).
+  - Update the **Middle Plotter** (Local) with $P_{local}$ and aligned markers ($M_{local}$).
+  - Update Matplotlib as usual.
+- **Camera Management**:
+  - Set the Global View's camera or bounds based on the global raw data range to ensure the motion is visible within the frame.
 
 ## Open Questions
 
 > [!QUESTION]
-> 1. **Visualizer Layout**: Do you prefer side-by-side or a Tabbed interface? I will start with side-by-side (using `QSplitter`) for simultaneous viewing.
-> 2. **Initial Shape**: If Frame 0 markers are not perfectly flat, should I fit the "Best Plane" (average plane) or follow the initial marker positions literally but treat them as "Zero Stress"? I will assume **Best Plane** fit as requested.
+> 1. **Camera Synchronization**: Should the cameras of the Global and Local views move together (Sync)? Or should they be independent? (I recommend independent so you can zoom in on the deformation while seeing the overall motion from afar). 
+> 2. **Colors**: Should the Global view also be colored by strain? (I recommend YES, to show the stress state even during large motion).
 
 ## Verification Plan
 
 ### Automated Tests
-- Script execution under `PySide6`.
-- Slider scrubbing performance check.
-- Verification of strain values against expected magnitudes.
+- Run with rich test data (rotation + translation).
+- Observe if the left panel shows the plate flying/rotating while the middle panel shows it bending in place.
 
 ### Manual Verification
-- Visual inspection of marker spheres and their alignment with the plate.
-- Interactive responsiveness check between PyVista and Matplotlib.
+- Visual check of the 3-splitter layout stability.
+- Verify the coordinate math by checking if marker spheres in the Global view align with the corners of the plate.
