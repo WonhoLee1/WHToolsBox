@@ -55,10 +55,16 @@ class DropSimulator:
         self.ctrl_step_backward_count = 0
         self.ctrl_print_view = False
         
+        # [v4.3] 상태 동기화 변수
+        self.time_scale = 1.0
+        self.sim_complete = False
+        self.last_step_idx = 0
+        
         self.post_ui = None
         self.config_editor = None
         self.result = None
         self.tk_root = None
+        self._already_wrapped_up = False 
 
         if self.config.get("enable_target_balancing", False):
             self.apply_balancing()
@@ -74,6 +80,11 @@ class DropSimulator:
         self._last_f_sq = 0.0
         self._step_corner_values = {}
         self.nominal_local_pos = {}
+        
+        # [v4.3.9] 리포팅 및 동기화 상태 초기화
+        self._last_reported_interval = -1
+        self._report_count = 0
+        self.start_real_time = time.perf_counter()
 
     def _init_histories(self) -> None:
         self.time_history = []
@@ -314,23 +325,29 @@ class DropSimulator:
             self.geo_center_pos_hist.append(np.mean([c['pos'] for c in ck], axis=0))
 
     def simulate(self, enable_UI: bool = False) -> None:
-        if enable_UI:
-            self.ctrl_open_ui = True
-            
         import tkinter as tk
+        
         self.tk_root = tk.Tk()
         self.tk_root.withdraw()
         
+        # [v4.3.9 REV] UI 모드인 경우: 시뮬레이션 지연 실행 방지 
+        # (MuJoCo 뷰어를 먼저 띄운 뒤 루프 내에서 UI 팝업)
+        if enable_UI:
+            self.ctrl_open_ui = True
+            self.ctrl_paused = True
+
         while not self.ctrl_quit_request:
+            self._already_wrapped_up = False 
             self.setup()
             self._run_engine()
             if not self.ctrl_reload_request: break
             self.ctrl_reload_request = False
             self.log(">> [Reload] 시뮬레이션을 재시작합니다.")
         
-        # 종료 전 결과물 자동 생성 및 저장
-        self._wrap_up()
-        self.tk_root.destroy()
+        if not self._already_wrapped_up:
+            self._wrap_up()
+            
+        if self.tk_root: self.tk_root.destroy()
 
     def _run_engine(self) -> None:
         if self.config.get("use_viewer", True):
@@ -342,77 +359,152 @@ class DropSimulator:
 
     def _main_loop(self) -> None:
         step_idx = 0
-        total_steps = int(self.config.get("sim_duration", 1.0) / self.model.opt.timestep)
+        sim_duration = self.config.get("sim_duration", 1.0)
+        total_steps = int(sim_duration / self.model.opt.timestep)
         
-        # [WHTOOLS] 기존 테이블 스타일 초기화
+        # [WHTOOLS] 리포팅 및 동기화 시점 초기화 (현재 시점부터 0초로 시작하도록)
+        self.start_real_time = time.perf_counter()
+        self.real_start_time = self.start_real_time
+        self.sim_start_time = self.data.time
         self._last_reported_interval = -1
         self._report_count = 0
-        self.start_real_time = time.time()
         
-        while step_idx < total_steps and not self.ctrl_quit_request and not self.ctrl_reload_request:
-            self.tk_root.update()
+        last_tk_update = time.perf_counter()
+        
+        while not self.ctrl_quit_request and not self.ctrl_reload_request:
+            # [v4.3.9] UI 갱신 오버헤드 감소 (약 100fps 정도로 제한)
+            curr_time = time.perf_counter()
+            if curr_time - last_tk_update > 0.01:
+                self.tk_root.update()
+                last_tk_update = curr_time
             
-            if self.ctrl_open_ui:
+            # (중간에 제어창 중복 열기 방지)
+            if self.ctrl_open_ui and not (self.config_editor and self.config_editor.winfo_exists()):
                 self.config_editor = ConfigEditor(self)
                 self.ctrl_open_ui = False
             
-            if self.ctrl_step_backward_count > 0:
-                step_idx = max(0, step_idx - self.ctrl_step_backward_count)
-                self._restore_state(step_idx); self.ctrl_step_backward_count = 0; self.ctrl_paused = True
+            # 1. 상태별 분기 처리
+            if self.sim_complete:
+                # [v4.3.9 REV] 사용자가 버튼을 누를 때까지 대기 (자동 호출 제거)
+                pass
+            
+            elif not self.ctrl_paused:
+                # [v4.3.10] UI가 없거나 화면이 없는 경우 최대 속도로 진행 (Warp Speed)
+                use_ui = self.config_editor and self.config_editor.winfo_exists()
+                if not use_ui and not self.viewer:
+                    # Warp 모드: 최적화된 벌크 스텝 수행
+                    for _ in range(250):
+                        mujoco.mj_step(self.model, self.data)
+                        self._apply_plasticity_v2()
+                        step_idx += 1
+                        
+                        report_dt = self.config.get("reporting_interval", 0.005)
+                        save_step_mod = max(1, int(report_dt / self.model.opt.timestep))
+                        if step_idx % save_step_mod == 0:
+                            self._collect_history()
+                            compute_structural_step_metrics(self)
+                        if self.data.time >= sim_duration: break
+                else:
+                    # [v4.3.10] 실시간 동응화 로직 정밀화 (부드러운 애니메이션)
+                    # 현재 실제 경과 시간에 맞는 시뮬레이션 목표 시간 계산
+                    elapsed_real = time.perf_counter() - self.real_start_time
+                    target_sim_time = self.sim_start_time + elapsed_real * self.time_scale
+                    
+                    # 목표 시간에 도달할 때까지 소량의 스텝을 반복하며 동기화 (Jumping 방지)
+                    while self.data.time < target_sim_time:
+                        mujoco.mj_step(self.model, self.data)
+                        self._apply_plasticity_v2()
+                        step_idx += 1
+                        
+                        # 0.05초 간격으로 렌더링 동기화 강제 (매우 중요)
+                        if self.viewer and step_idx % 20 == 0: 
+                            self.viewer.sync() 
 
-            if not self.ctrl_paused:
-                mujoco.mj_step(self.model, self.data)
-                self._apply_plasticity_v2()
+                        # 데이터 저장
+                        report_dt = self.config.get("reporting_interval", 0.005)
+                        save_step_mod = max(1, int(report_dt / self.model.opt.timestep))
+                        if step_idx % save_step_mod == 0:
+                            self._collect_history()
+                            compute_structural_step_metrics(self)
+                        
+                        if self.data.time >= sim_duration: break
+                        
+                        # 연산이 너무 빠를 경우 뷰어 프레임 확보를 위해 루프 탈출
+                        # (한 틱에 최대 40스텝 이상은 밟지 않도록 하여 CPU 점유율 조절)
+                        if step_idx % 40 == 0: break 
+
+                # 완료 판정
+                if self.data.time >= sim_duration or step_idx >= total_steps:
+                    self.sim_complete = True
+                    self.ctrl_paused = True
+                    self.log(">> [Engine] Simulation Objective Time Reached. Control panel button enabled for analysis.")
+
+                # UI 상태 업데이트
+                if self.config_editor: 
+                    self.config_editor.update_status(step_idx, self.data.time, total_steps)
                 
-                # [v4.6.2] 데이터 수집 및 구조 지표 연산 주기 최적화 (Memory & Storage)
-                # config['reporting_interval'] (기본 0.005s) 기반으로 Decimation 수행
-                report_dt = self.config.get("reporting_interval", 0.005)
-                save_step_mod = max(1, int(report_dt / self.model.opt.timestep))
-                
-                if step_idx % save_step_mod == 0:
-                    self._collect_history()
-                    compute_structural_step_metrics(self)
-                
-                if self.config_editor: self.config_editor.update_status(step_idx, self.data.time)
-                
-                # [WHTOOLS] 기존 테이블 스타일 출력 (0.05s 간격)
+                # 테이블 로그 출력
                 sim_interval = int(self.data.time / 0.05)
                 if sim_interval > self._last_reported_interval:
-                    real_elapsed = time.time() - self.start_real_time
-                    fps = step_idx / real_elapsed if real_elapsed > 0 else 0
-                    
-                    if self._report_count % 30 == 0:
-                        h_sep = "-" * 112
-                        print(f"\n[Legend] SE: Equivalent Strain, PRS: Pressure (MPa), FPS: Frames Per Second, PE: Plastic Strain, DF: Deformation (mm)")
-                        print(h_sep)
-                        print(f"| {'Step':^8} | {'Time (s)':^10} | {'Real (s)':^10} | {'FPS':^8} | {'Cushion Status (SE, PRS, PE, DF)':^60} |")
-                        print(h_sep)
-                    
-                    prs_mpa = self.max_applied_pressure_pa / 1e6
-                    cush_status = f"SE:{self.max_equiv_strain:5.1%}, PRS:{prs_mpa:6.3f} (MPa), PE:{self.max_plastic_strain:5.1%}, DF:{self.max_deformation_mm:4.1f}mm"
-                    print(f"| {step_idx:8d} | {self.data.time:10.3f} | {real_elapsed:10.2f} | {fps:8.1f} | {cush_status:<60} |")
-                    
+                    self._print_terminal_status(step_idx)
                     self._last_reported_interval = sim_interval
-                    self._report_count += 1
-                
-                step_idx += 1
-                if self.viewer: self.viewer.sync()
             else:
-                if self.viewer: self.viewer.sync()
+                # 일시정지 중: 동기화 시점 실시간 업데이트 (재개 시 툭 튀는 현상 방지)
+                self.real_start_time = time.perf_counter()
+                self.sim_start_time = self.data.time
+
+            # 3. 수동 컨트롤 (Back/Forward) - 완료 후에도 작동 가능
+            self._handle_manual_steps(step_idx)
+
+            # 뷰어 동기화 및 절전
+            if self.viewer: 
+                self.viewer.sync()
+            
+            if self.ctrl_paused:
                 time.sleep(0.01)
 
+    def _print_terminal_status(self, step_idx: int) -> None:
+        real_elapsed = time.perf_counter() - self.start_real_time
+        fps = step_idx / real_elapsed if real_elapsed > 0 else 0
+        if self._report_count % 30 == 0:
+            h_sep = "-" * 112
+            print(f"\n[Legend] SE: Equivalent Strain, PRS: Pressure (MPa), FPS: Frames Per Second, DF: Deformation (mm)")
+            print(h_sep)
+            print(f"| {'Step':^8} | {'Time (s)':^10} | {'Real (s)':^10} | {'FPS':^8} | {'Cushion Status (SE, PRS, DF)':^60} |")
+            print(h_sep)
+        prs_mpa = self.max_applied_pressure_pa / 1e6
+        cush_status = f"SE:{self.max_equiv_strain:5.1%}, PRS:{prs_mpa:6.3f} (MPa), DF:{self.max_deformation_mm:4.1f}mm"
+        print(f"| {step_idx:8d} | {self.data.time:10.3f} | {real_elapsed:10.2f} | {fps:8.1f} | {cush_status:<60} |")
+        self._report_count += 1
+
+    def _handle_manual_steps(self, current_step: int) -> None:
+        if self.ctrl_step_backward_count > 0:
+            target = max(0, current_step - self.ctrl_step_backward_count)
+            self._restore_state(target)
+            self.ctrl_step_backward_count = 0
+            self.ctrl_paused = True
+        if self.ctrl_step_forward_count > 0:
+            max_avail = len(self.qpos_hist) - 1
+            target = min(max_avail, current_step + self.ctrl_step_forward_count)
+            if target >= 0: self._restore_state(target)
+            self.ctrl_step_forward_count = 0
+            self.ctrl_paused = True
+
     def _wrap_up(self) -> None:
-        """데이터 정리 및 Post-UI 연동"""
-        finalize_simulation_results(self)
-        apply_rank_heatmap(self)
+        """데이터 정리 및 Post-UI 연동 (비차단 호출)"""
+        if self._already_wrapped_up: return
         
-        # 결과 객체 직렬화 호출
+        finalize_simulation_results(self)
+        # [WHTOOLS] 랭크 히트맵 기능 비활성화 (사용자 요청)
+        # apply_rank_heatmap(self)
+        pass
+        
+        self._already_wrapped_up = True
         self.result = DropSimResult(
             config=self.config.copy(), metrics=self.metrics.copy(),
             max_g_force=float(np.max(np.abs(self.acc_hist))/9.81) if self.acc_hist else 0.0,
             time_history=self.time_history, z_hist=self.z_hist,
-            root_acc_history=[], # (가속도 데이터 후처리 생략)
-            corner_acc_hist=self.corner_acc_hist,
+            root_acc_history=[], corner_acc_hist=self.corner_acc_hist,
             pos_hist=self.pos_hist, vel_hist=self.vel_hist, acc_hist=self.acc_hist,
             cog_pos_hist=self.cog_pos_hist, geo_center_pos_hist=self.geo_center_pos_hist,
             corner_pos_hist=self.corner_pos_hist, ground_impact_hist=self.ground_impact_hist,
@@ -421,21 +513,33 @@ class DropSimulator:
             critical_timestamps=compute_critical_timestamps(self),
             nominal_local_pos=self.nominal_local_pos
         )
+        # 결과 파일 저장
         self.result.save(os.path.join(self.output_dir, "simulation_result.pkl"))
         
-        # [V4.2] PostProcessUI 호출 (패키지 상대 경로 대응)
         try:
             from .whts_postprocess_ui import PostProcessingUI
+            # TopLevel 창으로 띄우며, mainloop는 tk_root가 관리함
             self.post_ui = PostProcessingUI(self)
-            self.post_ui.on_simulation_complete() # [V4.2 FIX] 완료 이벤트 명시적 트리거
-            self.tk_root.mainloop()
+            self.post_ui.on_simulation_complete() 
         except Exception as e:
             self.log(f"!! [PostUI Error] {e}")
+
+    def set_state_at(self, idx: int) -> None:
+        """[v4.3.9] Post-UI 슬라이더와 3D 뷰어 실시간 동기화용 인터페이스"""
+        if idx < 0 or idx >= len(self.qpos_hist): return
+        self.data.qpos[:] = self.qpos_hist[idx]
+        self.data.qvel[:] = self.qvel_hist[idx]
+        self.data.time = self.time_history[idx]
+        mujoco.mj_forward(self.model, self.data)
+        if self.viewer: self.viewer.sync()
+
 
     def _restore_state(self, idx: int) -> None:
         if idx < len(self.qpos_hist):
             self.data.qpos[:] = self.qpos_hist[idx]
             self.data.qvel[:] = self.qvel_hist[idx]
+            # [v4.3.5] 물리 시간 복구 (Overshoot 방지 및 정합성 유지 핵심)
+            self.data.time = self.time_history[idx]
             mujoco.mj_forward(self.model, self.data)
 
     def apply_balancing(self) -> None:
@@ -445,6 +549,20 @@ class DropSimulator:
         )
 
     def _on_key(self, keycode: int) -> None:
-        if keycode == 32: self.ctrl_paused = not self.ctrl_paused
-        elif keycode == 75: self.ctrl_open_ui = True # 'K'
-        elif keycode == 256: self.ctrl_quit_request = True
+        if keycode == 32: # [Space] Play/Pause
+            self.ctrl_paused = not self.ctrl_paused
+        elif keycode == 75: # [K] Config UI
+            self.ctrl_open_ui = True
+        elif keycode == 256: # [ESC] Quit
+            self.ctrl_quit_request = True
+        elif keycode == 82: # [R] Reset
+            self.ctrl_reset_request = True
+            self.sim_complete = False
+        elif keycode == 263: # [Left Arrow] Step Back
+            self.ctrl_step_backward_count = 10
+        elif keycode == 262: # [Right Arrow] Step Forward
+            self.ctrl_step_forward_count = 10
+        elif keycode in [49, 50, 51, 52]: # [1, 2, 3, 4] Speed Control
+            speeds = {49: 0.5, 50: 1.0, 51: 2.0, 52: 4.0}
+            self.time_scale = speeds[keycode]
+            if self.config_editor: self.config_editor.speed_scale.set(self.time_scale)

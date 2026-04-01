@@ -31,13 +31,16 @@
 - **Bicubic Interpolation**: 데이터 스미어링(Smearing) 현상을 억제하고 날카로운 피크 응력을 보존하는 고정밀 보간법을 적용합니다.
 
 ### 3. 🖥️ 지능형 포스트 UI (Responsive Post-UI)
-
 - **2D Temporal Animation**: 시계열에 따른 컨투어 변화를 실시간 애니메이션으로 분석하며, 특정 시점의 캡처 기능을 지원합니다.
 - **마스터 응답형 레이아웃**: 모든 컨트롤 패널에 마스터 스크롤바와 가로 너비 동기화(Width Sync)를 적용하여 저해상도 환경에서도 완벽한 가독성을 제공합니다.
 - **인터랙티브 툴팁**: 멀티 서브플롯 환경에서 마우스 오버 시 모든 그래프의 데이터를 동시에 추적하는 동기화 십자선 기능을 지원합니다.
 
-### 4. 📊 자동화된 리포팅 시스템
+### 4. 📐 마커 기반 평판 변형 해석기 (Plate Deformation Analyzer)
+- **Kinematic Separation**: Kabsch 알고리즘을 사용하여 심한 회전/병진 운동 속에서도 순수한 국부 변형(Local Deformation)만을 정밀하게 분리해냅니다.
+- **RBF-based Surface Mapping**: 분산된 마커 데이터로부터 Thin Plate Spline 보간법을 적용하여 전체 평판의 변위장(W)과 변형률장(Strain Field)을 실시간으로 재구성합니다.
+- **Qt/PyVista Hybrid UI**: 고속 3D 시각화(PyVista)와 정밀 차트 분석(Matplotlib)이 결합된 하이브리드 인터페이스를 제공합니다.
 
+### 5. 📊 자동화된 리포팅 시스템
 - **Final Report v4**: 시뮬레이션 종료 즉시 각 부품별 최댓값 위치(Block Index)와 수치를 테이블 형태로 자동 정렬하여 출력합니다.
 - **Data Persistence**: 시뮬레이션 전 과정의 시계열 데이터를 `.pkl` 및 `.xlsx` 형식으로 보존하여 외부 분석 도구와의 호환성을 확보합니다.
 
@@ -68,6 +71,7 @@ graph TD
 1. **`run_drop_simulation_cases_v4.py`**: 표준화된 낙하 테스트 시나리오를 실행하는 메인 러너입니다.
 2. **`run_drop_simulator/whts_engine.py`**: 물리 연산 및 데이터 수집을 담당하는 v4 핵심 엔진입니다.
 3. **`run_drop_simulator/whts_postprocess_ui.py`**: 정밀 분석 UI 프레임워크입니다.
+4. **`plate_by_markers.py`**: 개별 부품(Plate)의 마커 기반 동역학 및 변형 해석 도구입니다.
 
 ### 💻 실행 방법
 
@@ -97,12 +101,19 @@ python run_drop_simulation_cases_v4.py
 - [x] PBA/RRG 기반 정밀 구조 해석 지표 통합
 - [x] SSR 표면 재구성 엔진 및 고해상도 컨투어 구현
 - [x] 마스터 스크롤바 기반 응답형 UI 최적화 (v4.8.x)
+- [x] 마커 기반 평판 변형 해석기(Plate Analyzer) 모듈 완성 (v4.9.0)
 - [ ] AI 기반 파라미터 자동 최적화 (Auto-Tuning) 모듈 통합
 - [ ] 실시간 충돌 에너지 흡수율(C.E.A) 분석 시스템 구축
 
 ---
 
 ## 📝 릴리즈 노트 (Release Notes)
+
+### [v4.9.0] - 2026-04-02
+- **신규 모듈**: `plate_by_markers.py` (마커 기반 평판 변형 해석기) 추가.
+- **기능 개선**: 강체 운동 분리(Kabsch) 및 RBF 기반 고정밀 변형 필드 재구성 엔진 구현.
+- **UI 고도화**: PyVista 주도적 Spatial View와 Matplotlib 4-chart 분석 그리드 통합.
+- **안정성 강화**: OpenGL context 충돌 해결 및 Qt 위젯 폰트 설정 버그 수정.
 
 ### [v4.8.9] - 2026-03-30
 - **UI 최적화**: 필드 컨투어 탭의 [Control] 패널을 수직 스태킹 레이아웃으로 변경하여 가시성 확보.

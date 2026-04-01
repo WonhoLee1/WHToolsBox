@@ -213,8 +213,8 @@ def objective_function(
     
     # Update config with current proposal
     cfg = get_default_config(config)
-    cfg["cush_solref_stiff"] = sr_stiff
-    cfg["cush_solref_damp"] = sr_damp
+    cfg["cush_solref_timec"] = sr_stiff
+    cfg["cush_solref_dampr"] = sr_damp
     cfg["cush_solimp_dmin"] = si_dmin
     cfg["cush_solimp_dmax"] = si_dmax
     if len(x) >= 7:
@@ -674,8 +674,8 @@ def run_surrogate_hybrid_tuning(
 # Global Design Variables Configuration
 # ==============================================================================
 GLOBAL_BOUNDS = [
-    [ 0.001,  5.0],    # x[0]: cush_solref_stiff (timeconst) - 강성 (작을수록 딱딱함)
-    [ 0.001,  5.0],    # x[1]: cush_solref_damp (dampratio) - 감쇠 (1.0 근처가 안정적)
+    [ 0.001,  5.0],    # x[0]: cush_solref_timec (timeconst) - 강성 (작을수록 딱딱함)
+    [ 0.001,  5.0],    # x[1]: cush_solref_dampr (dampratio) - 감쇠 (1.0 근처가 안정적)
     [ 0.001,  0.3],    # x[2]: cush_solimp_dmin - 최소 임피던스
     [   0.2,  0.9],    # x[3]: cush_solimp_dmax - 최대 임피던스
     [ 0.001,  0.5],    # x[4]: cush_solimp_width - 전이 구간 폭
@@ -893,8 +893,8 @@ if __name__ == "__main__":
         
         best = res.x
         print("\n[Optimal Cushion Parameters Found]")
-        print(f"  'cush_solref_stiff': {best[0]:.5f}")
-        print(f"  'cush_solref_damp': {best[1]:.5f}")
+        print(f"  'cush_solref_timec': {best[0]:.5f}")
+        print(f"  'cush_solref_dampr': {best[1]:.5f}")
         print(f"  'cush_solimp_dmin': {best[2]:.5f}")
         print(f"  'cush_solimp_dmax': {best[3]:.5f}")
         print(f"  'cush_solimp_width': {best[4]:.5f}")

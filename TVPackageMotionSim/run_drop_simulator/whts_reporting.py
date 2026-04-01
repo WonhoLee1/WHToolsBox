@@ -241,15 +241,15 @@ def compute_critical_timestamps(sim: Any) -> Dict[str, Any]:
 
 def finalize_simulation_results(sim: Any) -> None:
     """시뮬레이션 종료 후 데이터를 정리하고 정밀 리포트를 출력합니다."""
-    # [v4.8.6] 칸 맞춤 및 정렬 개선
-    col_width = 22
+    # [v4.8.7] 칸 맞춤 및 정렬 최적화 & 영문 범례(Legend) 추가
+    col_width = 24
     total_w = 20 + (col_width + 3) * 4 + 2
     
     print("\n" + "=" * total_w)
     print(f" [ WHTOOLS Simulation Final Report ] - {sim.timestamp}")
     print("-" * total_w)
     
-    # 헤더 구성
+    # 헤더 구성 (Component 20자 + 각 컬럼 col_width자)
     header = (f" {'Component':<20} | {'Max Bend @Blk':^{col_width}} | {'Max Twist @Blk':^{col_width}} | "
               f"{'Max BS(MPa) @Blk':^{col_width}} | {'Max RRG @Blk':^{col_width}}")
     print(header)
@@ -284,14 +284,22 @@ def finalize_simulation_results(sim: Any) -> None:
                 m = max([abs(val) for val in h])
                 if m > r_max: r_max, r_idx = m, idx
 
-        # 데이터 행 출력 - 칸 맞춤 적용
+        # 데이터 행 출력 - 헤더와 완벽히 중앙 정치되도록 포맷팅
         def _fmt(val, idx):
-            if idx == "-": return f"{val:6.2f} @{' - ':<13}"
-            return f"{val:6.2f} @{str(idx):<13}"
+            if idx == "-": return f"{val:6.2f} @ - "
+            return f"{val:6.2f} @ {str(idx):<13}"
 
-        print(f" {comp_name:<20} | {_fmt(b_max, b_idx)} | {_fmt(t_max, t_idx)} | "
-              f"{_fmt(s_max, s_idx)} | {_fmt(r_max, r_idx)}")
+        print(f" {comp_name:<20} | {_fmt(b_max, b_idx):^{col_width}} | "
+              f"{_fmt(t_max, t_idx):^{col_width}} | "
+              f"{_fmt(s_max, s_idx):^{col_width}} | "
+              f"{_fmt(r_max, r_idx):^{col_width}}")
 
+    print("-" * total_w)
+    print(" [ Metrics Legend ]")
+    print(" - Bend  : Principal Bending (Tilt) Angle [deg]")
+    print(" - Twist : Torsional (Twist) Angle [deg]")
+    print(" - BS    : Max Bending Stress calculated from internal moments [MPa]")
+    print(" - RRG   : Rotational Rigidity Gradient (Relative rotation between adjacent blocks) [deg]")
     print("=" * total_w + "\n")
 
 def apply_rank_heatmap(sim: Any) -> None:

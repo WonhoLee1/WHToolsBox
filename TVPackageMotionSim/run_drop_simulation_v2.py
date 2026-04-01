@@ -91,9 +91,9 @@ def format_config_report(config, timestamp):
         "3. 오픈셀/테이프 형상 (OC/Tape Geo)": ["oc_div", "oc_d", "occ_div", "occ_d", "occ_ithick"],
         "4. 공통 형상 파라미터 (Common Geo)": ["box_w", "box_h", "box_d", "box_thick", "box_div", "cush_div", "cush_gap", "assy_div", "assy_w", "assy_h", "chassis_div", "chas_d"],
         "5. 질량 및 물성 (Material)":        ["mass_paper", "mass_cushion", "mass_oc", "mass_occ", "mass_chassis", "ground_friction", "enable_plasticity", "plasticity_ratio", "cush_yield_stress",
-                                              "ground_solref", "ground_solref_stiff", "ground_solref_damp", "ground_solimp", 
-                                              "cush_solref", "cush_solref_stiff", "cush_solref_damp",
-                                              "cush_weld_solref", "cush_weld_solref_stiff", "cush_weld_solref_damp", "cush_weld_solimp",
+                                              "ground_solref", "ground_solref_timec", "ground_solref_damprr", "ground_solimp", 
+                                              "cush_solref", "cush_solref_timec", "cush_solref_damprr",
+                                              "cush_weld_solref", "cush_weld_solref_timec", "cush_weld_solref_damprr", "cush_weld_solimp",
                                               "cush_contact_solref", "cush_contact_solimp", "cush_corner_solref", "cush_corner_solimp", 
                                               "tape_weld_solref", "tape_solref", "cell_weld_solref", "cell_solref"],
         "6. 솔버 및 물리 파라미터 (Physics)": ["sim_integrator", "sim_timestep", "sim_iterations", "sim_impratio", "sim_nthread", "sim_gravity", "sim_tolerance", "sim_noslip_iterations"],
@@ -153,15 +153,15 @@ def format_config_report(config, timestamp):
         "sim_tolerance": "Solver convergence tolerance",                      # 솔버 수렴 오차 허용치
         "sim_noslip_iterations": "Iterations for friction constraint",         # 마찰 제약(No-slip) 반복 횟수
         "ground_solref": "Ground contact solver (timeconst, dampratio)",      # 바닥 접촉 솔버 (타임상수, 감쇠비)
-        "ground_solref_stiff": "Ground contact stiffness param",              # 바닥 접촉 강성 파라미터
-        "ground_solref_damp": "Ground contact damping param",                # 바닥 접촉 감쇠 파라미터
+        "ground_solref_timec": "Ground contact time constant param",          # 바닥 접촉 타임 상수 파라미터
+        "ground_solref_damprr": "Ground contact damping ratio param",          # 바닥 접촉 감쇠비 파라미터
         "ground_solimp": "Ground contact solver impedance (dmin, dmax, ...)", # 바닥 접촉 솔버 임피던스
         "cush_solref": "Cushion default solver reference",                    # 쿠션 기본 솔버 레퍼런스
-        "cush_solref_stiff": "Cushion stiffness param",                       # 쿠션 강성 파라미터
-        "cush_solref_damp": "Cushion damping param",                         # 쿠션 감쇠 파라미터
+        "cush_solref_timec": "Cushion time constant param",                   # 쿠션 타임 상수 파라미터
+        "cush_solref_damprr": "Cushion damping ratio param",                   # 쿠션 감쇠비 파라미터
         "cush_weld_solref": "Cushion internal weld solver reference",         # 쿠션 내부 Weld 솔버 레퍼런스
-        "cush_weld_solref_stiff": "Cushion weld stiffness param",             # 쿠션 Weld 강성 파라미터
-        "cush_weld_solref_damp": "Cushion weld damping param",               # 쿠션 Weld 감쇠 파라미터
+        "cush_weld_solref_timec": "Cushion weld time constant param",         # 쿠션 Weld 타임 상수 파라미터
+        "cush_weld_solref_damprr": "Cushion weld damping ratio param",         # 쿠션 Weld 감쇠비 파라미터
         "cush_weld_solimp": "Cushion internal weld solver impedance",         # 쿠션 내부 Weld 솔버 임피던스
         "cush_contact_solref": "Cushion center contact solver reference",      # 쿠션 중앙부 접촉 솔버 레퍼런스
         "cush_contact_solimp": "Cushion center contact solver impedance",      # 쿠션 중앙부 접촉 솔버 임피던스
@@ -685,8 +685,8 @@ def run_simulation(config_or_path, sim_duration=0.5):
 
     # Metric histories per component by row (j) and individual blocks
     # [NEW] MuJoCo 물리 파라미터 (Stiffness K, Damping C) 사전 계산 및 출력
-    cush_tc = config.get("cush_weld_solref_stiff", config.get("cush_solref_stiff", 0.02))
-    cush_dr = config.get("cush_weld_solref_damp", config.get("cush_solref_damp", 1.0))
+    cush_tc = config.get("cush_weld_solref_timec", config.get("cush_solref_timec", 0.02))
+    cush_dr = config.get("cush_weld_solref_damprr", config.get("cush_solref_damprr", 1.0))
     cush_weld_solref = f"{cush_tc} {cush_dr}"
     
     # 쿠션 블록 한 개의 질량 (에너지 계산용)
@@ -1900,20 +1900,20 @@ def test_run_case_1():
     
     # [NEW] 물리 파라미터 고도화 (Weld vs Contact 분리 및 엣지 특화)
     # 1. 쿠션 (Cushion)
-    cfg["cush_weld_solref_stiff"] = 0.004      # 쿠션 전체 구조적 벤딩 강성 (Stiffness)
-    cfg["cush_weld_solref_damp"]  = 1.0      # 쿠션 전체 구조적 감쇠 (Damping)
+    cfg["cush_weld_solref_timec"] = 0.004      # 쿠션 전체 구조적 벤딩 강성 (Stiffness)
+    cfg["cush_weld_solref_dampr"]  = 1.0      # 쿠션 전체 구조적 감쇠 (Damping)
     
     # [NEW] 코너 쿠션 전용 Weld 강성 (구조 강성과 분리하여 코너 압축 특성 특화)
     cfg["cush_weld_corner_solref_timec"] = 0.02 # 코너 부위 전용 stiffness (timeconst)
-    cfg["cush_weld_corner_solref_dampr"] = 1.0  # 코너 부위 전용 damping (dampratio)
+    cfg["cush_weld_corner_solref_damprr"] = 1.0  # 코너 부위 전용 damping (dampratio)
     
     cfg["cush_contact_solref"]    = "0.01 0.8" # 일반 접촉 (Center)
     cfg["cush_contact_solimp"]    = "0.1 0.95 0.005 0.5 2" 
     cfg["cush_corner_solref"]     = "0.01 0.8" # 엣지/모너리 전용 접촉 (Edge/Corner)
     cfg["cush_corner_solimp"]     = "0.1 0.95 0.005 0.5 2"
     # [SOLVER OPTIONS] MuJoCo 물리 엔진 및 솔버 관련 상세 설정 (sol_*)
-    #cfg["cush_solref_stiff"] = 0.01 # 쿠션 timeconst
-    #cfg["cush_solref_damp"]  = 0.1 # 쿠션 dampratio
+    #cfg["cush_solref_timec"] = 0.01 # 쿠션 timeconst
+    #cfg["cush_solref_dampr"]  = 0.1 # 쿠션 dampratio
 
     # 2. 테이프/접착제 (Tape)
     #cfg["tape_weld_solref"] = "0.01 1.0"
@@ -1938,8 +1938,8 @@ def test_run_case_1():
         
     # [RECOMMENDED] 딱딱한 바닥과의 충돌 시 관통 방지를 위한 설정
     # ground_solref: [timeconst, dampratio] -> timeconst가 작을수록 딱딱함. (0.002 미만은 비권장)
-    cfg["ground_solref_stiff"] = 0.001  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
-    cfg["ground_solref_damp"]  = 0.0001    # Critical Damping
+    cfg["ground_solref_timec"] = 0.001  # 0.01에서 0.004로 강화 (더 딱딱한 바닥)
+    cfg["ground_solref_dampr"]  = 0.0001    # Critical Damping
     cfg["ground_friction"]     = 0.1   # 바닥 마찰계수
 
     # ground_solimp: [dmin, dmax, width, midpoint, power]     

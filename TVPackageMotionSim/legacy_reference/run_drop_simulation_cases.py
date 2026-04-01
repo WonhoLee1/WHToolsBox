@@ -57,10 +57,10 @@ def test_run_case_1():
     cfg["box_use_weld"]     = False        
     
     # [4. PHYSICS PARAMETERS] - v2 Spec Sync
-    cfg["cush_weld_solref_stiff"] = 0.004      
-    cfg["cush_weld_solref_damp"]  = 1.0      
+    cfg["cush_weld_solref_timec"] = 0.004      
+    cfg["cush_weld_solref_dampr"]  = 1.0      
     cfg["cush_weld_corner_solref_timec"] = 0.02 
-    cfg["cush_weld_corner_solref_dampr"] = 1.0  
+    cfg["cush_weld_corner_solref_damprr"] = 1.0  
     cfg["cush_contact_solref"]    = "0.01 0.8" 
     cfg["cush_contact_solimp"]    = "0.1 0.95 0.005 0.5 2" 
     cfg["cush_corner_solref"]     = "0.01 0.8" 
@@ -81,8 +81,8 @@ def test_run_case_1():
     cfg["mass_chassis"] = 10.0
         
     # [7. GROUND PROPERTIES]
-    cfg["ground_solref_stiff"] = 0.001  
-    cfg["ground_solref_damp"]  = 0.0001    
+    cfg["ground_solref_timec"] = 0.001  
+    cfg["ground_solref_dampr"]  = 0.0001    
     cfg["ground_friction"]     = 0.1   
     cfg["ground_solimp"] = "0.1 0.95 0.001 0.5 2"
     

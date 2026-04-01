@@ -962,13 +962,13 @@ class PostProcessingUI(tk.Toplevel):
         main_f = ttk.Frame(master_f)
         main_f.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # [v4.8.4] 왼쪽 컨트롤 영역
+        # [v4.8.4] 제어/설정 하단 바 영역 (기존 왼쪽에서 하단으로 이동)
         left_f = ttk.Frame(main_f)
-        left_f.pack(side="left", fill="y", padx=5, pady=5)
+        left_f.pack(side="bottom", fill="x", padx=5, pady=5)
         
         # [v4.1] 설정 영역 가로 배치 (1.대상, 2.옵션, 가이드)
         config_f = ttk.Frame(left_f)
-        config_f.pack(fill="x", padx=5, pady=2)
+        config_f.pack(side="top", fill="x", padx=5, pady=2)
  
         # 1. 분석 영역 (Analysis Metric)
         opt_f = ttk.LabelFrame(config_f, text=" 1. 분석 지표 선택 ")
@@ -1083,9 +1083,9 @@ class PostProcessingUI(tk.Toplevel):
         ttk.Button(c_footer, text="🖼️ 필드 생성", 
                    command=self._on_show_contour_frame, width=15).pack(side="right", padx=2)
 
-        # 3. [ Control ] 그룹 패널 (가이드 가동 및 통합)
+        # 3. [ Control ] 그룹 패널 (하단 바 하단 줄에 배치하여 줄바꿈 효과)
         control_group = ttk.LabelFrame(left_f, text=" [ Control ] ")
-        control_group.pack(fill="x", padx=5, pady=5)
+        control_group.pack(side="top", fill="x", padx=5, pady=5)
         
         # 통합 도움말 버튼 (?)
         def _show_combined_guide():
@@ -1113,9 +1113,9 @@ class PostProcessingUI(tk.Toplevel):
         ttk.Entry(scale_f, textvariable=self._matrix_vmax_var, width=6).pack(side="left", padx=2)
         ttk.Label(scale_f, text="(N·m, MPa, J 등 지표 단위)", foreground="gray").pack(side="left", padx=5)
 
-        # 4. 임베디드 그래프 영역 (v4 Live View) - master_f 내부로 통합
+        # 4. 임베디드 그래프 영역 (상단 메인 영역)
         self.plot_container = ttk.Frame(main_f)
-        self.plot_container.pack(side="right", fill="both", expand=True, padx=10, pady=5)
+        self.plot_container.pack(side="top", fill="both", expand=True, padx=10, pady=5)
         
         # 안내 텍스트 (그래프 전)
         self.plot_placeholder = ttk.Label(self.plot_container, 

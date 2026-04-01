@@ -159,8 +159,8 @@ def final_patch():
                 content = content[:match_start.start()] + new_plasticity_fn + content[total_end:]
 
         # [USER EDITS] Update test_run_case_1 values
-        content = content.replace('cfg["cush_weld_solref_stiff"] = 0.02', 'cfg["cush_weld_solref_stiff"] = 0.008')
-        content = content.replace('cfg["cush_weld_solref_damp"]  = 0.6', 'cfg["cush_weld_solref_damp"]  = 0.8')
+        content = content.replace('cfg["cush_weld_solref_timec"] = 0.02', 'cfg["cush_weld_solref_timec"] = 0.008')
+        content = content.replace('cfg["cush_weld_solref_dampr"]  = 0.6', 'cfg["cush_weld_solref_dampr"]  = 0.8')
         content = content.replace('cfg["cush_contact_solimp"]    = "0.1 0.95 0.002 0.5 2"', 'cfg["cush_contact_solimp"]    = "0.1 0.95 0.01 0.5 2"')
         content = content.replace('cfg["cush_edge_solimp"]       = "0.1 0.95 0.004 0.5 2"', 'cfg["cush_corner_solimp"]    = "0.1 0.95 0.01 0.5 2"')
         

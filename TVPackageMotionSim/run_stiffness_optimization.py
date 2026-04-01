@@ -47,8 +47,8 @@ GLOBAL_HISTORY = []             # Bounds 분석용 이력 기록
 # Global Design Variables Configuration (Soft Weld)
 # ==============================================================================
 GLOBAL_BOUNDS = [
-    [0.001, 5.0],    # x[0]: solref_stiff (timeconst) - 강성
-    [0.01, 5.0],     # x[1]: solref_damp (dampratio) - 감쇠
+    [0.001, 5.0],    # x[0]: solref_timec (timeconst) - 강성
+    [0.01, 5.0],     # x[1]: solref_dampr (dampratio) - 감쇠
     [0.01, 0.95],    # x[2]: solimp_dmin - 최소 임피던스
     [0.5, 0.999],    # x[3]: solimp_dmax - 최대 임피던스
     [0.0001, 0.5],   # x[4]: solimp_width - 전이 구간 폭
@@ -156,7 +156,7 @@ def objective_function(x_norm, comp_name, test_configs, full_weld, base_config=N
     # 디코딩 (0~1.0 -> 실제 물리 단위)
     x_real = decode_norm(x_norm)
     
-    sr_stiff, sr_damp, si_dmin, si_dmax = x_real[0], x_real[1], x_real[2], x_real[3]
+    sr_timec, sr_dampr, si_dmin, si_dmax = x_real[0], x_real[1], x_real[2], x_real[3]
     si_width, si_mid, si_pow = 0.001, 0.5, 2.0
     if full_weld:
         si_width, si_mid, si_pow = x_real[4], x_real[5], x_real[6]
@@ -165,23 +165,23 @@ def objective_function(x_norm, comp_name, test_configs, full_weld, base_config=N
     
     # 타겟 컴포넌트 파라미터 맵핑
     if comp_name == "BCushion":
-        cfg["cush_solref_stiff"], cfg["cush_solref_damp"] = sr_stiff, sr_damp
+        cfg["cush_solref_timec"], cfg["cush_solref_damprr"] = sr_timec, sr_dampr
         cfg["cush_solimp_dmin"], cfg["cush_solimp_dmax"] = si_dmin, si_dmax
         if full_weld:
             cfg["cush_solimp_width"], cfg["cush_solimp_mid"], cfg["cush_solimp_power"] = si_width, si_mid, si_pow
     elif comp_name in ["BChassis", "BOpenCell"]:
-        cfg["tv_solref_stiff"], cfg["tv_solref_damp"] = sr_stiff, sr_damp
+        cfg["tv_solref_timec"], cfg["tv_solref_damprr"] = sr_timec, sr_dampr
         cfg["tv_solimp_dmin"], cfg["tv_solimp_dmax"] = si_dmin, si_dmax
         if full_weld:
             cfg["tv_solimp_width"], cfg["tv_solimp_mid"], cfg["tv_solimp_power"] = si_width, si_mid, si_pow
     elif comp_name == "BOpenCellCohesive":
-        cfg["tape_solref_stiff"], cfg["tape_solref_damp"] = sr_stiff, sr_damp
+        cfg["tape_solref_timec"], cfg["tape_solref_damprr"] = sr_timec, sr_dampr
         cfg["tape_solimp_dmin"], cfg["tape_solimp_dmax"] = si_dmin, si_dmax
         if full_weld:
             cfg["tape_solimp_width"], cfg["tape_solimp_mid"], cfg["tape_solimp_power"] = si_width, si_mid, si_pow
             
     total_loss = 0.0
-    debug_str = f"[{comp_name} Opt: {_opt_iter_cnt}] solref=({sr_stiff:.4f},{sr_damp:.4f}) imp=({si_dmin:.4f},{si_dmax:.4f}"
+    debug_str = f"[{comp_name} Opt: {_opt_iter_cnt}] solref=({sr_timec:.4f},{sr_dampr:.4f}) imp=({si_dmin:.4f},{si_dmax:.4f}"
     if full_weld: debug_str += f",{si_width:.4f},{si_mid:.4f},{si_pow:.4f})"
     else: debug_str += ")"
         
@@ -483,8 +483,8 @@ if __name__ == "__main__":
         
         best = res.x
         print(f"\n[Optimal {comp_name} Parameters Found]")
-        print(f"  'solref_stiff': {best[0]:.5f}")
-        print(f"  'solref_damp': {best[1]:.5f}")
+        print(f"  'solref_timec': {best[0]:.5f}")
+        print(f"  'solref_dampr': {best[1]:.5f}")
         print(f"  'solimp_dmin': {best[2]:.5f}")
         print(f"  'solimp_dmax': {best[3]:.5f}")
         if full_weld:
@@ -505,7 +505,7 @@ if __name__ == "__main__":
             print("  Suggested New GLOBAL_BOUNDS (Copy-paste to replace current settings):")
             print("\nGLOBAL_BOUNDS = [")
             
-            param_names = ["solref_stiff", "solref_damp", "solimp_dmin", "solimp_dmax", "solimp_width", "solimp_mid", "solimp_power"]
+            param_names = ["solref_timec", "solref_dampr", "solimp_dmin", "solimp_dmax", "solimp_width", "solimp_mid", "solimp_power"]
             n_p = 7 if full_weld else 4
             
             for i in range(n_p):

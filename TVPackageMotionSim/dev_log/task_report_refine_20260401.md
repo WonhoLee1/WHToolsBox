@@ -1,0 +1,6 @@
+- [x] `run_drop_simulator/whts_reporting.py` 내 `finalize_simulation_results` 함수 수정
+- [x] 테이블 열 정렬(`col_width` & `_fmt`) 최적화
+- [x] Metrics Legend(지수 설명) 출력 문구 추가
+- [x] `run_drop_simulation_cases_v4.py` 내 바디별 질량(Mass) 명시적 정의 추가
+- [x] `run_drop_simulation_cases_v4.py` 및 `whtb_config.py` 내 키 명칭 리팩토링 (cell->opencell, tv->chassis)
+- [x] 시뮬레이션 실행 및 리포트/질량 설정 최종 검증

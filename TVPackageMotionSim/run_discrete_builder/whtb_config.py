@@ -45,8 +45,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     # - solimp [dmin, dmax, width, mid, power]: 접촉력의 임피던스 곡선을 결정.
     
     # Cushion (완충재: EPS/Foam)
-    cush_solref_stiff = user_config.get("cush_solref_stiff", 0.03) # 완충재 유연성 (0.03~0.05 권장)
-    cush_solref_damp = user_config.get("cush_solref_damp", 0.8)   # 완충재 감쇠비 (0.8~1.0 권장)
+    cush_solref_timec = user_config.get("cush_solref_timec", 0.03) # 완충재 유연성 (0.03~0.05 권장)
+    cush_solref_damprr = user_config.get("cush_solref_damprr", 0.8)   # 완충재 감쇠비 (0.8~1.0 권장)
     cush_solimp_dmin = user_config.get("cush_solimp_dmin", 0.1)
     cush_solimp_dmax = user_config.get("cush_solimp_dmax", 0.95)
     cush_solimp_width = user_config.get("cush_solimp_width", 0.005)
@@ -55,8 +55,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     cush_yield_stress = user_config.get("cush_yield_stress", 0.1) # MPa 단위 항복 강도 (소성 변형 시작점)
     
     # Tape (부착용 테이프: Cohesive/Adhesive)
-    tape_solref_stiff = user_config.get("tape_solref_stiff", 0.01) # 테이프의 인장 강성 관련
-    tape_solref_damp = user_config.get("tape_solref_damp", 1.0)
+    tape_solref_timec = user_config.get("tape_solref_timec", 0.01) # 테이프의 인장 강성 관련
+    tape_solref_damprr = user_config.get("tape_solref_damprr", 1.0)
     tape_solimp_dmin = user_config.get("tape_solimp_dmin", 0.1)
     tape_solimp_dmax = user_config.get("tape_solimp_dmax", 0.99)
     tape_solimp_width = user_config.get("tape_solimp_width", 0.001)
@@ -64,8 +64,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     tape_solimp_power = user_config.get("tape_solimp_power", 2.0)
     
     # Cell (TV 패널부)
-    cell_solref_stiff = user_config.get("cell_solref_stiff", 0.01) # 고강성 세라믹/글라스 특성
-    cell_solref_damp = user_config.get("cell_solref_damp", 0.3)
+    cell_solref_timec = user_config.get("cell_solref_timec", 0.01) # 고강성 세라믹/글라스 특성
+    cell_solref_damprr = user_config.get("cell_solref_damprr", 0.3)
     cell_solimp_dmin = user_config.get("cell_solimp_dmin", 0.5)
     cell_solimp_dmax = user_config.get("cell_solimp_dmax", 0.95)
     cell_solimp_width = user_config.get("cell_solimp_width", 0.001)
@@ -73,8 +73,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     cell_solimp_power = user_config.get("cell_solimp_power", 2.0)
     
     # TV Chassis (기구물/프레임)
-    tv_solref_stiff = user_config.get("tv_solref_stiff", 0.002) # 매우 높은 금속 강성
-    tv_solref_damp = user_config.get("tv_solref_damp", 0.5)
+    tv_solref_timec = user_config.get("tv_solref_timec", 0.002) # 매우 높은 금속 강성
+    tv_solref_damprr = user_config.get("tv_solref_damprr", 0.5)
     tv_solimp_dmin = user_config.get("tv_solimp_dmin", 0.1)
     tv_solimp_dmax = user_config.get("tv_solimp_dmax", 0.95)
     tv_solimp_width = user_config.get("tv_solimp_width", 0.005)
@@ -82,19 +82,19 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     tv_solimp_power = user_config.get("tv_solimp_power", 2.0)
     
     # Ground (바닥 접촉면)
-    ground_solref_stiff = user_config.get("ground_solref_stiff", 0.001)
-    ground_solref_damp = user_config.get("ground_solref_damp", 0.0001)
-    ground_solref = f"{ground_solref_stiff} {ground_solref_damp}"
-    if "ground_solref" in user_config and "ground_solref_stiff" not in user_config and "ground_solref_damp" not in user_config:
+    ground_solref_timec = user_config.get("ground_solref_timec", 0.001)
+    ground_solref_damprr = user_config.get("ground_solref_damprr", 0.0001)
+    ground_solref = f"{ground_solref_timec} {ground_solref_damprr}"
+    if "ground_solref" in user_config and "ground_solref_timec" not in user_config and "ground_solref_damprr" not in user_config:
         ground_solref = user_config["ground_solref"]
 
     # -----------------------------------------------------------------
     # [3] 내부 문자열 조립 (String Formatting for MuJoCo XML)
     # -----------------------------------------------------------------
-    cush_solref = f"{cush_solref_stiff} {cush_solref_damp}"
-    tape_solref = f"{tape_solref_stiff} {tape_solref_damp}"
-    cell_solref = f"{cell_solref_stiff} {cell_solref_damp}"
-    tv_solref = f"{tv_solref_stiff} {tv_solref_damp}"
+    cush_solref = f"{cush_solref_timec} {cush_solref_damprr}"
+    tape_solref = f"{tape_solref_timec} {tape_solref_damprr}"
+    cell_solref = f"{cell_solref_timec} {cell_solref_damprr}"
+    tv_solref = f"{tv_solref_timec} {tv_solref_damprr}"
     
     cush_solimp = f"{cush_solimp_dmin} {cush_solimp_dmax} {cush_solimp_width} {cush_solimp_mid} {cush_solimp_power}"
     tape_solimp = f"{tape_solimp_dmin} {tape_solimp_dmax} {tape_solimp_width} {tape_solimp_mid} {tape_solimp_power}"
@@ -105,10 +105,17 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     # [4] Weld(용접) 및 Contact(접촉) 파라미터 분리 적용
     # -----------------------------------------------------------------
     # Weld: 동일 부품 혹은 연결된 부품 간의 고정 구속조건 성능
-    cush_weld_solref = f"{user_config.get('cush_weld_solref_stiff', cush_solref_stiff)} {user_config.get('cush_weld_solref_damp', cush_solref_damp)}"
-    tape_weld_solref = f"{user_config.get('tape_weld_solref_stiff', tape_solref_stiff)} {user_config.get('tape_weld_solref_damp', tape_solref_damp)}"
-    cell_weld_solref = f"{user_config.get('cell_weld_solref_stiff', cell_solref_stiff)} {user_config.get('cell_weld_solref_damp', cell_solref_damp)}"
-    tv_weld_solref = f"{user_config.get('tv_weld_solref_stiff', tv_solref_stiff)} {user_config.get('tv_weld_solref_damp', tv_solref_damp)}"
+    cush_weld_solref = f"{user_config.get('cush_weld_solref_timec', cush_solref_timec)} {user_config.get('cush_weld_solref_damprr', cush_solref_damprr)}"
+    tape_weld_solref = f"{user_config.get('tape_weld_solref_timec', tape_solref_timec)} {user_config.get('tape_weld_solref_damprr', tape_solref_damprr)}"
+    
+    # OpenCell 및 Chassis는 명시적 명칭(opencell, chassis)을 우선 확인
+    oc_w_s = user_config.get('opencell_weld_solref_timec', user_config.get('cell_weld_solref_timec', cell_solref_timec))
+    oc_w_d = user_config.get('opencell_weld_solref_damprr', user_config.get('cell_weld_solref_damprr', cell_solref_damprr))
+    cell_weld_solref = f"{oc_w_s} {oc_w_d}"
+    
+    ch_w_s = user_config.get('chassis_weld_solref_timec', user_config.get('tv_weld_solref_timec', tv_solref_timec))
+    ch_w_d = user_config.get('chassis_weld_solref_damprr', user_config.get('tv_weld_solref_damprr', tv_solref_damprr))
+    tv_weld_solref = f"{ch_w_s} {ch_w_d}"
 
     cush_weld_solimp = cush_solimp 
     tape_weld_solimp = tape_solimp
@@ -123,10 +130,10 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     
     # 특수 목적: 코너/에지 부위의 국부적 충격 제어용
     cush_weld_corner_solref_timec = user_config.get("cush_weld_corner_solref_timec", None)
-    cush_weld_corner_solref_dampr = user_config.get("cush_weld_corner_solref_dampr", 1.0)
+    cush_weld_corner_solref_damprr = user_config.get("cush_weld_corner_solref_damprr", 1.0)
     cush_weld_corner_solref = None
     if cush_weld_corner_solref_timec is not None:
-        cush_weld_corner_solref = f"{cush_weld_corner_solref_timec} {cush_weld_corner_solref_dampr}"
+        cush_weld_corner_solref = f"{cush_weld_corner_solref_timec} {cush_weld_corner_solref_damprr}"
     
     # -----------------------------------------------------------------
     # [5] 주요 기하학적 치수 및 질량 (Dimensions & Mass)
@@ -169,7 +176,7 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         "drop_height": user_config.get("drop_height", 0.5), # 낙하 높이 (m)
         "include_paperbox": True,
         "include_cushion": True,
-        "sim_duration": 1.0,  
+        "sim_duration": user_config.get("sim_duration", 2.0),
         
         "box_w": box_w, "box_h": box_h, "box_d": box_d,
         "box_thick": box_thick, "cush_gap": 0.001,
@@ -241,17 +248,17 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         "reporting_interval": user_config.get("reporting_interval", 0.005), # 데이터 저장 주기 (초)
 
         "cush_yield_stress": cush_yield_stress,
-        "cush_solref_stiff": cush_solref_stiff, "cush_solref_damp": cush_solref_damp,
+        "cush_solref_timec": cush_solref_timec, "cush_solref_damprr": cush_solref_damprr,
         "cush_solimp_dmin": cush_solimp_dmin, "cush_solimp_dmax": cush_solimp_dmax, "cush_solimp_width": cush_solimp_width, "cush_solimp_mid": cush_solimp_mid, "cush_solimp_power": cush_solimp_power,
-        "tape_solref_stiff": tape_solref_stiff, "tape_solref_damp": tape_solref_damp,
+        "tape_solref_timec": tape_solref_timec, "tape_solref_damprr": tape_solref_damprr,
         "tape_solimp_dmin": tape_solimp_dmin, "tape_solimp_dmax": tape_solimp_dmax, "tape_solimp_width": tape_solimp_width, "tape_solimp_mid": tape_solimp_mid, "tape_solimp_power": tape_solimp_power,
-        "cell_solref_stiff": cell_solref_stiff, "cell_solref_damp": cell_solref_damp,
+        "cell_solref_timec": cell_solref_timec, "cell_solref_damprr": cell_solref_damprr,
         "cell_solimp_dmin": cell_solimp_dmin, "cell_solimp_dmax": cell_solimp_dmax, "cell_solimp_width": cell_solimp_width, "cell_solimp_mid": cell_solimp_mid, "cell_solimp_power": cell_solimp_power,
-        "tv_solref_stiff": tv_solref_stiff, "tv_solref_damp": tv_solref_damp,
+        "tv_solref_timec": tv_solref_timec, "tv_solref_damprr": tv_solref_damprr,
         "tv_solimp_dmin": tv_solimp_dmin, "tv_solimp_dmax": tv_solimp_dmax, "tv_solimp_width": tv_solimp_width, "tv_solimp_mid": tv_solimp_mid, "tv_solimp_power": tv_solimp_power,
-        "ground_solref_stiff": ground_solref_stiff, "ground_solref_damp": ground_solref_damp,
-        "cush_weld_solref_stiff": user_config.get('cush_weld_solref_stiff', cush_solref_stiff),
-        "cush_weld_solref_damp": user_config.get('cush_weld_solref_damp', cush_solref_damp),
+        "ground_solref_timec": ground_solref_timec, "ground_solref_damprr": ground_solref_damprr,
+        "cush_weld_solref_timec": user_config.get('cush_weld_solref_timec', cush_solref_timec),
+        "cush_weld_solref_damprr": user_config.get('cush_weld_solref_damprr', cush_solref_damprr),
     }
     
     # 사용자가 명시적으로 전달한 설정값 최우선 덮어쓰기
@@ -261,15 +268,28 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     # 개별 성분(stiff, damp 등)을 수정했을 경우 MuJoCo XML 문자열로 즉각 반영하기 위한 후처리.
     
     # 바닥 동기화
-    g_s = config.get("ground_solref_stiff", 0.001); g_d = config.get("ground_solref_damp", 0.0001)
+    g_s = config.get("ground_solref_timec", 0.001); g_d = config.get("ground_solref_damprr", 0.0001)
     config["ground_solref"] = f"{g_s} {g_d}"
     
     # 재질별 동기화 루프
     for prefix in ["cush", "tape", "cell", "tv"]:
         # (A) Solref 재조립
-        s_val = config.get(f"{prefix}_solref_stiff"); d_val = config.get(f"{prefix}_solref_damp")
+        s_val = config.get(f"{prefix}_solref_timec"); d_val = config.get(f"{prefix}_solref_damprr")
         if s_val is not None and d_val is not None:
             config[f"{prefix}_solref"] = f"{s_val} {d_val}"
+            
+        # (A-2) [SPECIAL] Weld Solref 재조립 (WHTOOLS 전용 하드코딩 명칭 지원)
+        w_prefix = prefix
+        if prefix == "cell": w_prefix = "opencell"
+        if prefix == "tv":   w_prefix = "chassis"
+        
+        ws_val = config.get(f"{w_prefix}_weld_solref_timec")
+        if ws_val is None: ws_val = config.get(f"{prefix}_weld_solref_timec")
+        wd_val = config.get(f"{w_prefix}_weld_solref_damprr")
+        if wd_val is None: wd_val = config.get(f"{prefix}_weld_solref_damprr")
+        
+        if ws_val is not None and wd_val is not None:
+            config[f"{prefix}_weld_solref"] = f"{ws_val} {wd_val}"
             
         # (B) Solimp 재조립 (5개 성분 필수)
         i_dmin  = config.get(f"{prefix}_solimp_dmin", 0.1)
@@ -282,8 +302,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     # (C) Weld 전용 동기화 (내부 구속조건 성능 제어)
     for prefix in ["cush", "tape", "cell", "tv"]:
         target_key = f"{prefix}_weld_solref"
-        s = config.get(f"{prefix}_weld_solref_stiff", config.get(f"{prefix}_solref_stiff"))
-        d = config.get(f"{prefix}_weld_solref_damp", config.get(f"{prefix}_solref_damp"))
+        s = config.get(f"{prefix}_weld_solref_timec", config.get(f"{prefix}_solref_timec"))
+        d = config.get(f"{prefix}_weld_solref_damprr", config.get(f"{prefix}_solref_damprr"))
         config[target_key] = f"{s} {d}"
         config[f"{prefix}_weld_solimp"] = config.get(f"{prefix}_weld_solimp", config[f"{prefix}_solimp"])
 
@@ -294,7 +314,7 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
     config["cush_corner_solimp"]    = config.get("cush_corner_solimp", "0.95 0.999 0.001 0.5 2.0")
     
     if "cush_weld_corner_solref_timec" in config and config["cush_weld_corner_solref_timec"] is not None:
-        cw_s = config["cush_weld_corner_solref_timec"]; cw_d = config.get("cush_weld_corner_solref_dampr", 1.0)
+        cw_s = config["cush_weld_corner_solref_timec"]; cw_d = config.get("cush_weld_corner_solref_damprr", 1.0)
         config["cush_weld_corner_solref"] = f"{cw_s} {cw_d}"
     else: config["cush_weld_corner_solref"] = config.get("cush_weld_corner_solref", None)
     

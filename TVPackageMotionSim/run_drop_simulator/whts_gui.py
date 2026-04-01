@@ -25,7 +25,7 @@ class ConfigEditor(tk.Toplevel):
             "Environment": ["drop_height", "drop_mode", "drop_direction", "env_gravity", "env_wind"],
             "Physics": ["sim_timestep", "reporting_interval", "sim_duration", "sim_integrator", "sim_iterations", "sol_recession"],
             "Structure": ["target_mass", "num_balancing_masses", "box_w", "box_h", "box_d", "mass_cushion", "mass_chassis"],
-            "Cushion": ["enable_plasticity", "cush_yield_strain", "cush_yield_pressure", "cush_weld_solref_stiff", "cush_weld_solref_damp", "plasticity_ratio"]
+            "Cushion": ["enable_plasticity", "cush_yield_strain", "cush_yield_pressure", "cush_weld_solref_timec", "cush_weld_solref_damprr", "plasticity_ratio"]
         }
         
         self.desc_map = {

@@ -173,7 +173,7 @@ class ConfigEditor(tk.Toplevel):
             "Environment": ["drop_height", "drop_mode", "drop_direction", "env_gravity", "env_wind"],
             "Physics": ["sim_timestep", "sim_duration", "sim_integrator", "sim_iterations", "sol_recession"],
             "Structure": ["target_mass", "num_balancing_masses", "box_w", "box_h", "box_d", "mass_cushion", "mass_chassis"],
-            "Cushion": ["enable_plasticity", "cush_yield_strain", "cush_yield_pressure", "cush_weld_solref_stiff", "cush_weld_solref_damp", "plasticity_ratio"]
+            "Cushion": ["enable_plasticity", "cush_yield_strain", "cush_yield_pressure", "cush_weld_solref_timec", "cush_weld_solref_dampr", "plasticity_ratio"]
         }
         
         self.desc_map = {
@@ -184,8 +184,8 @@ class ConfigEditor(tk.Toplevel):
             "env_wind": "풍속 벡터 (Wind speed vector [vx, vy, vz])",
             "target_mass": "밸런싱 목표 총 질량 (Target total mass, kg)",
             "num_balancing_masses": "보정 질량 개수 (1, 2, 4, 8)",
-            "cush_weld_solref_stiff": "쿠션 골격 굽힘 강성 (Cushion skeletal bending stiffness, solref[0])",
-            "cush_weld_solref_damp": "쿠션 감쇠비 (Cushion damping ratio, solref[1])",
+            "cush_weld_solref_timec": "쿠션 골격 굽힘 강성 (Cushion skeletal bending stiffness, solref[0])",
+            "cush_weld_solref_dampr": "쿠션 감쇠비 (Cushion damping ratio, solref[1])",
             "cush_yield_strain": "소성 변형 항복 변형률 (Strain threshold, 0.0~1.0)",
             "cush_yield_pressure": "소성 변형 항복 압력 (Pressure threshold, Pa)",
             "plasticity_ratio": "변형 적용 비율 (Deformation application ratio, 0.0~1.0)",
@@ -1090,8 +1090,8 @@ class DropSimulator:
         감쇠 상수(C)를 역산하여 기술적으로 리액티브하게 리포트합니다.
         """
         # 쿠션 웰드 강성 분석
-        tc = self.config.get('cush_weld_solref_stiff', 0.02)
-        dr = self.config.get('cush_weld_solref_damp', 1.0)
+        tc = self.config.get('cush_weld_solref_timec', 0.02)
+        dr = self.config.get('cush_weld_solref_dampr', 1.0)
         
         # 블록 하나당 질량 추정
         nx, ny, nz = self.config.get('cush_div', [5, 5, 3])

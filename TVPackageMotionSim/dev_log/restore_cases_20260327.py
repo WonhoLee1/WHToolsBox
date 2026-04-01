@@ -48,7 +48,7 @@ def test_run_case_1():
     cfg["cush_use_weld"]    = True
     
     # [PHYSICS] 고유 물성 보전 (중요 정보)
-    cfg["cush_weld_solref_stiff"] = 0.004      # 구조적 벤딩 보호
+    cfg["cush_weld_solref_timec"] = 0.004      # 구조적 벤딩 보호
     cfg["cush_weld_corner_solref_timec"] = 0.02 # 코너 특화
     cfg["cush_contact_solref"]    = "0.01 0.8" 
     cfg["cush_contact_solimp"]    = "0.1 0.95 0.005 0.5 2" 
