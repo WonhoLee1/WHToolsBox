@@ -8,6 +8,60 @@ import numpy as np
 from scipy.spatial import cKDTree
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from .whts_jax_ssr import PlateConfig, compute_jax_ssr_field
+    _JAX_AVAILABLE = True
+except ImportError:
+    try:
+        from whts_jax_ssr import PlateConfig, compute_jax_ssr_field
+        _JAX_AVAILABLE = True
+    except ImportError:
+        _JAX_AVAILABLE = False
+
+def apply_jax_kirchhoff_ssr(sim: Any, comp_name: str, res: int = 40) -> Optional[Dict]:
+    """
+    [v4.9] JAX 가속 Kirchhoff 박판 엔진을 사용하여 전 프레임 SSR을 수행합니다.
+    """
+    if not _JAX_AVAILABLE: return None
+    if comp_name not in sim.metrics: return None
+
+    # 1. 컴포넌트 정보 및 데이터 소스 확인
+    comp_tree = sim.components.get(comp_name, {})
+    if not comp_tree: return None
+
+    all_idxs = sorted(list(comp_tree.keys()))
+    n_markers = len(all_idxs)
+    n_frames = len(sim.time_history)
+    
+    # (n_frames, n_markers, 3) 배열 생성
+    markers_history = np.zeros((n_frames, n_markers, 3))
+    
+    # 시뮬레이션 데이터에서 각 블록의 글로벌 좌표 이력 추출
+    for m_idx, grid_idx in enumerate(all_idxs):
+        body_id = comp_tree[grid_idx]
+        if hasattr(sim, 'all_data') and 'pos' in sim.all_data:
+            # sim.all_data['pos'] shape: (n_frames, n_bodies, 3)
+            markers_history[:, m_idx, :] = sim.all_data['pos'][:, body_id, :]
+        else:
+            # 폴백: 명목 위치 데이터 활용
+            markers_history[:, m_idx, :] = sim.nominal_local_pos.get(body_id, [0,0,0])
+
+    # 2. 박판 해석 대상 설정 (두께 등)
+    config = PlateConfig(
+        thickness=2.0, 
+        mesh_resolution=res,
+        reg_lambda=1e-4
+    )
+    
+    try:
+        # JAX-SSR 엔진 실행 (Kabsch + Kirchhoff)
+        results = compute_jax_ssr_field(markers_history, config)
+        return results
+    except Exception as e:
+        print(f">> [WHTOOLS] JAX-SSR Error for {comp_name}: {e}")
+        return None
+
+
 def get_contour_grid_data(sim: Any, step: int, comp_name: str, metric: str, mode: str = "temporal") -> Optional[Tuple]:
     """
     지정한 시점(step)에서 컴포넌트의 실제 물리 좌표 기반 2D 그리드 데이터를 추출합니다.

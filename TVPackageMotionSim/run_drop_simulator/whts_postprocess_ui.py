@@ -23,6 +23,8 @@ from .whts_reporting import compute_ssr_shell_metrics # [v4.4] SSR 코어 엔진
 from .whts_postprocess_engine import (
     get_contour_grid_data,
     apply_psr_interpolation,
+    apply_jax_kirchhoff_ssr,
+    _JAX_AVAILABLE,
     extract_global_summary_data
 )
 
@@ -1639,6 +1641,37 @@ class PostProcessingUI(tk.Toplevel):
             selected = [k for k, v in self._contour_metric_vars.items() if v.get()]
             metric = selected[0] if selected else "bend"
         
+        # [v4.9] JAX-SSR 데이터가 미리 분석되어 있는지 확인
+        if self._ssr_mode_var.get() and comp in self._ssr_data_store:
+            comp_store = self._ssr_data_store[comp]
+            
+            # (A) JAX 배치 데이터가 있는 경우
+            if 'JAX_BATCH' in comp_store:
+                jax_data = comp_store['JAX_BATCH']
+                # Metric 매핑 (기존 UI 명칭 -> JAX 필드 명칭)
+                jax_metric_map = {
+                    "bend": "Displacement [mm]",
+                    "s_bend": "Stress XX [MPa]",
+                    "rrg": "Signed Von-Mises [MPa]",  # Von-Mises를 RRG 대체용으로 시각화 가능
+                    "energy": "Eq. Strain [mm/mm]"
+                }
+                jax_key = jax_metric_map.get(metric, "Displacement [mm]")
+                
+                if jax_key in jax_data:
+                    # jax_data[key] shape: (n_frames, res, res)
+                    # XI, YI 로부터 물리 좌표계를 복원하거나 메쉬 그대로 사용
+                    XI, YI = jax_data['X_mesh'], jax_data['Y_mesh']
+                    grid = jax_data[jax_key][step]
+                    return XI, YI, grid, ["X", "Y"]
+
+            # (B) 개별 프레임 분석 데이터가 있는 경우 (Legacy PSR)
+            if step in comp_store:
+                ssr = comp_store[step]
+                XI, YI = np.array(ssr['grid_x']), np.array(ssr['grid_y'])
+                grid = np.array(ssr['stress_field']) if metric in ("s_bend", "rrg") else np.array(ssr['displacement_field'])
+                return XI, YI, grid, ["X", "Y"]
+
+        # 기본 시뮬레이션 데이터 추출 (Low-Fidelity)
         mode = self._contour_mode_var.get()
         return get_contour_grid_data(self.sim, step, comp, metric, mode)
 
@@ -1841,12 +1874,15 @@ class PostProcessingUI(tk.Toplevel):
 
         if vmin == vmax: vmax = vmin + 0.01
 
-        # Sharp SSR (Structural Surface Reconstruction) using PSR
-        if self._ssr_mode_var.get() and grid.size >= 6:
+        # [v4.9] Sharp SSR (Structural Surface Reconstruction) 
+        # JAX-SSR 결과물(이미 고해상도인 경우)은 추가 PSR 보간을 건너뜁니다.
+        is_already_high_res = (grid.shape[0] >= 30 and grid.shape[1] >= 30)
+        
+        if self._ssr_mode_var.get() and not is_already_high_res and grid.size >= 6:
             try:
                 X, Y, Z = apply_psr_interpolation(X_orig, Y_orig, grid, vmin, vmax)
             except Exception as e:
-                print(f"[WHTOOLS] SSR Analysis failed: {e}")
+                print(f"[WHTOOLS] SSR Analysis (Legacy) failed: {e}")
                 X, Y, Z = X_orig, Y_orig, grid
         else:
             X, Y, Z = X_orig, Y_orig, grid
@@ -2184,33 +2220,37 @@ class SSRAnalyzerDialog(tk.Toplevel):
 
             total_steps = len(self.sim.time_history)
             target_steps = range(0, total_steps, stride)
-            total_work = len(selected_comps) * len(target_steps)
+            total_work = len(selected_comps)
             current_work = 0
 
             for comp in selected_comps:
-                # 해당 컴포넌트 전용 물리 속성 로드
-                comp_t = self._comp_configs[comp]["t"].get() / 1000.0      # mm -> m
-                comp_e = self._comp_configs[comp]["e"].get() * 1e9       # GPa -> Pa
+                self.after(0, lambda c=comp: self._status_lbl.config(text=f"Analyzing {c} (JAX-Engine)..."))
                 
-                config = {
-                    "ssr_thickness": comp_t,
-                    "ssr_youngs_modulus": comp_e,
-                    "ssr_resolution": 35 # Grid 해상도 (보정 가능성 고려)
-                }
-
-                if comp not in self.parent._ssr_data_store:
-                    self.parent._ssr_data_store[comp] = {}
+                # [v4.9] JAX-SSR 우선 시도 (전체 프레임 배치 처리)
+                jax_result = None
+                if _JAX_AVAILABLE:
+                    # whts_postprocess_engine의 JAX 인터페이스 호출
+                    jax_result = apply_jax_kirchhoff_ssr(self.sim, comp, res=40)
                 
-                for step in target_steps:
-                    self.after(0, lambda s=step, c=comp: self._status_lbl.config(text=f"Analyzing {c} (Step {s})..."))
+                if jax_result is not None:
+                    # JAX 결과는 전체 프레임 데이터를 포함함
+                    if comp not in self.parent._ssr_data_store:
+                        self.parent._ssr_data_store[comp] = {}
+                    self.parent._ssr_data_store[comp]['JAX_BATCH'] = jax_result
+                else:
+                    # JAX 실패 시 기존 PSR 루프로 폴백
+                    self.after(0, lambda c=comp: self._status_lbl.config(text=f"Fallback to PSR Loop: {c}..."))
+                    if comp not in self.parent._ssr_data_store:
+                        self.parent._ssr_data_store[comp] = {}
                     
-                    ssr_result = self._calculate_one_ssr(comp, step, config)
-                    if "error" not in ssr_result:
-                        self.parent._ssr_data_store[comp][step] = ssr_result
-                    
-                    current_work += 1
-                    prog = (current_work / total_work) * 100
-                    self.after(0, lambda p=prog: self._prog_var.set(p))
+                    for step in target_steps:
+                        ssr_result = self._calculate_one_ssr(comp, step, {})
+                        if "error" not in ssr_result:
+                            self.parent._ssr_data_store[comp][step] = ssr_result
+                
+                current_work += 1
+                prog = (current_work / total_work) * 100
+                self.after(0, lambda p=prog: self._prog_var.set(p))
 
             self.after(0, self._on_complete)
         except Exception as e:

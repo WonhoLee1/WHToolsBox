@@ -1,47 +1,34 @@
-# 3-Way Split UI with Global & Local Views
+# WHTOOLS Kirchhoff Plate Ultimate Analyst (v7)
 
-This plan expands the UI to a 3-way split to visualize the **Global Motion** (Spatial) and **Local Deformation** (Material) side-by-side, along with the analytical plots.
-
-## User Review Required
-
-> [!IMPORTANT]
-> - **3-Way Split Layout**: 
->   - **Panel 1 (Left)**: Global View (Spatial). Shows the raw rigid body motion (Rotation + Translation) of the plate and markers.
->   - **Panel 2 (Middle)**: Local View (Material). Shows only the deformation relative to the initial frame.
->   - **Panel 3 (Right)**: Matplotlib Analysis. Shows strain map and energy/stress curves.
-> - **Coordinate Sync**: Both 3D views will be synchronized (if possible) or have optimized camera settings to show the scale of motion.
-> - **Inverse Transformation**: The mesh in the Global View will be transformed using the inverse Kabsch result to match the raw marker positions.
+본 계획서는 WHTOOLS 구조 해석 파이프라인의 최종 단계인 **고유연 평판 변형 해석 시스템**의 고도화 및 UI 통합을 목표로 합니다.
 
 ## Proposed Changes
 
-### [Component] `plate_by_markers.py`
+### 1. 물리 엔진 (Mechanics Engine)
+- **[MODIFY] [plate_by_markers.py](file:///c:/Users/GOODMAN/WHToolsBox/plate_by_markers.py)**
+    - JAX 기반 Kirchhoff Plate Optimizer 구현 (4차 다항식 기반 곡률 피팅).
+    - Von-Mises 응력, 주곡률 기반 PBA(Principal Bending Axis), Strain Energy 산출 로직 통합.
 
-#### [MODIFY] [plate_by_markers.py](file:///c:/Users/GOODMAN/WHToolsBox/plate_by_markers.py)
+### 2. 기하학 정렬 (Kinematics & Alignment)
+- **PCA 기반 좌표계 생성**: 3x3 마커의 분포를 분석하여 평판의 로컬 좌표축(X, Y, Normal)을 자동 정의.
+- **Geometric Centering**: 마커 분포의 기하학적 중심을 산출하여 2000x1400mm 평판의 중심과 정렬.
 
-- **`QtVisualizer` Refactoring**:
-  - Update `_init_ui` to add two `QtInteractor` widgets to the `QSplitter`.
-  - Add `_setup_global_view()` and `_setup_local_view()`.
-- **`update_frame` Logic**:
-  - Calculate **Global Mesh Points**:
-    - $P_{global} = (P_{local} \cdot L^{T} + \text{centroid}_0 - c_P) \cdot R + c_Q$.
-  - Update the **Left Plotter** (Global) with $P_{global}$ and raw markers ($M_{global}$).
-  - Update the **Middle Plotter** (Local) with $P_{local}$ and aligned markers ($M_{local}$).
-  - Update Matplotlib as usual.
-- **Camera Management**:
-  - Set the Global View's camera or bounds based on the global raw data range to ensure the motion is visible within the frame.
+### 3. 전문가급 대시보드 (Qt UI/UX)
+- **재생 컨트롤**: `|<<`, `<`, `▶/||`, `>`, `>>|` 버튼 및 자동 재생(QTimer) 기능.
+- **필드 선택 시스템**: Matplotlib 상단에 `QComboBox`를 배치하여 Displacement, Stress, Strain, PBA 필드를 실시간 교차 분석.
+- **시각화 최적화**:
+    - **PyVista**: 투명 파란색 바닥면(2500x2500mm), XYZ 좌표축, 9pt 세로 Legend, In-place Mesh 업데이트(Flicker-free).
+    - **Matplotlib**: 20:14 실제 비례(Aspect Ratio) 강제 적용.
 
-## Open Questions
-
-> [!QUESTION]
-> 1. **Camera Synchronization**: Should the cameras of the Global and Local views move together (Sync)? Or should they be independent? (I recommend independent so you can zoom in on the deformation while seeing the overall motion from afar). 
-> 2. **Colors**: Should the Global view also be colored by strain? (I recommend YES, to show the stress state even during large motion).
+### 4. 사용자 피드백 (Terminal)
+- **진행 바(Progress Bar)**: 해석 단계에서 터미널에 실시간 진행 상황 표시 (`[Progress] |█████---|`).
 
 ## Verification Plan
 
 ### Automated Tests
-- Run with rich test data (rotation + translation).
-- Observe if the left panel shows the plate flying/rotating while the middle panel shows it bending in place.
+- `python plate_by_markers.py` 실행을 통해 80프레임 코너 낙하 시나리오 해석 및 UI 정상 작동 확인.
 
 ### Manual Verification
-- Visual check of the 3-splitter layout stability.
-- Verify the coordinate math by checking if marker spheres in the Global view align with the corners of the plate.
+- 재생 버튼을 통한 애니메이션 부드러움 확인.
+- 콤보박스 변경 시 Matplotlib 차트 즉시 업데이트 확인.
+- 바닥면과 평판의 물리적 위치 관계(z > 0) 확인.
