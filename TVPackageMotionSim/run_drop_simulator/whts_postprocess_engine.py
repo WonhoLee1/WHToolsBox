@@ -18,9 +18,9 @@ except ImportError:
     except ImportError:
         _JAX_AVAILABLE = False
 
-def apply_jax_kirchhoff_ssr(sim: Any, comp_name: str, res: int = 40) -> Optional[Dict]:
+def apply_jax_kirchhoff_ssr(sim: Any, comp_name: str, thickness: float = 2.0, youngs_modulus: float = 2.1e5, res: int = 40) -> Optional[Dict]:
     """
-    [v4.9] JAX 가속 Kirchhoff 박판 엔진을 사용하여 전 프레임 SSR을 수행합니다.
+    [v4.9.7] JAX 가속 Kirchhoff 박판 엔진을 사용하여 전 프레임 SSR을 수행합니다.
     """
     if not _JAX_AVAILABLE: return None
     if comp_name not in sim.metrics: return None
@@ -37,18 +37,32 @@ def apply_jax_kirchhoff_ssr(sim: Any, comp_name: str, res: int = 40) -> Optional
     markers_history = np.zeros((n_frames, n_markers, 3))
     
     # 시뮬레이션 데이터에서 각 블록의 글로벌 좌표 이력 추출
-    for m_idx, grid_idx in enumerate(all_idxs):
-        body_id = comp_tree[grid_idx]
-        if hasattr(sim, 'all_data') and 'pos' in sim.all_data:
-            # sim.all_data['pos'] shape: (n_frames, n_bodies, 3)
-            markers_history[:, m_idx, :] = sim.all_data['pos'][:, body_id, :]
-        else:
-            # 폴백: 명목 위치 데이터 활용
-            markers_history[:, m_idx, :] = sim.nominal_local_pos.get(body_id, [0,0,0])
+    data_source_pos = None
+    if hasattr(sim, 'all_data') and 'pos' in sim.all_data:
+        data_source_pos = np.array(sim.all_data['pos'])
+    elif hasattr(sim, 'pos_hist') and len(sim.pos_hist) > 0:
+        data_source_pos = np.array(sim.pos_hist)
 
+    # [v4.9.8] Dimension Check: (n_frames, n_bodies, 3) 인지 확인
+    is_full_data = (data_source_pos is not None and data_source_pos.ndim == 3 and data_source_pos.shape[0] >= n_frames)
+
+    if is_full_data:
+        for m_idx, grid_idx in enumerate(all_idxs):
+            body_id = comp_tree[grid_idx]
+            # data_source_pos shape: (n_frames, n_bodies, 3)
+            markers_history[:, m_idx, :] = data_source_pos[:n_frames, body_id, :]
+    else:
+        # 폴백: 명목 위치 데이터 활용 (이 경우 변량이 없으므로 변형률 0으로 계산됨)
+        # 2D 배열인 경우(루트 바디만 기록됨) SSR 분석이 불가능함을 알리는 로직 필요
+        for m_idx, grid_idx in enumerate(all_idxs):
+            body_id = comp_tree[grid_idx]
+            nom_pos = sim.nominal_local_pos.get(body_id, [0,0,0])
+            markers_history[:, m_idx, :] = nom_pos
+            
     # 2. 박판 해석 대상 설정 (두께 등)
     config = PlateConfig(
-        thickness=2.0, 
+        thickness=thickness, 
+        youngs_modulus=youngs_modulus,
         mesh_resolution=res,
         reg_lambda=1e-4
     )

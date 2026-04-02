@@ -2226,11 +2226,21 @@ class SSRAnalyzerDialog(tk.Toplevel):
             for comp in selected_comps:
                 self.after(0, lambda c=comp: self._status_lbl.config(text=f"Analyzing {c} (JAX-Engine)..."))
                 
-                # [v4.9] JAX-SSR 우선 시도 (전체 프레임 배치 처리)
+                # [v4.9.7] JAX-SSR 우선 시도 (전체 프레임 배치 처리)
                 jax_result = None
                 if _JAX_AVAILABLE:
-                    # whts_postprocess_engine의 JAX 인터페이스 호출
-                    jax_result = apply_jax_kirchhoff_ssr(self.sim, comp, res=40)
+                    # 사용자 입력값 추출
+                    comp_cfg = self._comp_configs.get(comp, {})
+                    u_thick = comp_cfg.get("t", tk.DoubleVar(value=2.0)).get()
+                    u_young_gpa = comp_cfg.get("e", tk.DoubleVar(value=210.0)).get()
+                    
+                    # whts_postprocess_engine의 JAX 인터페이스 호출 (E는 MPa 단위로 변환)
+                    jax_result = apply_jax_kirchhoff_ssr(
+                        self.sim, comp, 
+                        thickness=u_thick, 
+                        youngs_modulus=u_young_gpa * 1000.0, 
+                        res=40
+                    )
                 
                 if jax_result is not None:
                     # JAX 결과는 전체 프레임 데이터를 포함함

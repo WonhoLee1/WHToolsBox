@@ -297,7 +297,8 @@ class DropSimulator:
         rid = self.root_id
         if rid != -1:
             self.z_hist.append(d.xpos[rid][2])
-            self.pos_hist.append(d.xpos[rid].copy())
+            # [v4.9.8] SSR 분석 연동을 위해 전체 바디 좌표(xpos)를 기록하도록 복구 (Dimension: n_frames, n_bodies, 3)
+            self.pos_hist.append(d.xpos.copy())
             self.vel_hist.append(d.cvel[rid].copy())
             self.acc_hist.append(d.cacc[rid].copy())
             self.cog_pos_hist.append(d.subtree_com[rid].copy())

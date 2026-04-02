@@ -107,13 +107,19 @@ python run_drop_simulation_cases_v4.py
 - [x] SSR 표면 재구성 엔진 및 고해상도 컨투어 구현
 - [x] 마스터 스크롤바 기반 응답형 UI 최적화 (v4.8.x)
 - [x] 마커 기반 평판 변형 해석기(Plate Analyzer) 모듈 완성 (v4.9.0)
-- [x] JAX 가속 Kirchhoff SSR 엔진 메인 파이프라인 통합 (v4.9.6)
+- [x] JAX 가속 Kirchhoff SSR 엔진 메인 파이프라인 통합 및 데이터 정합성 복구 (v4.9.8)
 - [ ] AI 기반 파라미터 자동 최적화 (Auto-Tuning) 모듈 통합
 - [ ] 실시간 충돌 에너지 흡수율(C.E.A) 분석 시스템 구축
 
 ---
 
 ## 📝 릴리즈 노트 (Release Notes)
+
+### [v4.9.8] - 2026-04-03 (IndexError & Data Pipeline Fix)
+
+- **SSR Data Integrity**: `DropSimulator`의 `pos_hist`가 전체 바디 좌표(`xpos`)를 기록하도록 복구하여 SSR 분석 시 발생하는 `IndexError` 근본 해결.
+- **Robust Indexing**: `whts_postprocess_engine.py`에 차원 체크 로직을 추가하여 요약 데이터와 상세 데이터 간의 혼선 방지.
+- **Unit Consistency**: JAX-SSR 입력 파라미터와 UI 설정값 간의 물리 단위 정합성 강화.
 
 ### [v4.9.6] - 2026-04-03 (JAX-SSR Mainstream)
 
