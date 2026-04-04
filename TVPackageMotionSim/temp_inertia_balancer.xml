@@ -1,6 +1,6 @@
 <mujoco model="discrete_custom_box">
   <size memory="512M"/>
-  <option integrator="implicitfast" timestep="0.0013" iterations="50" noslip_iterations="0" tolerance="1e-05" impratio="1.0" gravity="0 0 -9.81" density="1.225" viscosity="1.81e-05">
+  <option integrator="implicitfast" timestep="0.0012" iterations="50" noslip_iterations="0" tolerance="1e-05" impratio="1.0" gravity="0 0 -9.81" density="1.225" viscosity="1.81e-05">
     <flag contact="enable"/>
   </option>
   <visual>
@@ -17,22 +17,22 @@
     <joint armature="0.05" damping="1.0"/>
     <geom friction="0.8" solref="0.02 1.0" solimp="0.1 0.95 0.005"/>
     <default class="contact_bpaperbox">
-      <geom solref="0.01 1.0" solimp="0.1 0.95 0.005 0.5 2" contype="1" conaffinity="30" group="0" friction="0.8" rgba="0.7 0.6 0.4 0.9"/>
+      <geom solref="0.01 1.0" solimp="0.1 0.95 0.005 0.5 2" contype="1" conaffinity="3" group="0" friction="0.8" rgba="0.7 0.6 0.4 0.9"/>
     </default>
     <default class="contact_bcushion">
-      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="31" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
     </default>
     <default class="contact_bcushion_edge">
-      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="29" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
+      <geom solref="0.01 0.8" solimp="0.1 0.95 0.005 0.5 2" contype="2" conaffinity="31" group="1" friction="0.8" rgba="0.9 0.9 0.9 0.5"/>
     </default>
     <default class="contact_bopencell">
-      <geom solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0" contype="4" conaffinity="3" group="2" friction="0.8" rgba="0.1 0.1 0.1 1.0"/>
+      <geom solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0" contype="4" conaffinity="2" group="2" friction="0.8" rgba="0.1 0.1 0.1 1.0"/>
     </default>
     <default class="contact_bopencellcohesive">
-      <geom solref="0.01 1.0" solimp="0.1 0.99 0.001 0.5 2.0" contype="8" conaffinity="3" group="2" friction="0.8" rgba="1.0 0.1 0.1 0.8"/>
+      <geom solref="0.01 1.0" solimp="0.1 0.99 0.001 0.5 2.0" contype="8" conaffinity="2" group="2" friction="0.8" rgba="1.0 0.1 0.1 0.8"/>
     </default>
     <default class="contact_bchassis">
-      <geom solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0" contype="16" conaffinity="3" group="2" friction="0.8" rgba="0.1 0.5 0.8 1.0"/>
+      <geom solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0" contype="16" conaffinity="2" group="2" friction="0.8" rgba="0.1 0.5 0.8 1.0"/>
     </default>
     <default class="contact_bauxboxmass">
       <geom solref="0.002 0.5" solimp="0.1 0.95 0.005 0.5 2.0" contype="0" conaffinity="0" group="3" friction="0.8" rgba="1 0 0 0.4"/>
@@ -42,7 +42,7 @@
     <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>
     <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="0.49 0.49 0.49" ambient="0.21 0.21 0.21" castshadow="false"/>
     <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="0.21 0.21 0.21" castshadow="false"/>
-    <geom name="ground" type="plane" size="10 10 0.1" friction="0.1" contype="1" conaffinity="1" group="0" material="ground_mat" solref="0.001 0.0001" solimp="0.1 0.95 0.001 0.5 2"/>
+    <geom name="ground" type="plane" size="10 10 0.1" friction="0.2" contype="1" conaffinity="1" group="0" material="ground_mat" solref="0.001 0.0001" solimp="0.1 0.95 0.002 0.5 2"/>
     <body name="BPackagingBox" pos="0.00000 0.00000 1.57643" axisangle="0.5139 0.8578 0.0000 85.4709">
       <freejoint/>
       <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>
@@ -2269,126 +2269,126 @@
     </body>
   </worldbody>
   <equality>
-        <weld site1="s_BCushion_0_0_0_PX" site2="s_BCushion_1_0_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_0_PY" site2="s_BCushion_0_1_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_0_PZ" site2="s_BCushion_0_0_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_1_PX" site2="s_BCushion_1_0_1_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_1_PY" site2="s_BCushion_0_1_1_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_1_PZ" site2="s_BCushion_0_0_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_2_PX" site2="s_BCushion_1_0_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_0_2_PY" site2="s_BCushion_0_1_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_0_PX" site2="s_BCushion_1_1_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_0_PY" site2="s_BCushion_0_2_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_0_PZ" site2="s_BCushion_0_1_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_1_PY" site2="s_BCushion_0_2_1_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_1_PZ" site2="s_BCushion_0_1_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_2_PX" site2="s_BCushion_1_1_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_1_2_PY" site2="s_BCushion_0_2_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_0_PX" site2="s_BCushion_1_2_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_0_PY" site2="s_BCushion_0_3_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_0_PZ" site2="s_BCushion_0_2_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_1_PY" site2="s_BCushion_0_3_1_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_1_PZ" site2="s_BCushion_0_2_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_2_PX" site2="s_BCushion_1_2_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_2_2_PY" site2="s_BCushion_0_3_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_0_PX" site2="s_BCushion_1_3_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_0_PY" site2="s_BCushion_0_4_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_0_PZ" site2="s_BCushion_0_3_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_1_PY" site2="s_BCushion_0_4_1_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_1_PZ" site2="s_BCushion_0_3_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_2_PX" site2="s_BCushion_1_3_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_3_2_PY" site2="s_BCushion_0_4_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_4_0_PX" site2="s_BCushion_1_4_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_4_0_PZ" site2="s_BCushion_0_4_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_4_1_PX" site2="s_BCushion_1_4_1_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_4_1_PZ" site2="s_BCushion_0_4_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_0_4_2_PX" site2="s_BCushion_1_4_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_0_PX" site2="s_BCushion_2_0_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_0_PY" site2="s_BCushion_1_1_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_0_PZ" site2="s_BCushion_1_0_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_1_PX" site2="s_BCushion_2_0_1_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_1_PZ" site2="s_BCushion_1_0_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_2_PX" site2="s_BCushion_2_0_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_0_2_PY" site2="s_BCushion_1_1_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_1_0_PX" site2="s_BCushion_2_1_0_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_1_0_PY" site2="s_BCushion_1_2_0_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_1_2_PX" site2="s_BCushion_2_1_2_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_1_2_PY" site2="s_BCushion_1_2_2_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_2_0_PY" site2="s_BCushion_1_3_0_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_2_2_PY" site2="s_BCushion_1_3_2_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_3_0_PX" site2="s_BCushion_2_3_0_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_3_0_PY" site2="s_BCushion_1_4_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_3_2_PX" site2="s_BCushion_2_3_2_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_3_2_PY" site2="s_BCushion_1_4_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_4_0_PX" site2="s_BCushion_2_4_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_4_0_PZ" site2="s_BCushion_1_4_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_4_1_PX" site2="s_BCushion_2_4_1_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_4_1_PZ" site2="s_BCushion_1_4_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_1_4_2_PX" site2="s_BCushion_2_4_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_0_PX" site2="s_BCushion_3_0_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_0_PY" site2="s_BCushion_2_1_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_0_PZ" site2="s_BCushion_2_0_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_1_PX" site2="s_BCushion_3_0_1_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_1_PZ" site2="s_BCushion_2_0_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_2_PX" site2="s_BCushion_3_0_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_0_2_PY" site2="s_BCushion_2_1_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_1_0_PX" site2="s_BCushion_3_1_0_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_1_2_PX" site2="s_BCushion_3_1_2_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_3_0_PX" site2="s_BCushion_3_3_0_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_3_0_PY" site2="s_BCushion_2_4_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_3_2_PX" site2="s_BCushion_3_3_2_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_3_2_PY" site2="s_BCushion_2_4_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_4_0_PX" site2="s_BCushion_3_4_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_4_0_PZ" site2="s_BCushion_2_4_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_4_1_PX" site2="s_BCushion_3_4_1_NX" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_4_1_PZ" site2="s_BCushion_2_4_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_2_4_2_PX" site2="s_BCushion_3_4_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_0_PX" site2="s_BCushion_4_0_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_0_PY" site2="s_BCushion_3_1_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_0_PZ" site2="s_BCushion_3_0_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_1_PX" site2="s_BCushion_4_0_1_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_1_PZ" site2="s_BCushion_3_0_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_2_PX" site2="s_BCushion_4_0_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_0_2_PY" site2="s_BCushion_3_1_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_1_0_PX" site2="s_BCushion_4_1_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_1_0_PY" site2="s_BCushion_3_2_0_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_1_2_PX" site2="s_BCushion_4_1_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_1_2_PY" site2="s_BCushion_3_2_2_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_2_0_PX" site2="s_BCushion_4_2_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_2_0_PY" site2="s_BCushion_3_3_0_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_2_2_PX" site2="s_BCushion_4_2_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_2_2_PY" site2="s_BCushion_3_3_2_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_3_0_PX" site2="s_BCushion_4_3_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_3_0_PY" site2="s_BCushion_3_4_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_3_2_PX" site2="s_BCushion_4_3_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_3_2_PY" site2="s_BCushion_3_4_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_4_0_PX" site2="s_BCushion_4_4_0_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_4_0_PZ" site2="s_BCushion_3_4_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_4_1_PX" site2="s_BCushion_4_4_1_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_4_1_PZ" site2="s_BCushion_3_4_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_3_4_2_PX" site2="s_BCushion_4_4_2_NX" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_0_0_PY" site2="s_BCushion_4_1_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_0_0_PZ" site2="s_BCushion_4_0_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_0_1_PY" site2="s_BCushion_4_1_1_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_0_1_PZ" site2="s_BCushion_4_0_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_0_2_PY" site2="s_BCushion_4_1_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_1_0_PY" site2="s_BCushion_4_2_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_1_0_PZ" site2="s_BCushion_4_1_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_1_1_PY" site2="s_BCushion_4_2_1_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_1_1_PZ" site2="s_BCushion_4_1_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_1_2_PY" site2="s_BCushion_4_2_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_2_0_PY" site2="s_BCushion_4_3_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_2_0_PZ" site2="s_BCushion_4_2_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_2_1_PY" site2="s_BCushion_4_3_1_NY" solref="0.004 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_2_1_PZ" site2="s_BCushion_4_2_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_2_2_PY" site2="s_BCushion_4_3_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_3_0_PY" site2="s_BCushion_4_4_0_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_3_0_PZ" site2="s_BCushion_4_3_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_3_1_PY" site2="s_BCushion_4_4_1_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_3_1_PZ" site2="s_BCushion_4_3_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_3_2_PY" site2="s_BCushion_4_4_2_NY" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_4_0_PZ" site2="s_BCushion_4_4_1_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
-        <weld site1="s_BCushion_4_4_1_PZ" site2="s_BCushion_4_4_2_NZ" solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_0_PX" site2="s_BCushion_1_0_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_0_PY" site2="s_BCushion_0_1_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_0_PZ" site2="s_BCushion_0_0_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_1_PX" site2="s_BCushion_1_0_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_1_PY" site2="s_BCushion_0_1_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_1_PZ" site2="s_BCushion_0_0_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_2_PX" site2="s_BCushion_1_0_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_0_2_PY" site2="s_BCushion_0_1_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_0_PX" site2="s_BCushion_1_1_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_0_PY" site2="s_BCushion_0_2_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_0_PZ" site2="s_BCushion_0_1_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_1_PY" site2="s_BCushion_0_2_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_1_PZ" site2="s_BCushion_0_1_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_2_PX" site2="s_BCushion_1_1_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_1_2_PY" site2="s_BCushion_0_2_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_0_PX" site2="s_BCushion_1_2_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_0_PY" site2="s_BCushion_0_3_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_0_PZ" site2="s_BCushion_0_2_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_1_PY" site2="s_BCushion_0_3_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_1_PZ" site2="s_BCushion_0_2_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_2_PX" site2="s_BCushion_1_2_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_2_2_PY" site2="s_BCushion_0_3_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_0_PX" site2="s_BCushion_1_3_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_0_PY" site2="s_BCushion_0_4_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_0_PZ" site2="s_BCushion_0_3_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_1_PY" site2="s_BCushion_0_4_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_1_PZ" site2="s_BCushion_0_3_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_2_PX" site2="s_BCushion_1_3_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_3_2_PY" site2="s_BCushion_0_4_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_4_0_PX" site2="s_BCushion_1_4_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_4_0_PZ" site2="s_BCushion_0_4_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_4_1_PX" site2="s_BCushion_1_4_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_4_1_PZ" site2="s_BCushion_0_4_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_0_4_2_PX" site2="s_BCushion_1_4_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_0_PX" site2="s_BCushion_2_0_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_0_PY" site2="s_BCushion_1_1_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_0_PZ" site2="s_BCushion_1_0_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_1_PX" site2="s_BCushion_2_0_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_1_PZ" site2="s_BCushion_1_0_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_2_PX" site2="s_BCushion_2_0_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_0_2_PY" site2="s_BCushion_1_1_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_1_0_PX" site2="s_BCushion_2_1_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_1_0_PY" site2="s_BCushion_1_2_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_1_2_PX" site2="s_BCushion_2_1_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_1_2_PY" site2="s_BCushion_1_2_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_2_0_PY" site2="s_BCushion_1_3_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_2_2_PY" site2="s_BCushion_1_3_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_3_0_PX" site2="s_BCushion_2_3_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_3_0_PY" site2="s_BCushion_1_4_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_3_2_PX" site2="s_BCushion_2_3_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_3_2_PY" site2="s_BCushion_1_4_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_4_0_PX" site2="s_BCushion_2_4_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_4_0_PZ" site2="s_BCushion_1_4_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_4_1_PX" site2="s_BCushion_2_4_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_4_1_PZ" site2="s_BCushion_1_4_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_1_4_2_PX" site2="s_BCushion_2_4_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_0_PX" site2="s_BCushion_3_0_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_0_PY" site2="s_BCushion_2_1_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_0_PZ" site2="s_BCushion_2_0_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_1_PX" site2="s_BCushion_3_0_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_1_PZ" site2="s_BCushion_2_0_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_2_PX" site2="s_BCushion_3_0_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_0_2_PY" site2="s_BCushion_2_1_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_1_0_PX" site2="s_BCushion_3_1_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_1_2_PX" site2="s_BCushion_3_1_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_3_0_PX" site2="s_BCushion_3_3_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_3_0_PY" site2="s_BCushion_2_4_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_3_2_PX" site2="s_BCushion_3_3_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_3_2_PY" site2="s_BCushion_2_4_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_4_0_PX" site2="s_BCushion_3_4_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_4_0_PZ" site2="s_BCushion_2_4_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_4_1_PX" site2="s_BCushion_3_4_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_4_1_PZ" site2="s_BCushion_2_4_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_2_4_2_PX" site2="s_BCushion_3_4_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_0_PX" site2="s_BCushion_4_0_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_0_PY" site2="s_BCushion_3_1_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_0_PZ" site2="s_BCushion_3_0_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_1_PX" site2="s_BCushion_4_0_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_1_PZ" site2="s_BCushion_3_0_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_2_PX" site2="s_BCushion_4_0_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_0_2_PY" site2="s_BCushion_3_1_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_1_0_PX" site2="s_BCushion_4_1_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_1_0_PY" site2="s_BCushion_3_2_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_1_2_PX" site2="s_BCushion_4_1_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_1_2_PY" site2="s_BCushion_3_2_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_2_0_PX" site2="s_BCushion_4_2_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_2_0_PY" site2="s_BCushion_3_3_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_2_2_PX" site2="s_BCushion_4_2_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_2_2_PY" site2="s_BCushion_3_3_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_3_0_PX" site2="s_BCushion_4_3_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_3_0_PY" site2="s_BCushion_3_4_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_3_2_PX" site2="s_BCushion_4_3_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_3_2_PY" site2="s_BCushion_3_4_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_4_0_PX" site2="s_BCushion_4_4_0_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_4_0_PZ" site2="s_BCushion_3_4_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_4_1_PX" site2="s_BCushion_4_4_1_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_4_1_PZ" site2="s_BCushion_3_4_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_3_4_2_PX" site2="s_BCushion_4_4_2_NX" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_0_0_PY" site2="s_BCushion_4_1_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_0_0_PZ" site2="s_BCushion_4_0_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_0_1_PY" site2="s_BCushion_4_1_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_0_1_PZ" site2="s_BCushion_4_0_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_0_2_PY" site2="s_BCushion_4_1_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_1_0_PY" site2="s_BCushion_4_2_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_1_0_PZ" site2="s_BCushion_4_1_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_1_1_PY" site2="s_BCushion_4_2_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_1_1_PZ" site2="s_BCushion_4_1_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_1_2_PY" site2="s_BCushion_4_2_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_2_0_PY" site2="s_BCushion_4_3_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_2_0_PZ" site2="s_BCushion_4_2_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_2_1_PY" site2="s_BCushion_4_3_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_2_1_PZ" site2="s_BCushion_4_2_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_2_2_PY" site2="s_BCushion_4_3_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_3_0_PY" site2="s_BCushion_4_4_0_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_3_0_PZ" site2="s_BCushion_4_3_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_3_1_PY" site2="s_BCushion_4_4_1_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_3_1_PZ" site2="s_BCushion_4_3_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_3_2_PY" site2="s_BCushion_4_4_2_NY" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_4_0_PZ" site2="s_BCushion_4_4_1_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
+        <weld site1="s_BCushion_4_4_1_PZ" site2="s_BCushion_4_4_2_NZ" solref="0.008 0.8" solimp="0.1 0.95 0.005 0.5 2.0"/>
         <weld site1="s_BOpenCell_0_0_0_PX" site2="s_BOpenCell_1_0_0_NX" solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0"/>
         <weld site1="s_BOpenCell_0_0_0_PY" site2="s_BOpenCell_0_1_0_NY" solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0"/>
         <weld site1="s_BOpenCell_0_1_0_PX" site2="s_BOpenCell_1_1_0_NX" solref="0.01 0.3" solimp="0.5 0.95 0.001 0.5 2.0"/>

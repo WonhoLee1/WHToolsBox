@@ -1,6 +1,7 @@
 import pickle
+import numpy as np
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 @dataclass
 class DropSimResult:
@@ -57,6 +58,12 @@ class DropSimResult:
     structural_metrics: Dict[str, Any] = field(default_factory=dict)
     critical_timestamps: Dict[str, Any] = field(default_factory=dict)
     nominal_local_pos: Dict[int, List[float]] = field(default_factory=dict)
+    
+    # [v5.2] 평판 이론(Plate Theory) 분석용 고정밀 데이터 필드
+    quat_hist: List[np.ndarray] = field(default_factory=list) # [N_frames, N_bodies, 4]
+    components: Dict[str, Dict[Tuple[int, int, int], int]] = field(default_factory=dict) # {PartName: {(i,j,k): BodyID}}
+    body_index_map: Dict[int, str] = field(default_factory=dict) # BodyID -> Name
+    block_half_extents: Dict[int, List[float]] = field(default_factory=dict) # BodyID -> [dx, dy, dz]
     
     def save(self, filepath: str) -> None:
         """

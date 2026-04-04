@@ -127,15 +127,24 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     mat_paper, mat_cush, mat_tape = config["mat_paper"], config["mat_cush"], config["mat_tape"]
     mat_cell, mat_tv = config["mat_cell"], config["mat_tv"]
 
-    # 1. 충돌 비트마스크(Collision Bitmask) 설정 로직
+    # 1. 충돌 비트마스크(Collision Bitmask) 설정 로직 (V5.3.1 최적화)
+    # [가정] 박스-내부 부품 간 직접 충돌을 제거하고 완충재(Cushion)를 통한 간접 전달만 허용
     bit_paper = 1; bit_cushion = 2; bit_oc = 4; bit_occ = 8; bit_chassis = 16
+    bit_ground = 1  # 지면은 기본적으로 bit 1 사용
     all_bits = bit_paper | bit_cushion | bit_oc | bit_occ | bit_chassis
     
-    mat_paper["contype"] = f"{bit_paper}"; mat_paper["conaffinity"] = f"{all_bits ^ bit_paper}"
-    mat_cush["contype"]  = f"{bit_cushion}"; mat_cush["conaffinity"]  = f"{all_bits ^ bit_cushion}"
-    mat_cell["contype"]  = f"{bit_oc}"; mat_cell["conaffinity"]  = f"{bit_paper | bit_cushion}"
-    mat_tape["contype"]  = f"{bit_occ}"; mat_tape["conaffinity"]  = f"{bit_paper | bit_cushion}"
-    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{bit_paper | bit_cushion}"
+    # PaperBox: 지면(1) 및 완충재(2) 하고만 충돌
+    mat_paper["contype"] = f"{bit_paper}"
+    mat_paper["conaffinity"] = f"{bit_cushion | bit_ground}" # 3
+    
+    # Cushion: 박스, 지면, 내부 부품 모두와 충돌 (물리적 장벽 역할)
+    mat_cush["contype"]  = f"{bit_cushion}"
+    mat_cush["conaffinity"]  = f"{all_bits | bit_ground}" # 31
+    
+    # Internal Parts: 완충재(2) 하고만 충돌 (박스와의 무거운 충돌 계산 제거)
+    mat_cell["contype"]  = f"{bit_oc}"; mat_cell["conaffinity"]  = f"{bit_cushion}" # 2
+    mat_tape["contype"]  = f"{bit_occ}"; mat_tape["conaffinity"]  = f"{bit_cushion}" # 2
+    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{bit_cushion}" # 2
 
     # 충돌 마스크 요약 테이블 출력을 위한 헬퍼 (비트 분해 표시용)
     def _fmt_mask(val: str) -> str:

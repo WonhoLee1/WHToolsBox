@@ -1,0 +1,4 @@
+- `[ ]` [V5.3.1] `implementation_plan.md` 및 `task.md`를 `dev_log` 폴더로 백업 (~20260404)
+- `[/]` [V5.3.1] `run_discrete_builder/whtb_builder.py`의 충돌 비트마스크(conType/conAffinity) 로직 최적화
+- `[ ]` [V5.3.1] `run_drop_simulation_cases_v5.py`에서 `box_div=True` 설정 후 FPS 성능 개선 효과 측정
+- `[ ]` [V5.3.1] 최종 구조 해석 파이프라인 무결성 확인 및 `walkthrough.md` 작성

@@ -1,6 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Any, Dict, List, Optional, Tuple, Union
+import time
+import jax
+import jax.numpy as jnp
+from jax import vmap, jit
 
 def compute_structural_step_metrics(sim: Any) -> None:
     """
@@ -208,6 +212,103 @@ def compute_structural_step_metrics(sim: Any) -> None:
     sim.structural_time_series['rrg_max'].append(step_rrg_max)
     sim.structural_time_series['mean_distortion'].append(np.mean([m['total_distortion'][-1] for m in sim.metrics.values() if m['total_distortion']]))
 
+def _compute_batch_metrics_standard(sim: Any) -> None:
+    """NumPy 기반 표준 배치 연산 루프 (벤치마크용)"""
+    n_frames = len(sim.quat_hist)
+    orig_xmat = sim.data.xmat.copy()
+    
+    def quat2mat(q):
+        w, x, y, z = q
+        return np.array([
+            [1 - 2*y*y - 2*z*z, 2*x*y - 2*z*w, 2*x*z + 2*y*w],
+            [2*x*y + 2*z*w, 1 - 2*x*x - 2*z*z, 2*x*z - 2*x*w],
+            [2*x*z - 2*y*w, 2*y*z + 2*x*w, 1 - 2*x*x - 2*y*y]
+        ])
+
+    print(f" > Processing {n_frames} frames with NumPy...")
+    for f_idx in range(n_frames):
+        q_frame = sim.quat_hist[f_idx]
+        for b_id in range(len(q_frame)):
+            sim.data.xmat[b_id] = quat2mat(q_frame[b_id]).flatten()
+        compute_structural_step_metrics(sim)
+        
+    sim.data.xmat[:] = orig_xmat
+
+def _compute_batch_metrics_jax(sim: Any) -> None:
+    """JAX vmap/jit을 활용한 초고속 구조 해석 엔진"""
+    m = sim.model
+    if not sim.quat_hist: return
+    
+    q_hist = jnp.array(sim.quat_hist)
+    n_frames, n_bodies, _ = q_hist.shape
+    root_id = sim.root_id
+    
+    @jit
+    @vmap
+    @vmap
+    def quat_to_mat(q):
+        w, x, y, z = q
+        return jnp.array([
+            [1 - 2*y**2 - 2*z**2, 2*x*y - 2*z*w, 2*x*z + 2*y*w],
+            [2*x*y + 2*z*w, 1 - 2*x**2 - 2*z**2, 2*y*z - 2*x*w],
+            [2*x*z - 2*y*w, 2*y*z + 2*x*w, 1 - 2*x**2 - 2*y**2]
+        ])
+    
+    mats = quat_to_mat(q_hist)
+    inv_root_mats = jnp.transpose(mats[:, root_id], (0, 2, 1))
+    
+    for comp_name, comp_metric in sim.metrics.items():
+        sorted_keys = sorted(sim.components[comp_name].keys())
+        body_ids = jnp.array([sim.components[comp_name][idx] for idx in sorted_keys])
+        target_mats = mats[:, body_ids]
+        
+        # [Broadcasting] (F, 1, 3, 3) @ (F, N, 3, 3) -> (F, N, 3, 3)
+        rel_mats = jnp.matmul(inv_root_mats[:, jnp.newaxis, :, :], target_mats)
+        
+        nom_mats_list = []
+        for idx in sorted_keys:
+            if comp_metric['block_nominal_mats'][idx] is None:
+                # 첫 프레임의 상대 회전을 명목 회전으로 설정
+                comp_metric['block_nominal_mats'][idx] = np.array(rel_mats[0, sorted_keys.index(idx)])
+            nom_mats_list.append(comp_metric['block_nominal_mats'][idx])
+        
+        nom_mats = jnp.array(nom_mats_list)
+        # [Broadcasting] (1, N, 3, 3) @ (F, N, 3, 3) -> (F, N, 3, 3)
+        dev_mats = jnp.matmul(jnp.transpose(nom_mats, (0, 2, 1))[jnp.newaxis, :, :, :], rel_mats)
+        
+        bend = jnp.degrees(jnp.arccos(jnp.clip(dev_mats[:, :, 2, 2], -1.0, 1.0)))
+        twist = jnp.degrees(jnp.arctan2(dev_mats[:, :, 1, 0], dev_mats[:, :, 0, 0]))
+        
+        bend_np = np.array(bend)
+        twist_np = np.array(twist)
+        
+        for i, idx in enumerate(sorted_keys):
+            comp_metric['all_blocks_bend'][idx] = bend_np[:, i].tolist()
+            comp_metric['all_blocks_twist'][idx] = twist_np[:, i].tolist()
+
+def compute_batch_structural_metrics(sim: Any) -> None:
+    """[V5.3.2] JAX 가속 엔진 전용 배치 해석 모델"""
+    use_jax = sim.config.get("use_jax_reporting", True)
+    
+    if not use_jax:
+        # 사용자가 명시적으로 JAX를 끌 경우에만 NumPy로 폴백
+        _compute_batch_metrics_standard(sim)
+        return
+
+    print(f"\n" + "="*70)
+    print(f" [ WHTOOLS BATCH ANALYSIS CORE ] - Powered by JAX")
+    print("-" * 70)
+    
+    t1 = time.perf_counter()
+    _compute_batch_metrics_jax(sim)
+    dur = time.perf_counter() - t1
+    
+    print(f" >> Structural Metrics Processed (JAX): {dur:8.4f} sec")
+    print("=" * 70 + "\n")
+
+def jvmap(fn):
+    """JAX vmap wrapper for frame-wise parallelization"""
+    return vmap(vmap(fn))
 
 def compute_critical_timestamps(sim: Any) -> Dict[str, Any]:
     """[v4.5] 전체 시뮬레이션 데이터에서 주요 임계 시점을 자동 검출합니다."""

@@ -246,6 +246,7 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         "sim_integrator": sim_integrator, "sim_timestep": sim_timestep, "sim_iterations": sim_iterations,
         "sim_noslip_iterations": sim_noslip_iterations, "sim_impratio": sim_impratio, "sim_tolerance": sim_tolerance, "sim_gravity": sim_gravity, "sim_nthread": sim_nthread,
         "reporting_interval": user_config.get("reporting_interval", 0.005), # 데이터 저장 주기 (초)
+        "use_postprocess_ui": user_config.get("use_postprocess_ui", True), # 결과 분석 UI 실행 여부
 
         "cush_yield_stress": cush_yield_stress,
         "cush_solref_timec": cush_solref_timec, "cush_solref_damprr": cush_solref_damprr,

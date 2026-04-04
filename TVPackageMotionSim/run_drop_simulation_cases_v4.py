@@ -49,7 +49,7 @@ def test_run_case_1(enable_UI: bool = False):
     cfg["drop_height"] = 0.5      # 자유 낙하 높이 [m]
     cfg["sim_duration"] = 2.0     # 시뮬레이션 총 시간 [s]
     cfg["include_paperbox"] = False # 종이 박스 메쉬 모델의 시각화/물리 포함 여부
-    cfg["plot_results"] = True    # 시뮬레이션 종료 후 결과 그래프(G-force 등) 출력 여부
+    cfg["use_postprocess_ui"] = True # 시뮬레이션 종료 후 결과 분석 UI 실행 여부
     cfg["use_viewer"] = True      # MuJoCo Viewer(GUI) 실행 여부
 
     # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 이산화(Meshing) 및 구속 설정

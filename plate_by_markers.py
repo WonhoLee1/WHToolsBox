@@ -87,12 +87,31 @@ class PlateMechanicsSolver:
             kxx, kyy, kxy = k_raw[..., 0], k_raw[..., 1], k_raw[..., 2]
             s_c = 6.0 * self.D / (self.cfg.thickness**2)
             sx, sy, txy = s_c*(kxx + self.cfg.poisson_ratio*kyy), s_c*(kyy + self.cfg.poisson_ratio*kxx), s_c*(1.0-self.cfg.poisson_ratio)*kxy
+            # --- Stress Metrics Expansion ---
             vm = jnp.sqrt(jnp.maximum(sx**2 + sy**2 - sx*sy + 3.0*txy**2, 1e-12))
             svm = vm * jnp.sign(sx + sy)
+            # Principal Stresses
+            s_avg = (sx + sy) / 2.0
+            s_diff = (sx - sy) / 2.0
+            radius = jnp.sqrt(jnp.maximum(s_diff**2 + txy**2, 1e-12))
+            s1, s2 = s_avg + radius, s_avg - radius
+            
             ex, ey, gxy = (self.cfg.thickness/2.0)*kxx, (self.cfg.thickness/2.0)*kyy, (self.cfg.thickness)*kxy
             eq_e = (2.0/3.0) * jnp.sqrt(jnp.maximum(1.5*(ex**2+ey**2)+0.75*gxy**2, 1e-20))
-            fields = {'Displacement [mm]': w, 'Curvature XX [1/mm]': kxx, 'Mean Curvature [1/mm]': 0.5*(kxx+kyy),
-                      'Stress XX [MPa]': sx, 'Signed Von-Mises [MPa]': svm, 'Signed Eq. Strain [mm/mm]': eq_e*jnp.sign(ex+ey)}
+            
+            fields = {
+                'Displacement [mm]': w, 
+                'Curvature XX [1/mm]': kxx, 
+                'Mean Curvature [1/mm]': 0.5*(kxx+kyy),
+                'Stress XX [MPa]': sx, 
+                'Stress YY [MPa]': sy,
+                'Stress XY [MPa]': txy,
+                'Von-Mises [MPa]': vm,
+                'Signed Von-Mises [MPa]': svm, 
+                'Principal Max [MPa]': s1,
+                'Principal Min [MPa]': s2,
+                'Signed Eq. Strain [mm/mm]': eq_e*jnp.sign(ex+ey)
+            }
             stats = {f'Mean-{k}': jnp.mean(v) for k, v in fields.items()}
             stats.update({f'Max-{k}': jnp.max(v) for k, v in fields.items()})
             return {**fields, **stats}
@@ -293,6 +312,7 @@ class QtVisualizer(QtWidgets.QMainWindow):
         row1_3d = QtWidgets.QHBoxLayout(); row2_3d = QtWidgets.QHBoxLayout()
         self.cmb_view = self._create_combo("View:", ["Global", "Local"], row1_3d)
         self.cmb_leg = self._create_combo("Legend:", ["Dynamic", "Static"], row1_3d)
+        self.cmb_leg.currentTextChanged.connect(self._on_legend_mode_changed) # Signal 연동
         self.cmb_3d = self._create_combo("Field:", self.field_keys, row1_3d); row1_3d.addStretch()
         
         row2_3d.addWidget(QtWidgets.QLabel("Scale:"))
@@ -300,7 +320,8 @@ class QtVisualizer(QtWidgets.QMainWindow):
         row2_3d.addWidget(self.spin_scale); row2_3d.addSpacing(10); row2_3d.addWidget(QtWidgets.QLabel("Range:"))
         self.spin_min = QtWidgets.QDoubleSpinBox(); self.spin_max = QtWidgets.QDoubleSpinBox()
         for s in [self.spin_scale, self.spin_min, self.spin_max]: 
-            s.setRange(-1e12, 1e12); s.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+            s.setRange(-1e12, 1e12); s.setDecimals(6) # 지수 표기법 대응을 위한 정밀도 상향
+            s.valueChanged.connect(lambda: self.update_frame(self.current_frame))
         row2_3d.addWidget(self.spin_min); row2_3d.addWidget(self.spin_max); row2_3d.addStretch()
         l_gb_3d.addLayout(row1_3d); l_gb_3d.addLayout(row2_3d); header.addWidget(gb_3d)
         
@@ -343,6 +364,44 @@ class QtVisualizer(QtWidgets.QMainWindow):
         combo.currentIndexChanged.connect(lambda: self.update_frame(self.current_frame))
         layout.addWidget(combo)
         return combo
+
+    def _on_legend_mode_changed(self, text):
+        """Legend 모드가 Static으로 변경될 때 현재 필드 범위로 자동 동기화."""
+        if text == "Static":
+            field_k = self.cmb_3d.currentText()
+            valid_key = field_k if field_k in self.results else 'Displacement [mm]'
+            data = self.results[valid_key][self.current_frame]
+            f_min, f_max = float(data.min()), float(data.max())
+            
+            # 1. 범위 설정 (Max - Min)
+            diff = f_max - f_min
+            if abs(diff) < 1e-12: diff = 1.0 # 0 division 방지
+            
+            # 2. Step 설정 (범위의 5%)
+            step = diff * 0.05
+            
+            # 3. 소수점 정밀도 설정 (Step의 1/1000 수준)
+            import math
+            res = abs(step) / 1000.0
+            # log10을 이용하여 필요한 소수점 자릿수 계산
+            decimals = max(0, -int(math.floor(math.log10(res)))) if res > 0 else 4
+            
+            # UI 반영 (연쇄적인 update_frame 호출을 막기 위해 시그널 일시 차단)
+            self.spin_min.blockSignals(True)
+            self.spin_max.blockSignals(True)
+            
+            self.spin_min.setDecimals(decimals)
+            self.spin_max.setDecimals(decimals)
+            self.spin_min.setSingleStep(step)
+            self.spin_max.setSingleStep(step)
+            self.spin_min.setValue(f_min)
+            self.spin_max.setValue(f_max)
+            
+            self.spin_min.blockSignals(False)
+            self.spin_max.blockSignals(False)
+            
+            # 모든 값이 설정된 후 한 번만 갱신
+            self.update_frame(self.current_frame)
 
     def _ctrl_slot(self, step: int):
         """
@@ -405,6 +464,12 @@ class QtVisualizer(QtWidgets.QMainWindow):
             np.zeros(res**2)
         ])
 
+        # PyVista LookupTable 생성 (사용자 가이드 권장 방식)
+        self.lut = pv.LookupTable(cmap="turbo")
+        # 범위 외 데이터 시각화 강화 (Static 모드 대응)
+        self.lut.below_range_color = 'lightgrey'
+        self.lut.above_range_color = 'magenta'
+        
         # PyVista Plane 메쉬 생성 (판 크기는 로컬 범위로 자동 결정)
         plate_w = float(self.analyzer.sol.x_lin.max() - self.analyzer.sol.x_lin.min())
         plate_h = float(self.analyzer.sol.y_lin.max() - self.analyzer.sol.y_lin.min())
@@ -412,32 +477,40 @@ class QtVisualizer(QtWidgets.QMainWindow):
             i_size=plate_w, j_size=plate_h,
             i_resolution=res-1, j_resolution=res-1
         )
-        self.poly.point_data["S"] = np.zeros(res**2)  # 컴컴맴맴 데이터 슈드 (Turbo 색상맵)
+        self.poly.point_data["S"] = np.zeros(res**2)
+        
+        # 메쉬 추가 시 LookupTable 적용
         self.mesh_a = self.v_int.add_mesh(
-            self.poly, scalars="S", cmap="turbo",
+            self.poly, scalars="S", cmap=self.lut,
             show_edges=True, edge_color="lightgrey", show_scalar_bar=False
         )
 
-        # 마커 구(Sphere) 초기 위치를 쳏 프레임 데이터로 설정
-        # ⚠️ 여기서 None으로 설정하면 라벨러가 원점(0,0,0)에 고정되는 버그 발생
-        m_init = np.array(self.analyzer.kin.raw_data[0])   # 쳏 프레임 마커 위치
+        # 마커 구(Sphere) 초기 위치 설정
+        m_init = np.array(self.analyzer.kin.raw_data[0])
         self.m_poly = pv.PolyData(m_init)
+        # 마커 이름을 데이터셋 내 문자열 배열로 포함 (PyVista 추종성 강화)
+        self.m_poly.point_data["names"] = self.marker_names
+        
         self.m_a = self.v_int.add_mesh(
             self.m_poly, render_points_as_spheres=True, point_size=10, color='blue'
         )
-
-        # 마커 이름 라벨 추가 (Actor Refresh 전략으로 실시간 추종, update_frame 에서 재생성)
+        # 데이터셋의 필드명을 사용하여 라벨 추가 (dataset modified 시 자동 추종 유도)
         self.lbl_actor = self.v_int.add_point_labels(
-            self.m_poly, self.marker_names,
+            self.m_poly, "names",
             font_size=8, text_color='black', always_visible=True, point_size=0, shadow=False
         )
 
         # 하단 중앙 수평 스케일바 (Dynamic/Static 레전드 모드)
+        # LookupTable을 직접 매퍼로 연결하여 범위 갱신 연동성 극대화
+        # 지수 표기법(fmt="%.2e")을 적용하여 미세 수치 가독성 확보
         self.sb = self.v_int.add_scalar_bar(
             "Field", position_x=0.15, position_y=0.05, width=0.70,
-            vertical=False, title_font_size=14, label_font_size=14
+            mapper=self.mesh_a.mapper, # 메쉬 매퍼와 연동
+            vertical=False, title_font_size=14, label_font_size=12,
+            n_labels=5, fmt="%.2e"
         )
         self.v_int.view_isometric()
+        self.v_int.enable_parallel_projection() # 원근감 제거 (공학적 검토 용이)
 
     def _init_2d_plots(self):
         """Matplotlib 2x2 초기화 — 콸투어 맵 2장(상단) + 시계열 커브 2장(하단)."""
@@ -462,7 +535,7 @@ class QtVisualizer(QtWidgets.QMainWindow):
             self.ims[i] = self.axes[i].imshow(
                 np.zeros((25, 25)), extent=extent, cmap='turbo'
             )
-            fig.colorbar(self.ims[i], ax=self.axes[i])
+            fig.colorbar(self.ims[i], ax=self.axes[i], format="%.2e")
 
         # 하단 시계열 서브플롯 초기화
         for i in range(2):
@@ -517,38 +590,53 @@ class QtVisualizer(QtWidgets.QMainWindow):
             p_f = p_def
             m_f = np.array(self.results['Q_local'][f])  # 마커 로컀 좌표
 
-        # ── 3D 공간 기하형 업데이트 ──
-        self.poly.points        = np.array(p_f)         # 판 메쉬 좌표 갱신
-        self.poly.point_data["S"] = field_vals.ravel()  # 컴컴맴맴 데이터 갱신
-        self.m_poly.points      = np.array(m_f)         # 마커 구 좌표 갱신
+        # 3D 공간 기하형 업데이트
+        # points 업데이트 시 복사본을 전달하여 원본 훼손 방지 및 렌더링 안정성 확보
+        self.poly.points = np.array(p_f)
+        self.poly.point_data["S"] = field_vals.ravel()
+        self.m_poly.points = np.array(m_f)
 
-        # 마커 라벨 액터 실시간 재생성 (Actor Refresh Strategy)
-        # PyVista/Qt 환경에서 좌표 업데이트만으로는 라벨이 고정되는 문제를 방지
-        if self.lbl_actor:
-            self.v_int.remove_actor(self.lbl_actor)
-        self.lbl_actor = self.v_int.add_point_labels(
-            self.m_poly, self.marker_names,
-            font_size=8, text_color='black', always_visible=True, point_size=0, shadow=False
-        )
+        #points 대입 후 Modified()를 호출하여 VTK 파이프라인에 변경 알림
+        self.m_poly.Modified() 
+        # 마퍼 단계에서의 갱신 강제 (라벨 추종성 보장)
+        if hasattr(self.lbl_actor, 'GetMapper'):
+            self.lbl_actor.GetMapper().Modified()
 
-        # 레전드 스케일 업데이트
+        # 레전드(Colorbar) 타이틀 및 범위 업데이트
+        is_dynamic = self.cmb_leg.currentText() == "Dynamic"
         clim = (
-            [field_vals.min(), field_vals.max()]
-            if self.cmb_leg.currentText() == "Dynamic"
+            [float(field_vals.min()), float(field_vals.max())]
+            if is_dynamic
             else [self.spin_min.value(), self.spin_max.value()]
         )
-        if clim[0] == clim[1]:  # 단일 값 시 범위 경계 안전 처리
+        if clim[0] == clim[1]:
             clim = [clim[0] - 1e-6, clim[1] + 1e-6]
-        self.sb.title = field_k
-        self.v_int.update_scalar_bar_range(clim)
-        self.mesh_a.mapper.scalar_range      = clim
-        self.mesh_a.mapper.scalar_visibility = True
-
-        # ── 2D 컨투어 맵 업데이트 (imshow set_data 성능 최적화) ──
+            
+        # ── Colorbar(Scalar Bar) 및 LUT 최종 업데이트 ──
+        # 1. LookupTable 범위 갱신 (사용자 가이드 방식)
+        self.lut.scalar_range = (clim[0], clim[1])
+        
+        # 2. 메쉬 매퍼 동기화
+        self.mesh_a.mapper.scalar_range = clim
+        
+        # 3. 타이틀 갱신 (액터 직접 제어)
+        if hasattr(self, 'sb'):
+            self.sb.title = field_k
+            if hasattr(self.sb, 'SetTitle'):
+                self.sb.SetTitle(field_k)
+        
+        # 4. 렌더링 호출
+        self.v_int.render()
+        
+        # ── 2D 컨투어 맵 업데이트 (3D와 범위 동기화 옵션 반영) ──
         for i, cmb in enumerate([self.cmb_f1, self.cmb_f2]):
             d = self.results[cmb.currentText()][f]
             self.ims[i].set_data(d)
-            self.ims[i].set_clim(d.min(), d.max())
+            # 2D도 Static 모드일 경우 동일한 clim 적용 (사용자 선택에 따름)
+            if not is_dynamic and cmb.currentText() == field_k:
+                self.ims[i].set_clim(clim)
+            else:
+                self.ims[i].set_clim(d.min(), d.max())
             self.axes[i].set_title(cmb.currentText())
 
         # ── 2D 시계열 커브 업데이트 ──

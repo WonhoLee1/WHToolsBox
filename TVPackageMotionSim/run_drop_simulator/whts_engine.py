@@ -74,6 +74,18 @@ class DropSimulator:
         self._last_f_sq = 0.0
         self._step_corner_values = {}
         self.nominal_local_pos = {}
+        
+        # [v5.2] 평판 이론(Plate Theory) 분석 데이터 수집용
+        self.quat_hist = []
+        self.block_half_extents = {}
+        self.body_index_map = {}
+        
+        # [v5.2.1] 소성 변형 및 압력 지표 초기화 (AttributeError 방지)
+        self.max_equiv_strain = 0.0
+        self.max_current_yield = 0.0
+        self.max_applied_pressure_pa = 0.0
+        self.max_deformation_mm = 0.0
+        self.max_plastic_strain = 0.0
 
     def _init_histories(self) -> None:
         self.time_history = []
@@ -144,8 +156,14 @@ class DropSimulator:
                         comp_name = "_".join(parts[1:-3]).lower()
                         if comp_name not in self.components: self.components[comp_name] = {}
                         self.components[comp_name][grid_key] = i
-                        # 초기 로컬 위치 저장 (포스트 프로세싱 SSR 보간용)
+                        self.body_index_map[i] = name
+                        # 초기 로컬 위치 및 크기 저장 (평판 이론 해석용)
                         self.nominal_local_pos[i] = self.model.body_pos[i].tolist()
+                        
+                        # [v5.2] 블록 절반 크기 저장 (평판 단면 계수 산출용)
+                        if self.model.body_geomnum[i] > 0:
+                            g_id = self.model.body_geomadr[i]
+                            self.block_half_extents[i] = self.model.geom_size[g_id][:3].tolist()
                     except: continue
 
     def _discover_neighbors(self) -> None:
@@ -297,8 +315,9 @@ class DropSimulator:
         rid = self.root_id
         if rid != -1:
             self.z_hist.append(d.xpos[rid][2])
-            # [v4.9.8] SSR 분석 연동을 위해 전체 바디 좌표(xpos)를 기록하도록 복구 (Dimension: n_frames, n_bodies, 3)
+            # [v5.1] 평판 변형 엔진 연동을 위해 전체 바디 좌표 및 회전 정보 기록
             self.pos_hist.append(d.xpos.copy())
+            self.quat_hist.append(d.xquat.copy())
             self.vel_hist.append(d.cvel[rid].copy())
             self.acc_hist.append(d.cacc[rid].copy())
             self.cog_pos_hist.append(d.subtree_com[rid].copy())
@@ -331,7 +350,13 @@ class DropSimulator:
         
         # 종료 전 결과물 자동 생성 및 저장
         self._wrap_up()
-        self.tk_root.destroy()
+        
+        # [V5.3.3 FIX] Tkinter 리소스 안전 해제 (중복 파괴 방지)
+        try:
+            if hasattr(self, 'tk_root') and self.tk_root:
+                self.tk_root.destroy()
+        except:
+            pass
 
     def _run_engine(self) -> None:
         if self.config.get("use_viewer", True):
@@ -372,7 +397,7 @@ class DropSimulator:
                 
                 if step_idx % save_step_mod == 0:
                     self._collect_history()
-                    compute_structural_step_metrics(self)
+                    # compute_structural_step_metrics(self) # [V5.2.8.2] 배치 처리를 위해 제거 (FPS 복구)
                 
                 if self.config_editor: self.config_editor.update_status(step_idx, self.data.time)
                 
@@ -404,6 +429,10 @@ class DropSimulator:
 
     def _wrap_up(self) -> None:
         """데이터 정리 및 Post-UI 연동"""
+        # [V5.2.8.2] 배치 구조 해석 수행
+        from .whts_reporting import compute_batch_structural_metrics
+        compute_batch_structural_metrics(self)
+        
         finalize_simulation_results(self)
         apply_rank_heatmap(self)
         
@@ -420,18 +449,27 @@ class DropSimulator:
             air_drag_hist=self.air_drag_hist, air_squeeze_hist=self.air_squeeze_hist,
             structural_metrics=self.structural_time_series,
             critical_timestamps=compute_critical_timestamps(self),
-            nominal_local_pos=self.nominal_local_pos
+            nominal_local_pos=self.nominal_local_pos,
+            # [v5.2] SSR 전용 데이터 전달
+            quat_hist=self.quat_hist,
+            components=self.components.copy(),
+            body_index_map=self.body_index_map,
+            block_half_extents=self.block_half_extents
         )
         self.result.save(os.path.join(self.output_dir, "simulation_result.pkl"))
         
         # [V4.2] PostProcessUI 호출 (패키지 상대 경로 대응)
-        try:
-            from .whts_postprocess_ui import PostProcessingUI
-            self.post_ui = PostProcessingUI(self)
-            self.post_ui.on_simulation_complete() # [V4.2 FIX] 완료 이벤트 명시적 트리거
-            self.tk_root.mainloop()
-        except Exception as e:
-            self.log(f"!! [PostUI Error] {e}")
+        # [V5.3.3] use_postprocess_ui 옵션 추가: 신형 QtVisualizerV2 연동 시 False로 설정하여 차단 가능
+        if self.config.get("use_postprocess_ui", True):
+            try:
+                from .whts_postprocess_ui import PostProcessingUI
+                self.post_ui = PostProcessingUI(self)
+                self.post_ui.on_simulation_complete() # [V4.2 FIX] 완료 이벤트 명시적 트리거
+                self.tk_root.mainloop()
+            except Exception as e:
+                self.log(f"⚠️ Post-Processing UI 실행 실패: {e}")
+        else:
+            self.log("ℹ️ use_postprocess_ui 가 False이므로 구버전 분석 창을 띄우지 않습니다.")
 
     def _restore_state(self, idx: int) -> None:
         if idx < len(self.qpos_hist):
