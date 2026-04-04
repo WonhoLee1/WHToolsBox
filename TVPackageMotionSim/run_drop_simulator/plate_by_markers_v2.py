@@ -91,7 +91,14 @@ class AdvancedPlateOptimizer:
     @partial(jit, static_argnums=(0,))
     def solve_analytical(self, q_loc, p_ref, reg_lambda: float):
         Z, X = q_loc[:, :, 2], self.get_basis_matrix(p_ref[:, 0], p_ref[:, 1]); H = self.get_hessian_basis(p_ref[:, 0], p_ref[:, 1]); Bxx, Byy, Bxy = H[:, :, 0], H[:, :, 1], H[:, :, 2]
-        M_bend = (Bxx.T @ Bxx + Byy.T @ Byy + 2.0*Bxy.T @ Bxy) / X.shape[0]; M = (X.T @ X) / X.shape[0] + reg_lambda * M_bend; M += jnp.eye(self.n) * 1e-12; return vmap(lambda z: solve(M, (X.T @ z) / X.shape[0]))(Z)
+        M_bend = (Bxx.T @ Bxx + Byy.T @ Byy + 2.0*Bxy.T @ Bxy) / X.shape[0]; M = (X.T @ X) / X.shape[0] + reg_lambda * M_bend; M += jnp.eye(self.n) * 1e-12
+        @vmap
+        def solve_with_error(z):
+            p = solve(M, (X.T @ z) / X.shape[0])
+            z_fit = X @ p
+            rmse = jnp.sqrt(jnp.mean((z - z_fit)**2))
+            return p, rmse
+        return solve_with_error(Z)
 
 class PlateMechanicsSolver:
     def __init__(self, config: PlateConfig): self.cfg = config; self.D = (config.youngs_modulus * config.thickness**3) / (12.0 * (1.0 - config.poisson_ratio**2)); self.res = config.mesh_resolution; self.opt = AdvancedPlateOptimizer(degree=config.poly_degree)
@@ -121,11 +128,12 @@ class ShellDeformationAnalyzer:
     def run_analysis(self):
         self.sol.setup_mesh(self.align.x_bounds, self.align.y_bounds); p_ref = jnp.column_stack([self.align.offsets, jnp.zeros(self.align.n_markers)]); n_frames, bs = self.align.n_frames, max(self.cfg.batch_size, 2048); buf = None
         for i in range((n_frames + bs - 1) // bs):
-            idx_s, idx_e = i * bs, min((i+1)*bs, n_frames); q_loc, rot, cq, cp = self.align.extract_kinematics_vmap(self.m_raw[idx_s:idx_e]); params = self.sol.opt.solve_analytical(q_loc, p_ref, self.cfg.reg_lambda); batch = self.sol.evaluate_batch(params)
-            if buf is None: buf = {k: [] for k in list(batch.keys()) + ['R', 'c_Q', 'c_P', 'Q_local']}
+            idx_s, idx_e = i * bs, min((i+1)*bs, n_frames); q_loc, rot, cq, cp = self.align.extract_kinematics_vmap(self.m_raw[idx_s:idx_e]); params, rmses = self.sol.opt.solve_analytical(q_loc, p_ref, self.cfg.reg_lambda); batch = self.sol.evaluate_batch(params)
+            if buf is None: buf = {k: [] for k in list(batch.keys()) + ['R', 'c_Q', 'c_P', 'Q_local', 'rmse']}
             for k,v in batch.items(): buf[k].append(np.array(v))
-            buf['R'].append(np.array(rot)); buf['c_Q'].append(np.array(cq)); buf['c_P'].append(np.array(cp)); buf['Q_local'].append(np.array(q_loc))
+            buf['R'].append(np.array(rot)); buf['c_Q'].append(np.array(cq)); buf['c_P'].append(np.array(cp)); buf['Q_local'].append(np.array(q_loc)); buf['rmse'].append(np.array(rmses))
         self.results = {k: np.concatenate(v, axis=0) for k, v in buf.items()}; self.results['Marker Global Disp. [mm]'] = np.linalg.norm(np.array(self.m_raw) - np.array(self.m_raw[0]), axis=2); self.results['Marker Local Disp. [mm]'] = np.array(self.results['Q_local'][:, :, 2])
+        self.avg_rmse = np.mean(self.results['rmse']); print(f"  > [PART] {self.name:<25} analyzed. (Avg RMSE: {self.avg_rmse:.4e} mm)")
 
 class PlateAssemblyManager:
     def __init__(self, times): self.analyzers, self.times, self.n_frames = [], times, len(times)
@@ -133,6 +141,7 @@ class PlateAssemblyManager:
     def run_all(self):
         print(f"[WHTOOLS] Assembly Analysis Started ({len(self.analyzers)} parts)...")
         with ThreadPoolExecutor(max_workers=8) as ex: list(ex.map(lambda p: p.run_analysis(), self.analyzers))
+        print(f"[WHTOOLS] All {len(self.analyzers)} Parts Analyzed Successfully.")
 
 # --- UI Components (Premium Polish) ---
 
