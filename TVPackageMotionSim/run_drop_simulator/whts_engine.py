@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import json
 import pickle
@@ -58,7 +59,7 @@ class DropSimulator:
         self.post_ui = None
         self.config_editor = None
         self.result = None
-        self.tk_root = None
+        self._tk_root = None # [V5.4.2] Lazy Initialization
 
         if self.config.get("enable_target_balancing", False):
             self.apply_balancing()
@@ -222,24 +223,43 @@ class DropSimulator:
     def _aerodynamics_callback(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
         if self.root_id == -1: return
         cfg = self.config
+        if not cfg.get('enable_air_drag', True) and not cfg.get('enable_air_squeeze', False):
+            return
+
         rho = cfg.get('air_density', 1.225)
         vel = data.cvel[self.root_id]
         v_abs = np.linalg.norm(vel[3:6])
         
-        area = cfg.get('box_w', 2.0) * cfg.get('box_h', 1.4)
-        cd = cfg.get('air_drag_coeff', 1.05)
-        f_drag = 0.5 * rho * v_abs**2 * area * cd
-        self._last_f_drag = f_drag
+        # [0] Box Surface Area (박스 전체 표면적)
+        total_area = 2 * (cfg.get('box_w', 2.0)*cfg.get('box_h', 1.4) + cfg.get('box_h', 1.4)*cfg.get('box_d', 0.25) + cfg.get('box_d', 0.25)*cfg.get('box_w', 2.0))
+
+        # [1] Traditional Quadratic Drag (이차 항력)
+        cd_q = cfg.get('air_drag_coeff', 1.05)
+        f_drag = -0.5 * rho * cd_q * total_area * (v_abs**2) * np.sign(vel[5]) if cfg.get('enable_air_drag', True) else 0.0
         
-        z_gap = data.xpos[self.root_id][2] - (cfg.get('box_d', 0.25)/2.0)
+        # [2] Air Viscous Drag (Linear friction) - 점성 저항
+        mu = cfg.get('air_viscosity', 1.8e-5)
+        cd_v = cfg.get('air_cd_viscous', 0.0)
+        f_visc = -1.0 * mu * vel[5] * cd_v * total_area if cfg.get('enable_air_drag', True) else 0.0
+        self._last_f_visc = f_visc
+
+        # [3] Squeeze Film Effect
         f_sq = 0.0
-        if 0.001 < z_gap < 0.1:
-            mu = 1.8e-5
-            v_z = -vel[5]
-            if v_z > 0:
-                f_sq = min((mu * area**2 * v_z) / (z_gap**3), 2000.0)
+        if cfg.get('enable_air_squeeze', False):
+            z_gap = data.xpos[self.root_id][2] - (cfg.get('box_d', 0.25)/2.0)
+            h_max = cfg.get('air_squeeze_hmax', 0.1)
+            h_min = cfg.get('air_squeeze_hmin', 0.001)
+            
+            if h_min < z_gap < h_max:
+                k_sq = cfg.get('air_coef_squeeze', 1.0)
+                v_z = -vel[5]
+                if v_z > 0:
+                    # 공식에 k_sq 배율 적용
+                    f_sq = min((k_sq * mu * total_area**2 * v_z) / (z_gap**3), 2000.0)
+        
         self._last_f_sq = f_sq
-        data.xfrc_applied[self.root_id][2] = f_drag + f_sq
+        # 모든 에어로다이나믹 외력 합산 적용 (Z-axis force)
+        data.xfrc_applied[self.root_id][2] = f_drag + f_visc + f_sq
 
     def _apply_plasticity_v2(self) -> None:
         """[V4] 고도화된 소성 변형 로직: 접촉 방향(Normal) 기반 축 선택 및 실시간 파란색 전이"""
@@ -333,14 +353,19 @@ class DropSimulator:
             self.corner_acc_hist.append([c['acc'] for c in ck])
             self.geo_center_pos_hist.append(np.mean([c['pos'] for c in ck], axis=0))
 
+    @property
+    def tk_root(self):
+        """[WHTOOLS] Tkinter 루트 객체의 지연 생성 (Headless 모드 최적화)"""
+        if self._tk_root is None:
+            import tkinter as tk
+            self._tk_root = tk.Tk()
+            self._tk_root.withdraw()
+        return self._tk_root
+
     def simulate(self, enable_UI: bool = False) -> None:
         if enable_UI:
             self.ctrl_open_ui = True
             
-        import tkinter as tk
-        self.tk_root = tk.Tk()
-        self.tk_root.withdraw()
-        
         while not self.ctrl_quit_request:
             self.setup()
             self._run_engine()
@@ -351,10 +376,10 @@ class DropSimulator:
         # 종료 전 결과물 자동 생성 및 저장
         self._wrap_up()
         
-        # [V5.3.3 FIX] Tkinter 리소스 안전 해제 (중복 파괴 방지)
+        # [V5.3.3 FIX] Tkinter 리소스 안전 해제 (생성된 경우에만)
         try:
-            if hasattr(self, 'tk_root') and self.tk_root:
-                self.tk_root.destroy()
+            if self._tk_root:
+                self._tk_root.destroy()
         except:
             pass
 
@@ -376,9 +401,12 @@ class DropSimulator:
         self.start_real_time = time.time()
         
         while step_idx < total_steps and not self.ctrl_quit_request and not self.ctrl_reload_request:
-            self.tk_root.update()
+            # [V5.4.2] Tkinter가 활성화된 경우에만 이벤트 루프 업데이트 (Headless 보호)
+            if self._tk_root:
+                self._tk_root.update()
             
             if self.ctrl_open_ui:
+                # [WHTOOLS] ConfigEditor 호출 시 Tkinter가 필요하므로 lazily 생성됨
                 self.config_editor = ConfigEditor(self)
                 self.ctrl_open_ui = False
             
@@ -457,19 +485,47 @@ class DropSimulator:
             block_half_extents=self.block_half_extents
         )
         self.result.save(os.path.join(self.output_dir, "simulation_result.pkl"))
+
+        # [V5.4.3 FIX] 통합 UI 제어 로직 (V2 자동 호출 지원)
+        # use_postprocess_v2=True인 경우 시뮬레이션 종료 후 자동으로 PySide6 UI를 별도 프로세스로 호출합니다.
         
-        # [V4.2] PostProcessUI 호출 (패키지 상대 경로 대응)
-        # [V5.3.3] use_postprocess_ui 옵션 추가: 신형 QtVisualizerV2 연동 시 False로 설정하여 차단 가능
+        launch_v2 = self.config.get("use_postprocess_v2", False)
+        
+        if launch_v2:
+            self.log(">> [Integrated UI] 신형 PySide6 기반 V2 Control Center를 자동 호출합니다...")
+            try:
+                import subprocess
+                curr_dir = os.path.dirname(os.path.abspath(__file__))
+                ui_script = os.path.join(curr_dir, "whts_postprocess_ui_v2.py")
+                res_path = os.path.join(self.output_dir, "simulation_result.pkl")
+                # 신형 UI를 서브프로세스로 실행 (Tkinter와의 충돌 방지 및 비차단 실행)
+                subprocess.Popen([sys.executable, ui_script, "--load", res_path])
+                self.log(f">> [V2 UI] Launch Success: {ui_script}")
+            except Exception as e:
+                self.log(f"⚠️ V2 UI 실행 실패: {e}")
+            
+            # V2가 실행된 경우, 추가적인 UI 요청(ctrl_open_ui)이 있더라도 중복 실행을 막기 위해 여기서 종료 가능
+            # 혹은 레거시 UI와 병행하려면 아래 가드를 조정합니다.
+            return
+
+        # 레거시 UI (Tkinter) 가드: 명시적 요청(K키 혹은 enable_UI=True)이 있을 때만 진입
+        if not self.ctrl_open_ui:
+            self.log("ℹ️ [Headless] UI 오픈 요청이 없으므로 시뮬레이션을 정상 종료합니다.")
+            return
+
         if self.config.get("use_postprocess_ui", True):
             try:
+                self.log(">> [Legacy UI] Tkinter 기반 구버전 분석 창을 호출합니다...")
                 from .whts_postprocess_ui import PostProcessingUI
                 self.post_ui = PostProcessingUI(self)
                 self.post_ui.on_simulation_complete() # [V4.2 FIX] 완료 이벤트 명시적 트리거
+                
+                # [WHTOOLS] 구버전 사용 시에만 blocking mainloop 진입
                 self.tk_root.mainloop()
             except Exception as e:
                 self.log(f"⚠️ Post-Processing UI 실행 실패: {e}")
         else:
-            self.log("ℹ️ use_postprocess_ui 가 False이므로 구버전 분석 창을 띄우지 않습니다.")
+            self.log("ℹ️ use_postprocess_ui 가 False이므로 분석 창을 띄우지 않습니다.")
 
     def _restore_state(self, idx: int) -> None:
         if idx < len(self.qpos_hist):

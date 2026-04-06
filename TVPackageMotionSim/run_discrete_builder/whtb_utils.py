@@ -41,32 +41,52 @@ def parse_drop_target(mode_str: str, direction_str: str, box_w: float, box_h: fl
     mode = str(mode_str).upper()
     direct = str(direction_str).lower().replace('face', '').replace('edge', '').replace('corner', '').strip()
     
-    parcel_map = {1:[0,1,0], 2:[0,-1,0], 3:[0,0,1], 4:[0,0,-1], 5:[-1,0,0], 6:[1,0,0]}
-    ltl_map = {1:[0,1,0], 2:[0,0,-1], 3:[0,-1,0], 4:[0,0,1], 5:[1,0,0], 6:[-1,0,0]}
+    # [WHTOOLS ISTA 6-Amazon Mapping] - Y=Height, Z=Depth 기준
+    # 1: Top (+Y), 2: Bottom (-Y)
+    # Parcel(G): 3/4=Sides(±X), 5/6=FrontBack(±Z)
+    # LTL(H): 3/4=FrontBack(±Z), 5/6=Sides(±X)
+    
+    parcel_map = {
+        1:[0,1,0], 2:[0,-1,0], # Top/Bottom
+        3:[1,0,0], 4:[-1,0,0], # Right/Left Side
+        5:[0,0,1], 6:[0,0,-1]  # Front/Back
+    }
+    ltl_map = {
+        1:[0,1,0], 2:[0,-1,0], # Top/Bottom
+        3:[0,0,1], 4:[0,0,-1], # Front/Back Screen
+        5:[1,0,0], 6:[-1,0,0]  # Right/Left Side
+    }
     
     face_map = ltl_map if mode == 'LTL' else parcel_map
     vec = np.array([0.0, 0.0, 0.0])
     
+    # 숫자(1~6)가 포함된 경우 해당 맵핑 적용
     nums = [int(n) for n in re.findall(r'[1-6]', direct)]
     if nums:
-        for n in nums: vec += np.array(face_map[n])
+        for n in nums: 
+            vec += np.array(face_map.get(n, [0,0,0]))
     
-    if np.linalg.norm(vec) < 1e-6:
+    # 키워드 기반 토큰 파싱 (숫자가 없거나 보조 설명인 경우)
+    if np.linalg.norm(vec) < 1e-6 or any(kw in direct for kw in ['front', 'rear', 'top', 'bottom', 'left', 'right']):
         tokens = [t.strip() for t in re.split(r'[-,\s]+', direct)]
         for tk in tokens:
-            if 'front' in tk: vec[2] = 1.0
-            elif 'rear' in tk or 'back' in tk: vec[2] = -1.0
-            elif 'top' in tk: vec[1] = 1.0
-            elif 'bottom' in tk: vec[1] = -1.0
-            elif 'left' in tk: vec[0] = -1.0
-            elif 'right' in tk: vec[0] = 1.0
-
+            if 'front' in tk or 'screen' in tk: vec[2] = 1.0   # Front/Screen -> Z+
+            elif 'rear' in tk or 'back' in tk: vec[2] = -1.0  # Rear/Back -> Z-
+            elif 'top' in tk: vec[1] = 1.0                    # Top -> Y+
+            elif 'bottom' in tk: vec[1] = -1.0                # Bottom -> Y-
+            elif 'left' in tk: vec[0] = -1.0                  # Left -> X-
+            elif 'right' in tk: vec[0] = 1.0                  # Right -> X+
+    
     if np.linalg.norm(vec) < 1e-6:
-        if mode == 'LTL': vec = np.array([0.0, -1.0, 0.0])
-        else: vec = np.array([0.0, 0.0, 1.0])
+        # Default fallback
+        if mode == 'LTL': vec = np.array([0.0, -1.0, 0.0]) # Bottom
+        else: vec = np.array([0.0, -1.0, 0.0]) # Bottom (ISTA Default)
 
     # 부호 {-1, 0, 1} 상태의 vec을 박스 절반 크기에 곱해 실제 외곽점(Target Corner) 산출
+    # X=Width/2, Y=Height/2, Z=Depth/2
     target_pt = np.array([vec[0] * box_w/2, vec[1] * box_h/2, vec[2] * box_d/2])
+    
     if np.linalg.norm(target_pt) < 1e-6:
-        target_pt = np.array([0, 0, box_d/2])
+        target_pt = np.array([0, -box_h/2, 0]) # Defacto Bottom
+        
     return target_pt

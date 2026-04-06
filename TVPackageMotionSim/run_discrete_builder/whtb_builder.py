@@ -33,15 +33,15 @@ def get_single_body_instance(body_name: str, config: Optional[Dict[str, Any]] = 
     
     # 3. 내부 제품(Assy) 치수 및 배치 위치 계산
     assy_w = config.get("assy_w", cush_w - 0.3); assy_h = config.get("assy_h", cush_h - 0.3)
-    oc_d = config["oc_d"]; occ_d = config["occ_d"]; chas_d = config["chas_d"]
-    assy_d = oc_d + occ_d + chas_d
+    opencell_d = config["opencell_d"]; opencellcoh_d = config["opencellcoh_d"]; chassis_d = config["chassis_d"]
+    assy_d = opencell_d + opencellcoh_d + chassis_d
     
     occ_ithick = config["occ_ithick"]
     
     # Z축 적층 위치 (Assy 중심 기준 상대 좌표)
-    oc_z   = assy_d/2 - oc_d/2
-    occ_z  = oc_z - oc_d/2 - occ_d/2
-    chas_z = occ_z - occ_d/2 - chas_d/2
+    oc_z   = assy_d/2 - opencell_d/2
+    occ_z  = oc_z - opencell_d/2 - opencellcoh_d/2
+    chas_z = occ_z - opencellcoh_d/2 - chassis_d/2
     
     # 필수 절단선 (가운데 구멍/패턴 유지를 위해 격자가 반드시 지나가야 할 지점)
     occ_cut_x = [-assy_w/2 + occ_ithick, assy_w/2 - occ_ithick]
@@ -74,17 +74,17 @@ def get_single_body_instance(body_name: str, config: Optional[Dict[str, Any]] = 
         return b
         
     elif body_name == "BOpenCell":
-        b = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], config["oc_div"], config["mat_cell"], config["oc_use_weld"])
+        b = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, config["mass_oc"], config["opencell_div"], config["mat_cell"], config["opencell_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BOpenCellCohesive":
-        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], config["occ_div"], occ_ithick, config["mat_tape"], config["occ_use_weld"])
+        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, config["mass_occ"], config["opencellcoh_div"], occ_ithick, config["mat_tape"], config["opencellcoh_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BChassis":
-        b = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], config["chassis_div"], config["mat_tv"], config["chassis_use_weld"])
+        b = BChassis("BChassis", assy_w, assy_h, chassis_d, config["mass_chassis"], config["chassis_div"], config["mat_tv"], config["chassis_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
@@ -120,8 +120,8 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     cush_gap = config["cush_gap"]
     cush_w, cush_h, cush_d = box_w - 2 * box_thick, box_h - 2 * box_thick, box_d - 2 * box_thick
     assy_w = config.get("assy_w", cush_w - 0.3); assy_h = config.get("assy_h", cush_h - 0.3)
-    oc_d, occ_d, chas_d = config["oc_d"], config["occ_d"], config["chas_d"]
-    assy_d = oc_d + occ_d + chas_d
+    opencell_d, opencellcoh_d, chassis_d = config["opencell_d"], config["opencellcoh_d"], config["chassis_d"]
+    assy_d = opencell_d + opencellcoh_d + chassis_d
     occ_ithick = config["occ_ithick"]
     
     mat_paper, mat_cush, mat_tape = config["mat_paper"], config["mat_cush"], config["mat_tape"]
@@ -174,10 +174,10 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     else: b_paper = None
     
     assy_group = BaseDiscreteBody("AssySet", 0,0,0, 0, [1,1,1], {})
-    oc_z = assy_d/2 - oc_d/2; occ_z = oc_z - oc_d/2 - occ_d/2; chas_z = occ_z - occ_d/2 - chas_d/2
-    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, oc_d, config["mass_oc"], config["oc_div"], mat_cell, config["oc_use_weld"])
-    b_occ = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, occ_d, config["mass_occ"], config["occ_div"], occ_ithick, mat_tape, config["occ_use_weld"])
-    b_chassis = BChassis("BChassis", assy_w, assy_h, chas_d, config["mass_chassis"], config["chassis_div"], mat_tv, config["chassis_use_weld"])
+    oc_z = assy_d/2 - opencell_d/2; occ_z = oc_z - opencell_d/2 - opencellcoh_d/2; chas_z = occ_z - opencellcoh_d/2 - chassis_d/2
+    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, config["mass_oc"], config["opencell_div"], mat_cell, config["opencell_use_weld"])
+    b_occ = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, config["mass_occ"], config["opencellcoh_div"], occ_ithick, mat_tape, config["opencellcoh_use_weld"])
+    b_chassis = BChassis("BChassis", assy_w, assy_h, chassis_d, config["mass_chassis"], config["chassis_div"], mat_tv, config["chassis_use_weld"])
 
     b_cushion = None
     if include_cushion:
@@ -277,7 +277,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     
     xml_str_io.write('  </default>\n')
     xml_str_io.write(f'  <worldbody>\n    <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>\n    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{config.get("light_main_diffuse")}" ambient="{config.get("light_main_ambient")}" castshadow="false"/>\n    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{config.get("light_sub_diffuse")}" castshadow="false"/>\n')
-    xml_str_io.write(f'    <geom name="ground" type="plane" size="10 10 0.1" friction="{config.get("ground_friction")}" contype="1" conaffinity="1" group="0" material="ground_mat" solref="{config.get("ground_solref")}" solimp="{config.get("ground_solimp")}"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="10 10 0.1" friction="1.0 {config.get("ground_friction")} {config.get("ground_friction")}" contype="1" conaffinity="1" group="0" material="ground_mat" solref="{config.get("ground_solref")}" solimp="{config.get("ground_solimp")}"/>\n')
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n      <freejoint/>\n      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>\n')
     for line in root_container.get_worldbody_xml_strings(indent_level=3): xml_str_io.write(line + "\n")
     xml_str_io.write('    </body>\n  </worldbody>\n  <equality>\n')

@@ -1048,11 +1048,12 @@ class PostProcessingUI(tk.Toplevel):
             pass
 
         self.update_idletasks()
-        # [v4.3] 블로킹 방지를 위해 parent를 명시하고, 이미 종료된 경우 무시
-        try:
-            messagebox.showinfo("분석 완료", "시뮬레이션이 종료되었습니다.\n최종 데이터(구조적 지표 등)가 연동되었습니다.", parent=self)
-        except:
-            pass
+        # [WHTOOLS] 분석 완료 팝업 제거 (사용자 요청)
+        # try:
+        #     messagebox.showinfo("분석 완료", "시뮬레이션이 종료되었습니다.\n최종 데이터(구조적 지표 등)가 연동되었습니다.", parent=self)
+        # except:
+        #     pass
+        print(" >> Simulation Analysis Complete. (Legacy)")
 
     def _update_time_label(self, step: int):
         """시간 레이블을 현재 스텝에 맞게 갱신합니다."""
