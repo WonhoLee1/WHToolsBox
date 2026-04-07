@@ -399,23 +399,32 @@ class PlateMechanicsSolver:
                 sigma_x_membrane = E_eff * (0.5 * dw_dx**2 + self.cfg.poisson_ratio * 0.5 * dw_dy**2)
                 sigma_y_membrane = E_eff * (0.5 * dw_dy**2 + self.cfg.poisson_ratio * 0.5 * dw_dx**2)
 
-            # 5. 최종 필드 통합 및 Von-Mises 응력 계산
-            total_sx = sigma_x_bending + sigma_x_membrane
-            total_sy = sigma_y_bending + sigma_y_membrane
+            # 6. 신규 필드 추가 (곡률 및 주응력)
+            # 평균 곡률 (Mean Curvature) H = -0.5 * (k_xx + k_yy)
+            # 가우스 곡률 (Gaussian Curvature) K = k_xx * k_yy - k_xy^2
+            mean_curvature = 0.5 * (kxx + kyy) 
+            gauss_curvature = kxx * kyy - kxy**2
             
-            # Von-Mises [MPa]: sqrt(sx^2 + sy^2 - sx*sy + 3*(txy^2 + txz^2 + tyz^2))
-            von_mises = jnp.sqrt(jnp.maximum(
-                total_sx**2 + total_sy**2 - total_sx*total_sy + \
-                3.0 * (tau_xy_bending**2 + tau_xz**2 + tau_yz**2), 
-                1e-12
-            ))
+            # 주응력 (Principal Stresses)
+            # sigma_1,2 = (sx + sy)/2 +/- sqrt(((sx - sy)/2)^2 + txy^2)
+            s_mean = 0.5 * (total_sx + total_sy)
+            s_diff = 0.5 * (total_sx - total_sy)
+            s_radius = jnp.sqrt(jnp.maximum(s_diff**2 + tau_xy_bending**2, 1e-12))
             
+            sigma_1 = s_mean + s_radius
+            sigma_2 = s_mean - s_radius
+
             fields = {
                 'Displacement [mm]': w_field,
                 'Stress XX [MPa]': total_sx,
                 'Stress YY [MPa]': total_sy,
-                'Shear Stress XY [MPa]': tau_xy_bending,
-                'Von-Mises [MPa]': von_mises
+                'Stress XY [MPa]': tau_xy_bending,
+                'Shear Stress XY [MPa]': tau_xy_bending, # Legacy 호환용 유지
+                'Von-Mises [MPa]': von_mises,
+                'Max. Principal Stress [MPa]': sigma_1,
+                'Min. Principal Stress [MPa]': sigma_2,
+                'Mean Curvature [1/mm]': mean_curvature,
+                'Gauss Curvature [1/mm^2]': gauss_curvature
             }
             
             # 통계 데이터 추가 (Mean, Max)
@@ -588,12 +597,13 @@ class ShellDeformationAnalyzer:
         """
         [WHTOOLS] JAX 가속 엔진 배치 해석 (Full Cleanup & Stabilization)
         """
-        m_data_hist = np.array(m_data_hist)
-        
-        # Shape 정규화
-        if o_data_hint is not None and m_data_hist.shape[1] != o_data_hint.shape[0]:
-            if m_data_hist.shape[0] == o_data_hint.shape[0]:
-                m_data_hist = np.swapaxes(m_data_hist, 0, 1)
+        # [WHTOOLS] 단위 일관성 보정: 미터 단위 데이터 감지 시 mm로 자동 변환
+        # 모든 마커 좌표가 1.0 미만인 경우 미터 단위로 간주 (대규모 구조체 제외 범용 기준)
+        if np.max(np.abs(m_data_hist)) < 2.0: # 2m 미만 낙하 테스트 기준
+            print(f"  > [Unit-Check] Meters detected in {self.name}. Scaling to mm...")
+            m_data_hist = m_data_hist * 1000.0
+            if o_data_hint is not None:
+                o_data_hint = o_data_hint * 1000.0
 
         n_frames, n_markers, _ = m_data_hist.shape
         self.m_raw = m_data_hist 
@@ -662,6 +672,27 @@ class ShellDeformationAnalyzer:
         )
         batch_results = self.sol.evaluate_batch(params, norm_stats)
 
+        # 5. 마커 동역학 데이터 (속도/가속도) 계산 및 저장
+        # Marker Global Disp. [mm]
+        m_global_disp = m_data_hist - m_data_hist[0]
+        
+        # 시계열 차분 (dt 활용)
+        times = getattr(self, 'times', None)
+        if times is None:
+             # PlateAssemblyManager에서 주입되거나 외부에서 지정됨
+             # 임시로 더미 dt 사용하고 데이터 주입 시점 확인
+             dt = 0.001 
+        else:
+             dt = np.median(np.diff(times)) if len(times) > 1 else 0.001
+             
+        # Marker Velocity (Global)
+        m_vel = np.zeros_like(m_global_disp)
+        m_vel[1:] = np.diff(m_global_disp, axis=0) / dt
+        
+        # Marker Acceleration (Global)
+        m_acc = np.zeros_like(m_vel)
+        m_acc[1:] = np.diff(m_vel, axis=0) / dt
+
         # 결과 패키징
         self.results = {k: np.array(v) for k, v in batch_results.items()}
         self.results.update({
@@ -671,7 +702,11 @@ class ShellDeformationAnalyzer:
             'Q_local': np.array(q_loc_jax),
             'rmse': np.array(rmses),
             'r_rmse': np.array(all_rmses),
-            'Marker Local Disp. [mm]': all_displacement_w
+            'Marker Local Disp. [mm]': all_displacement_w,
+            'Marker Global Disp. [mm]': m_global_disp,
+            'Marker Velocity [mm/s]': m_vel,
+            'Marker Acceleration [mm/s^2]': m_acc,
+            'Marker Performance [mm]': np.linalg.norm(m_global_disp, axis=2) # 2D Plot용 스칼라
         })
         
         max_marker_disp = np.max(np.abs(all_displacement_w_rel))
@@ -748,7 +783,8 @@ class VisibilityToolWindow(QtWidgets.QWidget):
         
         # 2. 파트별 트리 위젯 구성
         self.tree = QtWidgets.QTreeWidget()
-        self.tree.setHeaderLabels(["Part", "Mesh", "Markers"])
+        self.tree.setHeaderLabels(["Part", "Mesh", "Markers", "Info"])
+        self.tree.setColumnWidth(0, 150) # 파트 이름 충분히 전개
         self.tree.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.tree)
         
@@ -766,8 +802,9 @@ class VisibilityToolWindow(QtWidgets.QWidget):
                 self.groups[prefix] = QtWidgets.QTreeWidgetItem(self.tree, [prefix])
                 self.groups[prefix].setExpanded(True)
                 
+            n_markers = part.m_raw.shape[1]
             item = QtWidgets.QTreeWidgetItem(self.groups[prefix], [part.name])
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
             item.setData(0, QtCore.Qt.UserRole, i)
             
             # 현재 가시성 상태 반영
@@ -776,9 +813,12 @@ class VisibilityToolWindow(QtWidgets.QWidget):
             
             item.setCheckState(1, mesh_state)
             item.setCheckState(2, marker_state)
+            item.setText(2, f"Markers ({n_markers})") # 마커 개수 표기
+            item.setText(3, "-") # Info 초기값
             self.id_to_item[i] = item
             
         self.tree.blockSignals(False)
+        self.update_info() # 초기 Info 갱신
 
     def _bulk_set(self, column: int, state: bool):
         """[WHTOOLS] 일괄 가시성 설정"""
@@ -795,13 +835,38 @@ class VisibilityToolWindow(QtWidgets.QWidget):
         self._apply()
 
     def _on_item_changed(self, item, column):
-        """[WHTOOLS] 트리 아이템 체크 상태 변경 시 하위 아이템 동기화 및 적용"""
-        if item.data(0, QtCore.Qt.UserRole) is None:  # 그룹 아이템인 경우
-            self.tree.blockSignals(True)
+        """[WHTOOLS] 트리 아이템 체크 상태 변경 시 상하위 동기화 및 적용"""
+        self.tree.blockSignals(True)
+        if item.parent() is None:  # 그룹 아이템인 경우 -> 하위 전파
+            check_state = item.checkState(column)
             for j in range(item.childCount()):
-                item.child(j).setCheckState(column, item.checkState(column))
-            self.tree.blockSignals(False)
+                item.child(j).setCheckState(column, check_state)
+        else: # 개별 파트인 경우 -> 상위 상태 갱신
+            parent = item.parent()
+            all_checked = True
+            for j in range(parent.childCount()):
+                if parent.child(j).checkState(column) == QtCore.Qt.Unchecked:
+                    all_checked = False
+                    break
+            parent.setCheckState(column, QtCore.Qt.Checked if all_checked else QtCore.Qt.Unchecked)
+            
+        self.tree.blockSignals(False)
         self._apply()
+
+    def update_info(self):
+        """[v5.9] 현재 프레임의 파트별 Min/Max 데이터를 Info 열에 실시간 갱신"""
+        f_idx = self.parent.current_frame
+        field_key = self.parent.cmb_3d.currentText()
+        
+        self.tree.blockSignals(True)
+        for i, item in self.id_to_item.items():
+            ana = self.parent.mgr.analyzers[i]
+            if field_key in ana.results and field_key not in ["Body Color", "Face Color"]:
+                val = ana.results[field_key][f_idx]
+                item.setText(3, f"{val.min():.2e} / {val.max():.2e}")
+            else:
+                item.setText(3, "-")
+        self.tree.blockSignals(False)
 
     def _apply(self):
         """[WHTOOLS] 설정된 가시성 상태를 3D 뷰어에 반영"""
@@ -1012,6 +1077,9 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self._init_2d_plots()
         self.update_frame(0)
         
+        # [v5.9] 상태바 초기화 (크기 유지용)
+        self.statusBar().showMessage("-")
+        
         self.visibility_tool = VisibilityToolWindow(self)
 
     def _init_ui(self):
@@ -1023,146 +1091,247 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self._init_menus()
         
         # 중앙 위젯 및 메인 수직 레이아웃
-        central_widget = QtWidgets.QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QtWidgets.QVBoxLayout(central_widget)
+        self.central_widget = QtWidgets.QWidget()
+        self.setCentralWidget(self.central_widget)
+        main_layout = QtWidgets.QVBoxLayout(self.central_widget)
         
-        # 상단 애니메이션 컨트롤 툴바
-        self._init_animation_toolbar()
+        # 1. 상단 제어 및 로고 영역 (Tab Control + Logo)
+        top_container = QtWidgets.QWidget()
+        top_layout = QtWidgets.QHBoxLayout(top_container)
+        top_layout.setContentsMargins(5, 5, 5, 5)
         
+        # 로고 배너 (좌측)
+        self.lbl_logo = QtWidgets.QLabel()
+        if os.path.exists(self.logo_path):
+            pix = QtGui.QPixmap(self.logo_path).scaledToHeight(60, QtCore.Qt.SmoothTransformation)
+            self.lbl_logo.setPixmap(pix)
+        else:
+            self.lbl_logo.setText("WHTOOLS")
+            self.lbl_logo.setStyleSheet("font-weight: bold; font-size: 14pt; color: #1A73E8;")
+        self.lbl_logo.setMinimumWidth(120)
+        self.lbl_logo.setAlignment(QtCore.Qt.AlignCenter)
+        top_layout.addWidget(self.lbl_logo)
+        
+        # 탭 컨트롤 (우측)
+        self.ctrl_tabs = QtWidgets.QTabWidget()
+        self.tab_3d = QtWidgets.QWidget()
+        self.tab_2d = QtWidgets.QWidget()
+        self.ctrl_tabs.addTab(self.tab_3d, "🧊 3D Field")
+        self.ctrl_tabs.addTab(self.tab_2d, "📈 2D Field & Curves")
+        self.ctrl_tabs.setFixedHeight(120) # 높이 고정
+        top_layout.addWidget(self.ctrl_tabs, stretch=1)
+        
+        main_layout.addWidget(top_container)
+
+        # 2. 메인 뷰어 스플리터
         self.split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        main_layout.addWidget(self.split)
+        main_layout.addWidget(self.split, stretch=1)
         
         # 좌측 3D 패널
         self.p3d = QtWidgets.QWidget()
         l3d = QtWidgets.QVBoxLayout(self.p3d)
-        self._init_3d_panel(l3d)
+        l3d.setContentsMargins(0, 0, 0, 0)
+        self.v_int = QtInteractor(self.p3d)
+        self.v_int.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.v_int.customContextMenuRequested.connect(self._show_part_menu)
+        l3d.addWidget(self.v_int)
         
         # 우측 2D 패널
         self.p2d = QtWidgets.QWidget()
         l2d = QtWidgets.QVBoxLayout(self.p2d)
+        l2d.setContentsMargins(0, 0, 0, 0)
         self._init_2d_panel(l2d)
         
         self.split.addWidget(self.p3d)
         self.split.addWidget(self.p2d)
-        
-        # 초기 비율 설정 (3D:2D = 6:4)
         self.split.setStretchFactor(0, 6)
         self.split.setStretchFactor(1, 4)
+
+        # 3. 개별 탭 상세 내용 배치
+        self._init_3d_controls(self.tab_3d)
+        self._init_2d_controls(self.tab_2d)
+
+        # 4. 하단 재생 컨트롤 (QDockWidget)
+        self._init_animation_dock()
+
+    def _init_3d_controls(self, parent_widget):
+        """[WHTOOLS] 3D Field 탭 컨트롤 배치"""
+        layout = QtWidgets.QHBoxLayout(parent_widget)
         
-    def _init_3d_panel(self, layout: QtWidgets.QVBoxLayout):
-        """[WHTOOLS] 3D 제어 패널 구성 - 누락 메서드 복구"""
-        # 1. 3D Interactor (VTK Viewer)
-        self.v_int = QtInteractor(self.p3d)
-        self.v_int.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.v_int.customContextMenuRequested.connect(self._show_part_menu)
-        layout.addWidget(self.v_int)
+        # Group 1: View & Scale
+        g1 = QtWidgets.QGroupBox("View & Deformation")
+        gl1 = QtWidgets.QGridLayout(g1)
         
-        # 2. 3D Control Group
-        ctrl_group = QtWidgets.QGroupBox("3D Control")
-        grid = QtWidgets.QGridLayout(ctrl_group)
-        
-        # View Mode (Global vs Local)
-        grid.addWidget(QtWidgets.QLabel("View:"), 0, 0)
+        gl1.addWidget(QtWidgets.QLabel("View:"), 0, 0)
         self.cmb_view = QtWidgets.QComboBox()
         self.cmb_view.addItems(["Global", "Local"])
         self.cmb_view.currentTextChanged.connect(lambda: self.update_frame(self.current_frame))
-        grid.addWidget(self.cmb_view, 0, 1)
+        gl1.addWidget(self.cmb_view, 0, 1)
         
-        # Deformation Scale
-        grid.addWidget(QtWidgets.QLabel("Scale:"), 0, 2)
+        gl1.addWidget(QtWidgets.QLabel("Scale:"), 0, 2)
         self.spin_scale = QtWidgets.QDoubleSpinBox()
-        self.spin_scale.setRange(1.0, 500.0)
+        self.spin_scale.setRange(1.0, 1000.0)
         self.spin_scale.setValue(1.0)
-        self.spin_scale.setSingleStep(1.0)
         self.spin_scale.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        grid.addWidget(self.spin_scale, 0, 3)
-        
-        # Field Selection
-        grid.addWidget(QtWidgets.QLabel("Field:"), 1, 0)
+        gl1.addWidget(self.spin_scale, 0, 3)
+
+        # Perspective Checkbox
+        self.chk_persp = QtWidgets.QCheckBox("Perspective")
+        self.chk_persp.setChecked(False) # Default Parallel
+        self.chk_persp.toggled.connect(self._on_persp_toggled)
+        gl1.addWidget(self.chk_persp, 1, 0, 1, 2)
+
+        # Visibility Button
+        self.btn_vis = QtWidgets.QPushButton("Visibility Ctrl")
+        self.btn_vis.clicked.connect(lambda: self.visibility_tool.show())
+        gl1.addWidget(self.btn_vis, 1, 2, 1, 2)
+
+        layout.addWidget(g1)
+
+        # Group 2: Field & Range
+        g2 = QtWidgets.QGroupBox("Field & Range")
+        gl2 = QtWidgets.QGridLayout(g2)
+
+        gl2.addWidget(QtWidgets.QLabel("Field:"), 0, 0)
         self.cmb_3d = QtWidgets.QComboBox()
         self.cmb_3d.addItems(["Body Color", "Face Color"] + self.field_keys)
-        self.cmb_3d.currentTextChanged.connect(lambda: self.update_frame(self.current_frame))
-        grid.addWidget(self.cmb_3d, 1, 1)
-        
-        # Legend Mode (Dynamic vs Static)
-        grid.addWidget(QtWidgets.QLabel("Legend:"), 1, 2)
+        self.cmb_3d.currentTextChanged.connect(self._on_field_changed)
+        gl2.addWidget(self.cmb_3d, 0, 1)
+
+        gl2.addWidget(QtWidgets.QLabel("Range:"), 0, 2)
         self.cmb_leg = QtWidgets.QComboBox()
         self.cmb_leg.addItems(["Dynamic", "Static"])
         self.cmb_leg.currentTextChanged.connect(self._on_legend_mode_changed)
-        grid.addWidget(self.cmb_leg, 1, 3)
-        
-        # Legend Range (Static)
-        self.spin_min = QtWidgets.QDoubleSpinBox()
-        self.spin_max = QtWidgets.QDoubleSpinBox()
-        for s in [self.spin_min, self.spin_max]:
-            s.setRange(-1e6, 1e6)
-            s.setDecimals(4)
-            s.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-            
-        grid.addWidget(QtWidgets.QLabel("Min:"), 2, 0)
-        grid.addWidget(self.spin_min, 2, 1)
-        grid.addWidget(QtWidgets.QLabel("Max:"), 2, 2)
-        grid.addWidget(self.spin_max, 2, 3)
-        
-        layout.addWidget(ctrl_group)
+        gl2.addWidget(self.cmb_leg, 0, 3)
 
-    def _init_animation_toolbar(self):
-        """[WHTOOLS] 재생 컨트롤 툴바 구성"""
-        toolbar = self.addToolBar("Animation Control")
-        toolbar.setFixedHeight(45)
-        toolbar.setMovable(False)
+        gl2.addWidget(QtWidgets.QLabel("Min:"), 1, 0)
+        self.spin_min = QtWidgets.QDoubleSpinBox()
+        self.spin_min.setRange(-1e9, 1e9)
+        self.spin_min.setDecimals(4)
+        self.spin_min.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+        gl2.addWidget(self.spin_min, 1, 1)
+
+        gl2.addWidget(QtWidgets.QLabel("Max:"), 1, 2)
+        self.spin_max = QtWidgets.QDoubleSpinBox()
+        self.spin_max.setRange(-1e9, 1e9)
+        self.spin_max.setDecimals(4)
+        self.spin_max.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+        gl2.addWidget(self.spin_max, 1, 3)
+
+        layout.addWidget(g2)
+
+        # Group 3: Options
+        g3 = QtWidgets.QGroupBox("Aesthetics")
+        gl3 = QtWidgets.QGridLayout(g3)
+
+        gl3.addWidget(QtWidgets.QLabel("BG:"), 0, 0)
+        self.cmb_bg = QtWidgets.QComboBox()
+        self.cmb_bg.addItems(["White", "Grey Grad.", "Sky Grad."])
+        self.cmb_bg.currentTextChanged.connect(self._on_bg_changed)
+        gl3.addWidget(self.cmb_bg, 0, 1)
+
+        self.chk_min_note = QtWidgets.QCheckBox("Min Note")
+        self.chk_max_note = QtWidgets.QCheckBox("Max Note")
+        self.chk_min_note.toggled.connect(lambda: self.update_frame(self.current_frame))
+        self.chk_max_note.toggled.connect(lambda: self.update_frame(self.current_frame))
+        gl3.addWidget(self.chk_min_note, 1, 0)
+        gl3.addWidget(self.chk_max_note, 1, 1)
+
+        layout.addWidget(g3)
+
+    def _init_2d_controls(self, parent_widget):
+        """[WHTOOLS] 2D Plot 탭 컨트롤 배치"""
+        layout = QtWidgets.QHBoxLayout(parent_widget)
         
-        # 내비게이션 버튼들 (<<, <, >, >>)
+        # 1. 그리드 레이아웃 설정
+        g1 = QtWidgets.QGroupBox("Layout & Data")
+        gl1 = QtWidgets.QGridLayout(g1)
+
+        self.cmb_layout = QtWidgets.QComboBox()
+        self.cmb_layout.addItems(["1x1", "1x2", "2x2", "3x2"])
+        self.cmb_layout.setCurrentText(self.cfg.layout_2d)
+        self.cmb_layout.currentTextChanged.connect(self._init_2d_plots)
+        gl1.addWidget(QtWidgets.QLabel("Layout:"), 0, 0)
+        gl1.addWidget(self.cmb_layout, 0, 1)
+        
+        btn_add = QtWidgets.QPushButton("+ Add Plot")
+        btn_add.clicked.connect(self._show_add_plot_dialog)
+        gl1.addWidget(btn_add, 1, 0, 1, 2)
+
+        layout.addWidget(g1)
+
+        # 2. 제어 옵션
+        g2 = QtWidgets.QGroupBox("Options")
+        gl2 = QtWidgets.QVBoxLayout(g2)
+        self.checks = {}
+        for text, initial_state in [("Sync", True), ("Interp", True)]:
+            check = QtWidgets.QCheckBox(text)
+            check.setChecked(initial_state)
+            check.toggled.connect(lambda: self.update_frame(self.current_frame))
+            gl2.addWidget(check)
+            self.checks[text] = check
+        layout.addWidget(g2)
+
+        # 3. 액션
+        g3 = QtWidgets.QGroupBox("Actions")
+        gl3 = QtWidgets.QVBoxLayout(g3)
+        btn_pop = QtWidgets.QPushButton("Pop-out View")
+        btn_pop.clicked.connect(self._pop_out_2d)
+        gl3.addWidget(btn_pop)
+        layout.addWidget(g3)
+
+    def _init_animation_dock(self):
+        """[WHTOOLS] 도킹 가능한 애니메이션 컨트롤러 초기화"""
+        self.anim_dock = QtWidgets.QDockWidget("Animation Control")
+        self.anim_dock.setAllowedAreas(QtCore.Qt.BottomDockWidgetArea | QtCore.Qt.TopDockWidgetArea)
+        self.anim_dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable)
+        
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(10, 5, 10, 5)
+        
+        # 재생 버튼들
         controls = [("<<", 0), ("<", -1), (">", 1), (">>", 9999)]
         for text, step in controls:
             btn = QtWidgets.QPushButton(text)
             btn.setFixedSize(35, 30)
             btn.clicked.connect(partial(self._ctrl_slot, step))
-            toolbar.addWidget(btn)
+            layout.addWidget(btn)
             
-        toolbar.addSeparator()
-        
-        # 재생/일시정지 버튼
         self.btn_play = QtWidgets.QPushButton("▶")
         self.btn_play.setFixedSize(45, 30)
-        self.btn_play.setStyleSheet("font-weight: bold; color: #1A73E8;")
+        self.btn_play.setStyleSheet("font-weight: bold; color: #1A73E8; font-size: 11pt;")
         self.btn_play.clicked.connect(lambda: self._ctrl_slot(-2))
-        toolbar.addWidget(self.btn_play)
+        layout.addWidget(self.btn_play)
         
-        toolbar.addSeparator()
-        
-        # 프레임 슬라이더
+        # 슬라이더
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider.setRange(0, self.mgr.n_frames - 1)
         self.slider.valueChanged.connect(self.update_frame)
-        self.slider.setMinimumWidth(500)
-        toolbar.addWidget(self.slider)
+        layout.addWidget(self.slider, stretch=1)
         
-        toolbar.addSeparator()
+        # 라벨 및 콤보
+        self.lbl_f = QtWidgets.QLabel(f"Frame: 0 / {self.mgr.n_frames-1}")
+        self.lbl_f.setFixedWidth(150)
+        self.lbl_f.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(self.lbl_f)
         
-        # 프레임 정보 라벨
-        self.lbl_f = QtWidgets.QLabel("Frame: 0")
-        self.lbl_f.setMinimumWidth(120)
-        toolbar.addWidget(self.lbl_f)
-        
-        toolbar.addSeparator()
-        
-        # 재생 간격 (Step) 설정
-        toolbar.addWidget(QtWidgets.QLabel(" Step: "))
+        layout.addWidget(QtWidgets.QLabel(" Step:"))
         self.cmb_step = QtWidgets.QComboBox()
         self.cmb_step.addItems([str(i) for i in range(1, 11)])
         self.cmb_step.setCurrentText(str(self.anim_step))
         self.cmb_step.currentTextChanged.connect(self._on_step_changed)
-        toolbar.addWidget(self.cmb_step)
+        layout.addWidget(self.cmb_step)
         
-        # 재생 속도 (Speed) 설정
-        toolbar.addWidget(QtWidgets.QLabel(" Interval(ms): "))
+        layout.addWidget(QtWidgets.QLabel(" Interval(ms):"))
         self.cmb_speed = QtWidgets.QComboBox()
         self.cmb_speed.addItems(["0", "15", "30", "50", "100", "200"])
-        self.cmb_speed.setCurrentText(str(self.cfg.animation_speed_ms))
+        self.cmb_speed.setCurrentText("0") # Default 0 as requested
         self.cmb_speed.currentTextChanged.connect(self._on_speed_changed)
-        toolbar.addWidget(self.cmb_speed)
+        layout.addWidget(self.cmb_speed)
+        
+        self.anim_dock.setWidget(container)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.anim_dock)
 
     def _init_2d_panel(self, layout: QtWidgets.QVBoxLayout):
         """[WHTOOLS] 2D 그래프 패널 및 레이아웃 제어부 구성"""
@@ -1268,9 +1437,10 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 shadow=False
             )
             
-            # 초기 상태: 마커/라벨 숨김
+            # 초기 상태: 3D Field 탭의 'View & Deformation' 설정에 따름
             marker_actor.SetVisibility(False)
             label_actor.SetVisibility(False)
+            mesh_actor.SetVisibility(True)
             
             self.part_actors[i] = {
                 'mesh': mesh_actor,
@@ -1310,9 +1480,18 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         if self.font_path:
             for prop in [self.scalar_bar.GetLabelTextProperty(), self.scalar_bar.GetTitleTextProperty()]:
                 prop.SetFontFile(self.font_path)
-                prop.SetFontSize(self.v_font_size + 1)
+                prop.SetFontSize(9) # Below/Above 명시적 9pt 설정
                 prop.SetColor(0, 0, 0)
                 prop.BoldOn()
+            
+        # [v5.9] 3D 오버레이 및 가이드 텍스트 (D2Coding, 9pt)
+        self.stat_overlay = self.v_int.add_text(
+            "-", position='upper_right', font_size=9, color='black', font_file=self.font_path
+        )
+        self.stat_guide = self.v_int.add_text(
+            "[Space]: Play/Pause | [R]: Reset View | [W]: Wireframe", 
+            position='upper_left', font_size=9, color='black', font_file=self.font_path
+        )
                 
         # 뷰어 초기화
         self.v_int.view_isometric()
@@ -1328,6 +1507,15 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         for i in reversed(range(self._canvas_layout.count())):
             self._canvas_layout.itemAt(i).widget().setParent(None)
             
+        # [v5.9] Matplotlib Global Font Setting (Consolas 9pt)
+        plt.rcParams['font.family'] = 'Consolas'
+        plt.rcParams['font.size'] = 9
+        plt.rcParams['axes.titlesize'] = 9
+        plt.rcParams['axes.labelsize'] = 9
+        plt.rcParams['xtick.labelsize'] = 8
+        plt.rcParams['ytick.labelsize'] = 8
+        plt.rcParams['legend.fontsize'] = 8
+
         # 캔버스 생성
         self.figure = Figure(figsize=(8, 8))
         self.canvas = FigureCanvas(self.figure)
@@ -1381,15 +1569,15 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 continue
                 
             info = self.part_actors[i]
-            is_visible = info['visible']
-            markers_visible = is_visible and info['visible_markers']
+            # [v5.9] Mesh와 Markers 가시성 제어 완전 분리
+            is_mesh_visible = info['visible']
+            is_marker_visible = info['visible_markers']
             
-            # 가시성 상태 갱신
-            info['mesh'].SetVisibility(is_visible)
-            info['markers'].SetVisibility(markers_visible)
-            info['labels'].SetVisibility(markers_visible)
+            info['mesh'].SetVisibility(is_mesh_visible)
+            info['markers'].SetVisibility(is_marker_visible)
+            info['labels'].SetVisibility(is_marker_visible)
             
-            if not is_visible:
+            if not is_mesh_visible and not is_marker_visible:
                 continue
                 
             # 1. 기하학적 형태 변형 적용
@@ -1610,9 +1798,59 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
     def _on_legend_mode_changed(self, mode: str):
         """컬러 레전드 범위 모드 변경"""
         if mode == "Static":
-            self.spin_min.setValue(0.0)
-            self.spin_max.setValue(0.01)
+            # [v5.9] Static 모드로 변경 시 현재 필드의 global min/max를 찾아 초기값으로 설정
+            field_key = self.cmb_3d.currentText()
+            if field_key not in ["Body Color", "Face Color"]:
+                all_vals = []
+                for ana in self.mgr.analyzers:
+                    if field_key in ana.results:
+                        all_vals.append(ana.results[field_key])
+                if all_vals:
+                    combined = np.concatenate([v.ravel() for v in all_vals])
+                    self.spin_min.setValue(float(combined.min()))
+                    self.spin_max.setValue(float(combined.max()))
         self.update_frame(self.current_frame)
+
+    def _on_field_changed(self, field_key: str):
+        """필드 종류 변경 시 Static 모드라면 해당 필드 범위로 min/max 갱신"""
+        if self.cmb_leg.currentText() == "Static":
+            if field_key not in ["Body Color", "Face Color"]:
+                all_vals = []
+                for ana in self.mgr.analyzers:
+                    if field_key in ana.results:
+                        all_vals.append(ana.results[field_key])
+                if all_vals:
+                    combined = np.concatenate([v.ravel() for v in all_vals])
+                    self.spin_min.setValue(float(combined.min()))
+                    self.spin_max.setValue(float(combined.max()))
+        self.update_frame(self.current_frame)
+
+    def _on_persp_toggled(self, state: bool):
+        """Perspective vs Parallel 투영 전환"""
+        if state:
+            self.v_int.disable_parallel_projection()
+        else:
+            self.v_int.enable_parallel_projection()
+        self.v_int.render()
+
+    def _on_bg_changed(self, mode: str):
+        """배경 색상 및 그라데이션 전환"""
+        if mode == "White":
+            self.v_int.set_background("white")
+        elif mode == "Grey Grad.":
+            # 아래는 white, 상단은 중간 회색
+            self.v_int.set_background("white", top="grey")
+        elif mode == "Sky Grad.":
+            # 아래는 흰색, 상단은 연한 하늘색 (LightSkyBlue)
+            self.v_int.set_background("white", top="lightskyblue")
+        self.v_int.render()
+
+    def keyPressEvent(self, event):
+        """키보드 단축키 지원 (Space: Play/Pause)"""
+        if event.key() == QtCore.Qt.Key_Space:
+            self._ctrl_slot(-2)
+        else:
+            super().keyPressEvent(event)
 
     def _show_part_menu(self, pos=None):
         """[WHTOOLS] 3D 뷰어 커스텀 컨텍스트 메뉴 (우클릭 제어)"""
@@ -1645,6 +1883,18 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         edge_vis = self.part_actors[0]['mesh'].GetProperty().GetEdgeVisibility() if self.part_actors else True
         act_mesh_edge.setChecked(edge_vis)
         
+        act_persp = menu.addAction("Perspective View")
+        act_persp.setCheckable(True)
+        act_persp.setChecked(self.chk_persp.isChecked())
+        
+        menu.addSeparator()
+        
+        # PyVista 기본 단축키 안내 (구분선 아래 배치)
+        menu.addAction("_ PyVista Key: [W] Wireframe Toggle")
+        menu.addAction("_ PyVista Key: [V] Point/Surface Toggle")
+        menu.addAction("_ PyVista Key: [R] Reset Camera")
+        menu.addAction("_ PyVista Key: [P] Pick Mode")
+        
         # 실행
         action = menu.exec_(self.v_int.mapToGlobal(pos))
         
@@ -1656,6 +1906,8 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             for actor_info in self.part_actors.values():
                 actor_info['mesh'].GetProperty().SetEdgeVisibility(vis)
             self.v_int.render()
+        elif action == act_persp:
+            self.chk_persp.setChecked(action.isChecked())
 
     def _create_combo(self, label: str, items: list, layout: QtWidgets.QLayout) -> QtWidgets.QComboBox:
         """콤보박스 생성 및 레이아웃 배치 유틸리티"""

@@ -27,13 +27,13 @@ if curr_dir not in sys.path: sys.path.append(curr_dir)
 from run_drop_simulator import DropSimulator
 from run_discrete_builder import get_default_config
 from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
-from run_drop_simulator.plate_by_markers_v2 import (
+from run_drop_simulator.whts_multipostprocessor_engine import (
     ShellDeformationAnalyzer, 
     PlateAssemblyManager, 
-    QtVisualizerV2,
     PlateConfig,
     scale_result_to_mm
 )
+from run_drop_simulator.whts_multipostprocessor_ui import QtVisualizerV2
 from PySide6 import QtWidgets
 
 def run_analysis_and_dashboard_by_measure(result_file_path: str):
@@ -135,7 +135,8 @@ def run_analysis_and_dashboard(result: Any):
             
             # 마커 이름 순서에 맞춰 데이터 정렬
             m_names = sorted(list(markers.keys()))
-            m_data = np.stack([markers[name] for name in m_names], axis=0) # [n_markers, n_frames, 3]
+            # [WHTOOLS] [n_markers, n_frames, 3] -> [n_frames, n_markers, 3] 로 전치
+            m_data = np.stack([markers[name] for name in m_names], axis=0).transpose(1, 0, 2)
             o_data = np.stack([assembly_offsets[part_name][face_name][name] for name in m_names], axis=0) # [n_markers, 2]
             
             # [WHTOOLS] 자율적 치수 검출 (Auto-Bounding)
