@@ -85,7 +85,8 @@ class PlateConfig:
     youngs_modulus: float = 2.1e5      # 영률 (Young's Modulus) [MPa]
     poisson_ratio: float = 0.3         # 포아송 비 (Poisson's Ratio)
     poly_degree: int = 4               # 다항식 근사 차수 (Polynomial Degree)
-    reg_lambda: float = 1e-4           # Tikhonov 정규화 계수
+    reg_lambda: float = 1e-4           # Tikhonov 정규화 계수 (굽힘 에너지)
+    grad_lambda: float = 1e-6          # 기울기(Gradient) 정규화 계수 (가장자리 떨림 억제용)
     mesh_resolution: int = 25          # 시각화 격자 해상도
     batch_size: int = 256              # JAX 배치 처리 크기
     theory_type: str = "KIRCHHOFF"     # 'KIRCHHOFF', 'MINDLIN', 'VON_KARMAN'
@@ -211,12 +212,31 @@ class AdvancedPlateOptimizer:
             
         return vmap(compute_single_hessian)(x_coords, y_coords)
 
+    def get_gradient_basis(self, x_coords: jnp.ndarray, y_coords: jnp.ndarray) -> jnp.ndarray:
+        """
+        [WHTOOLS] 기울기 계산을 위한 1계 도함수(Gradient) 기저 행렬 생성
+        반환값: [N, Degree, 2] (w,x, w,y)
+        """
+        def compute_single_gradient(xi, yi):
+            grad_elements = []
+            for i, j in self.basis_indices:
+                w_x = i * xi**(jnp.maximum(0, i-1)) * yi**j if i >= 1 else 0.0
+                w_y = j * xi**i * yi**(jnp.maximum(0, j-1)) if j >= 1 else 0.0
+                grad_elements.append(jnp.array([w_x, w_y]))
+            return jnp.stack(grad_elements, axis=0)
+            
+        return vmap(compute_single_gradient)(x_coords, y_coords)
+
     @partial(jit, static_argnums=(0,))
-    def solve_analytical(self, q_local: jnp.ndarray, p_ref: jnp.ndarray, reg_lambda: float):
+    def solve_analytical(self, q_local: jnp.ndarray, p_ref: jnp.ndarray, 
+                         reg_lambda: float, grad_lambda: float = 0.0,
+                         fixed_stats: Optional[jnp.ndarray] = None):
         """
         [WHTOOLS] 해석적 기법을 이용한 전 시계열 다항식 계수 배치 산출
         L2 정규화(Tikhonov)와 굽힘 에너지 최소화(Bending Energy Penalty)를 병행합니다.
         [Stability] 데이터 범위 정규화를 통해 수치적 안정성을 확보합니다.
+        grad_lambda: 1차 미분(기울기) 패널티를 통해 가장자리 떨림을 억제합니다.
+        fixed_stats: [x_ctr, x_rng, y_ctr, y_rng] 형태로 전달 시 정규화 박스를 고정합니다.
         """
         # 측정 축(Z) 준비
         Z_history = q_local[:, :, 2]
@@ -225,13 +245,15 @@ class AdvancedPlateOptimizer:
         # Z-score(std) 방식은 좁은 면에서 분산이 극도로 작아질 때 수치적 발산을 초래할 수 있어 이를 보완합니다.
         x_raw, y_raw = p_ref[:, 0], p_ref[:, 1]
         
-        x_min, x_max = jnp.min(x_raw), jnp.max(x_raw)
-        y_min, y_max = jnp.min(y_raw), jnp.max(y_raw)
-        
-        x_ctr = (x_max + x_min) / 2.0
-        y_ctr = (y_max + y_min) / 2.0
-        x_rng = (x_max - x_min) / 2.0 + 1e-9 # Zero-division 방지
-        y_rng = (y_max - y_min) / 2.0 + 1e-9
+        if fixed_stats is not None:
+            x_ctr, x_rng, y_ctr, y_rng = fixed_stats
+        else:
+            x_min, x_max = jnp.min(x_raw), jnp.max(x_raw)
+            y_min, y_max = jnp.min(y_raw), jnp.max(y_raw)
+            x_ctr = (x_max + x_min) / 2.0
+            y_ctr = (y_max + y_min) / 2.0
+            x_rng = (x_max - x_min) / 2.0 + 1e-9 # Zero-division 방지
+            y_rng = (y_max - y_min) / 2.0 + 1e-9
         
         x_norm = (x_raw - x_ctr) / x_rng
         y_norm = (y_raw - y_ctr) / y_rng
@@ -239,24 +261,28 @@ class AdvancedPlateOptimizer:
         # 정규화된 좌표로 기저 행렬 준비
         Phi = self.get_basis_matrix(x_norm, y_norm)
         
-        # 2계 도함수 기반의 굽힘 패널티 행렬(Hessian) 구성
-        H_basis = self.get_hessian_basis(x_norm, y_norm)
-        Bxx, Byy, Bxy = H_basis[:, :, 0], H_basis[:, :, 1], H_basis[:, :, 2]
+        # 1계 도함수(기울기) 및 2계 도함수(Hessian) 기저 행렬 구성
+        G_basis = self.get_gradient_basis(x_norm, y_norm) # [N, Deg, 2]
+        H_basis = self.get_hessian_basis(x_norm, y_norm) # [N, Deg, 3]
         
-        # [WHTOOLS] Physical Curvature Scaling (물리적 곡률 스케일링)
-        # 정규화된 좌표([-1, 1])에서의 미분값은 물리적 실제 곡률과 x_rng**2 배 차이가 납니다.
-        # 이를 상쇄해야 좁은 면에서도 등방성(Isotropic) 굽힘 에너지가 유지됩니다.
+        # [WHTOOLS] Physical Scaling
+        # 단위 좌표계([-1, 1]) 미분값을 물리적 실제 스케일로 환원
         num_pts = Phi.shape[0]
-        Bxx_phys = Bxx / (jnp.maximum(1.0, x_rng)**2)
-        Byy_phys = Byy / (jnp.maximum(1.0, y_rng)**2)
-        Bxy_phys = Bxy / (jnp.maximum(1.0, x_rng) * jnp.maximum(1.0, y_rng))
         
-        # 물리적 곡률 기반 페널티 행렬 (Tikhonov Regularization)
-        K_penalty = (Bxx_phys.T @ Bxx_phys + Byy_phys.T @ Byy_phys + 2.0 * Bxy_phys.T @ Bxy_phys) / num_pts
+        # Gradient Penalty (1차 미분)
+        Gx_phys = G_basis[:, :, 0] / jnp.maximum(1.0, x_rng)
+        Gy_phys = G_basis[:, :, 1] / jnp.maximum(1.0, y_rng)
+        K_grad = (Gx_phys.T @ Gx_phys + Gy_phys.T @ Gy_phys) / num_pts
         
-        # 최종 시스템 행렬 M: 최소자승법 + 정규화
-        System_Matrix = (Phi.T @ Phi) / num_pts + reg_lambda * K_penalty
-        System_Matrix += jnp.eye(self.num_basis) * 1e-10  # 수치 안정성을 위한 작은 값
+        # Curvature Penalty (2계 미분)
+        Bxx_phys = H_basis[:, :, 0] / (jnp.maximum(1.0, x_rng)**2)
+        Byy_phys = H_basis[:, :, 1] / (jnp.maximum(1.0, y_rng)**2)
+        Bxy_phys = H_basis[:, :, 2] / (jnp.maximum(1.0, x_rng) * jnp.maximum(1.0, y_rng))
+        K_bending = (Bxx_phys.T @ Bxx_phys + Byy_phys.T @ Byy_phys + 2.0 * Bxy_phys.T @ Bxy_phys) / num_pts
+        
+        # 최종 시스템 행렬 M: 최소자승법 + 굽힘 패널티 + 기울기 패널티
+        System_Matrix = (Phi.T @ Phi) / num_pts + reg_lambda * K_bending + grad_lambda * K_grad
+        System_Matrix += jnp.eye(self.num_basis) * 1e-10  # 수치 안정성
         
         @vmap
         def solve_frame(z_frame):
@@ -426,6 +452,7 @@ class ShellDeformationAnalyzer:
         self.ref_markers = None    # [N, 3] 기준 마커
         self.ref_basis = None      # [u, v, w] 로컬 기저
         self.ref_center = None     # 초기 중심점
+        self.weights = None        # [N] 마커별 가중치 (중앙부 집중)
         
         self.sol = PlateMechanicsSolver(self.cfg)
         self.results = {}
@@ -483,6 +510,13 @@ class ShellDeformationAnalyzer:
         if self.W == 0: self.W = float(np.max(self.o_data[:, 0]) - np.min(self.o_data[:, 0]))
         if self.H == 0: self.H = float(np.max(self.o_data[:, 1]) - np.min(self.o_data[:, 1]))
         
+        # [WHTOOLS] 가중치 맵 생성 (중앙부 마커에 가중치 부여)
+        # 굽힘 시 가장자리 변위가 강체 회전에 간섭하는 것을 방지합니다.
+        dist_sq = np.sum(np.square(self.o_data), axis=1)
+        sigma = min(self.W, self.H) * 0.4 # 가중치 폭 설정
+        self.weights = np.exp(-dist_sq / (2 * sigma**2 + 1e-9))
+        self.weights /= np.sum(self.weights) # 정규화
+        
         # 해석용 메쉬 그리드 설정 (Adaptive Margin)
         r = self.cfg.margin_ratio
         margin_x = np.clip(self.W * r, 3.0, 10.0)
@@ -493,42 +527,62 @@ class ShellDeformationAnalyzer:
         self.sol.setup_mesh((min_x, max_x), (min_y, max_y))
         return self.o_data
 
-    def remove_rigid_motion(self, m_data_frame: np.ndarray):
+    def remove_rigid_motion(self, m_data_frame: np.ndarray, prev_normal: np.ndarray = None):
         """
-        [WHTOOLS] Orthogonal Procrustes 기반 강체 운동 제거 (Forward Mapping 버전)
-        현재 프레임의 마커 셋을 기준 셋(Reference)과 최적으로 중첩시켜 순수 변형량을 추출합니다.
-        [Concept] Q_curr = (P_ref @ R + cq) 관계에서 R과 cq를 추출합니다.
+        [WHTOOLS] 가중치 기반 Orthogonal Procrustes 강체 운동 제거
+        중앙부 점들에 높은 가중치를 주어 굽힘 변형 시 기준면의 요동을 억제합니다.
         """
         if self.ref_markers is None:
             return (None, None, None, None, None, None)
             
-        curr_center = np.mean(m_data_frame, axis=0)
+        # 1. 가중 평균(Weighted Centroid) 계산
+        W = self.weights[:, np.newaxis] # [N, 1]
+        curr_center = np.sum(m_data_frame * W, axis=0)
+        ref_center_w = np.sum(self.ref_markers * W, axis=0) # 보통 self.ref_center와 유사함
         
-        # 1. P_c(Reference) -> Q_c(Current) 정방향 회전 산출
-        P_c = self.ref_markers - self.ref_center
+        # 2. 중심화 (Centering)
+        P_c = self.ref_markers - ref_center_w
         Q_c = m_data_frame - curr_center
         
-        # 2. 공분산 행렬 H = P^T @ Q (Forward: P -> Q)
-        H = P_c.T @ Q_c
+        # 3. 가중 공분산 행렬 H = P^T @ W @ Q
+        # 여기서는 이미 Q_c, P_c 계산 시 가중치가 반영되었으므로 분산 행렬 구성 시 곱해줌
+        H = (P_c * W).T @ Q_c
         U, S, Vt = np.linalg.svd(H)
         
-        # 3. 회전 행렬 R = U @ Vt (P -> Q 매핑)
+        # 4. 회전 행렬 R 산출 (P -> Q 매핑)
         R = U @ Vt
         if np.linalg.det(R) < 0:
             R = U @ np.diag([1.0, 1.0, -1.0]) @ Vt
             
-        # 4. 강체 운동 제거: 현재 마커 Q를 기준 좌표계 P로 정렬
+        # [WHTOOLS] Axis Flip Tracking (수직축 반전 방지)
+        # 이전 프레임의 노멀 벡터와 현재 노멀의 방향을 일치시킵니다.
+        if prev_normal is not None:
+            curr_normal = R[:, 2] # P(로컬)의 Z축이 World에서 가리키는 방향
+            if np.dot(curr_normal, prev_normal) < 0:
+                # 180도 뒤집힌 경우 보정 (Z축 및 회전 행렬 반전)
+                # 주의: 단순히 부호만 바꾸면 Right-handed system이 깨질 수 있으므로 신중히 처리
+                # 여기서는 SVD 특성상 Z축 방향 결정의 모호성을 해결하기 위함
+                R[:, 2] *= -1.0
+                # Det를 다시 체크하여 Orthogonality 유지
+                if np.linalg.det(R) < 0:
+                     # 이 경우는 X, Y축 중 하나와 Z을 같이 뒤집어야 하지만, 
+                     # 보통 Z축 플리핑은 SVD의 마지막 열 부호 모호성에서 기인함
+                     pass 
+
+        # 5. 강체 운동 제거: 현재 마커 Q를 기준 좌표계 P로 정렬
         # Q = P @ R 이 성립하므로 P = Q @ R.T 가 됨
         m_rigid_aligned = Q_c @ R.T
         
-        # 5. 성능 지표 산출 (Rigid Registration RMSE)
+        # 6. 성능 지표 및 변위 산출 (가중 RMSE)
         diff_vector = m_rigid_aligned - P_c
-        r_rmse = np.sqrt(np.mean(np.square(diff_vector[:, :2])))
+        r_rmse = np.sqrt(np.sum(np.square(diff_vector[:, :2]) * self.weights[:, np.newaxis]))
         
-        # 6. 로컬 면외 변위(Normal) 산출 (Reference Normal Basis 활용)
+        # 7. 로컬 면외 변위(Normal) 산출 (Reference Normal Basis 활용)
+        # diff_vector는 기준 마커 좌표계(World at t=0)에서의 변위이므로, 
+        # 초기 노멀 벡터(self.ref_basis[2]) 방향으로 투영해야 정확한 Z 변위가 나옵니다.
         normal_displacement = diff_vector @ self.ref_basis[2]
         
-        return (R, curr_center, self.ref_center, m_rigid_aligned, normal_displacement, r_rmse)
+        return (R, curr_center, ref_center_w, m_rigid_aligned, normal_displacement, r_rmse)
 
     def analyze(self, m_data_hist: np.ndarray, o_data_hint: np.ndarray = None) -> bool:
         """
@@ -558,12 +612,15 @@ class ShellDeformationAnalyzer:
             
         # 강체 운동 제거 및 로컬 변위 추출
         all_w, all_R, all_cq, all_rmses = [], [], [], []
+        prev_normal = None
+        
         for i in range(n_frames):
-            R, cq, cp, m_aligned, w_disp, r_rmse = self.remove_rigid_motion(m_data_hist[i])
+            R, cq, cp, m_aligned, w_disp, r_rmse = self.remove_rigid_motion(m_data_hist[i], prev_normal=prev_normal)
             all_w.append(w_disp)
             all_R.append(R)
             all_cq.append(cq)
             all_rmses.append(r_rmse)
+            prev_normal = R[:, 2] # 현재 노멀을 다음 프레임의 추적용으로 저장
             
         all_displacement_w = np.stack(all_w) 
         
@@ -586,7 +643,7 @@ class ShellDeformationAnalyzer:
 
         self.sol.optimizer = AdvancedPlateOptimizer(degree_x=deg_x, degree_y=deg_y)
         
-        # JAX 솔버 구동
+        # JAX 솔버 구동 (Normalization 박스 고정)
         all_displacement_w_rel = all_displacement_w - all_displacement_w[0]
         q_loc_jax = jnp.zeros((n_frames, n_markers, 3))
         q_loc_jax = q_loc_jax.at[:, :, 0].set(self.o_data[:, 0])
@@ -594,7 +651,15 @@ class ShellDeformationAnalyzer:
         q_loc_jax = q_loc_jax.at[:, :, 2].set(jnp.array(all_displacement_w_rel))
 
         p_ref_jax = jnp.column_stack([self.o_data, jnp.zeros(n_markers)])
-        params, rmses, norm_stats = self.sol.optimizer.solve_analytical(q_loc_jax, p_ref_jax, self.cfg.reg_lambda)
+        
+        # [WHTOOLS] 첫 프레임 정규화 파라미터를 추출하여 박스 고정
+        _, _, init_stats = self.sol.optimizer.solve_analytical(q_loc_jax[:1], p_ref_jax, self.cfg.reg_lambda)
+        
+        # 추출된 고정 파라미터와 기울기 패널티를 사용하여 전체 배치 해석
+        params, rmses, norm_stats = self.sol.optimizer.solve_analytical(
+            q_loc_jax, p_ref_jax, self.cfg.reg_lambda, 
+            grad_lambda=self.cfg.grad_lambda, fixed_stats=init_stats
+        )
         batch_results = self.sol.evaluate_batch(params, norm_stats)
 
         # 결과 패키징

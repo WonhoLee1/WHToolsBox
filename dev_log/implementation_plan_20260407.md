@@ -1,45 +1,52 @@
-# [WHTOOLS] Integrated Shell Deformation Analysis Engine v2.5 안정화 계획
+# [WHTOOLS] 평판 변형 해석 알고리즘 개선 계획
 
-`plate_by_markers.py`의 성공적인 구현 사례를 바탕으로, 현재 `plate_by_markers_v2.py`에서 발생하는 좌표계 불일치 및 분석 루틴의 런타임 오류를 해결합니다.
+리뷰 문서(`review_deformation_algorithm_20260407.md`)에서 제기된 알고리즘의 허점(Centroid Shift, Rotation Drift, Axis Flipping)을 해결하고, JAX 기반 최적화 엔진의 수치 안정성을 높이기 위한 기술적 세부 계획입니다.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Kabsch 알고리즘의 회전 행렬 방향성**
-> 현재 `v2`는 $Q \to P$ 회전을 산출하면서 $P \to Q$로 주석 처리가 되어 있습니다. 3D 뷰어의 `update_frame` 로직과 일치시키기 위해 이를 $P \to Q$ (Forward Mapping) 방향으로 통일합니다.
-
-> [!WARNING]
-> **analyze() 루틴의 대대적 정리**
-> 현재 `v2`의 `analyze()` 메서드에는 정의되지 않은 변수(`p_ref_jax`, `all_rot_matrices` 등)와 중복된 차수 결정 로직이 포함되어 있습니다. 이를 `plate_by_markers.py` 수준의 정갈한 코드로 리팩토링합니다.
+> 1. **가중치(Weights) 산정 방식**: 중앙부 마커에 가중치를 주는 방식은 가우시안(Gaussian) 분포를 기본으로 합니다. 판의 형상에 따라 가중치 폭(Sigma)을 조정할 필요가 있을 수 있습니다.
+> 2. **기울기 패널티(Gradient Penalty)**: 가장자리 진동을 억제하기 위해 1차 미분 항을 추가합니다. 초기값은 `1e-6`으로 설정하며, 필요시 `PlateConfig`에서 조정 가능하게 합니다.
 
 ## Proposed Changes
 
-### [Component] Shell Deformation Engine
+### 1. 물리 해석 설정 (`PlateConfig`) 및 최적화 엔진 (`AdvancedPlateOptimizer`)
 
 #### [MODIFY] [plate_by_markers_v2.py](file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/run_drop_simulator/plate_by_markers_v2.py)
 
-- **remove_rigid_motion()**: 
-  - Kabsch 알고리즘 결과인 `Rotation_Matrix`를 $P \to Q$ (Reference to Current) 방향으로 수정.
-  - SVD 결과 $M = P^T Q = U S V^T$ 일 때, $R = U V^T$ (또는 반사 보정 포함)를 적용하여 $Q = P R$ 관계를 성립시킴.
-- **analyze()**:
-  - `all_w`, `all_R`, `all_cq`, `all_rmses` 등 루프 내부 변수와 결과 패키징 변수명 일치화.
-  - `p_ref_jax` 등 누락된 JAX 텐서 정의 추가.
-  - 중복된 '차수 적응 장치' 섹션 통합 및 논리 간소화.
-- **QtVisualizerV2.update_frame()**:
-  - `Global` 모드에서의 좌표 복원 식을 `p_world = (p_local @ basis + c_ref - c_P_kabsch) @ R + c_Q_kabsch` 형태로 정밀 검정.
-  - (`v2`에서는 `c_ref`가 곧 `c_P_kabsch`이므로 `p_local @ basis @ R + c_Q` 형태가 될 것으로 예상)
+- `PlateConfig`: `grad_lambda` (기울기 패널티 계수) 필드 추가.
+- `AdvancedPlateOptimizer`: 
+    - `get_gradient_basis`: 1차 미분 기저 생성 함수 추가 (기존 `PlateMechanicsSolver` 내부에 있던 것을 이동 및 최적화).
+    - `solve_analytical`: 
+        - `fixed_stats` 파라미터 추가하여 정규화 박스 고정 기능 구현.
+        - `grad_lambda`를 이용한 1차 미분 패널티를 `System_Matrix`에 추가.
+
+---
+
+### 2. 강체 운동 제거 및 해석 프로세스 (`ShellDeformationAnalyzer`)
+
+#### [MODIFY] [plate_by_markers_v2.py](file:///c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/run_drop_simulator/plate_by_markers_v2.py)
+
+- `fit_reference_plane`: 마커별 중앙으로부터의 거리를 계산하여 **가중치(Weights)** 맵을 사전 생성.
+- `remove_rigid_motion`: 
+    - 산술 평균 대신 **가중 평균(Weighted Mean)**으로 중심점 계산.
+    - SVD 계산 시 가중치를 적용한 공분산 행렬 $\mathbf{H} = \mathbf{P}^T \mathbf{W} \mathbf{Q}$ 사용.
+- `analyze`:
+    - **Axis Flip Tracking**: 루프를 돌며 이전 프레임의 노멀 벡터($n_{t-1}$)와 현재 노멀($n_t$)의 내적을 체크하여 부호 반전 보정.
+    - **Normalization Freeze**: 전 시계열 데이터에 대해 동일한 정규화 파라미터가 적용되도록 보장.
+
+---
 
 ## Open Questions
 
-- `plate_by_markers.py`의 `centroid_0` (바운딩 박스 중심) 방식을 `v2`에도 도입하시겠습니까? 아니면 현재의 `ref_center` (산술 평균 중심) 방식을 유지하시겠습니까? 
-  - *제안*: 수치적 안정성을 위해 `plate_by_markers.py`의 `centroid_0` 방식을 따르는 것이 좋습니다.
+- **가중치 분포**: 단순히 거리의 역수를 쓸지, 아니면 중심 영역(예: 전체 50% 영역)에 1.0, 나머지에 0.1 등의 계단식 가중치를 쓸지 결정이 필요합니다. (현재는 가우시안 분포 제안)
 
 ## Verification Plan
 
 ### Automated Tests
-- `run_drop_simulation_cases_v5.py` 실행을 통한 엔드-투-엔드 검증.
-- 개별 파트 분석 결과의 F-RMSE 및 R-RMSE 값이 $10^{-6}$ 수준 이하인지 확인.
+- `test_qt.py` 등을 실행하여 시간에 따른 평판 애니메이션이 덜컹거림(Vibration) 없이 부드럽게 재생되는지 확인.
+- JAX `rmses` 값이 이전보다 안정화되는지 로그 확인.
 
 ### Manual Verification
-- 대시보드 재생 시 `Global` 뷰에서 파트 간의 정렬 상태가 시뮬레이션 원본과 일치하는지 육안 확인.
-- `Local` 뷰에서 마커의 면내 유동(In-plane drift)이 완전히 제거되었는지 확인.
+- 대변형(Bending) 발생 시 기준 평면이 기울어지는지(Tilting), 혹은 축이 뒤집히는지 시각적으로 검토.
+- 가장자리 스플라인 진동(Runge's phenomenon) 억제 여부 확인.
