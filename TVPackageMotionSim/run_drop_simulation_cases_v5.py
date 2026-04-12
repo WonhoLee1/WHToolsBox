@@ -248,37 +248,42 @@ def test_case_1_setup(enable_UI: bool = False):
     cfg["use_postprocess_ui"] = True # 엔진 내부의 구버전 UI 실행 여부
     cfg["use_viewer"] = True      # MuJoCo Viewer(GUI) 실행 여부
 
-    # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 이산화(Meshing) 및 구속 설정
-    cfg["chassis_div"]      = [5, 5, 1]    # Chassis(섀시) 부품의 X, Y, Z축 분할 수
-    cfg["chassis_use_weld"] = True         # Chassis 내부 블록 간의 Weld 구속 사용 여부
-    cfg["opencell_div"]     = [5, 5, 1]    # Open Cell(패널) 부품의 분할 수
-    cfg["opencell_use_weld"] = True        # 패널 내부 이산화 블록 간 Weld 구속 활성화
-    cfg["opencellcoh_div"]  = [5, 5, 1]    # Open Cell Cover(커버) 부품의 분할 수
-    cfg["opencellcoh_use_weld"] = True     # 커버 내부 이산화 블록 간 Weld 구속 활성화
-    cfg["cush_div"]         = [5, 5, 3]    # Cushion(EPS/EPP 쿠션) 부품의 분할 수
-    cfg["cush_use_weld"]    = True         # 쿠션 내부 블록 간 Weld 구속 활성화
-    cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
-    cfg["box_div"]          = [5, 5, 1]    # Box(외부 박스) 부품의 분할 수
-    cfg["box_use_weld"]     = True         # 박스 내부 블록 간 Weld 구속 활성화
-    
-    # [4. PHYSICS PARAMETERS] : Solver 및 접촉 물성 설정
-    cfg["cush_weld_solref_timec"]   = 0.008
-    cfg["cush_weld_solref_damprr"]  = 0.8
-    cfg["opencell_weld_solref_timec"] = 0.005
-    cfg["opencell_weld_solref_damprr"] = 0.5
-    cfg["chassis_weld_solref_timec"]  = 0.002
-    cfg["chassis_weld_solref_damprr"] = 0.5
+    # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
 
-    cfg["cush_contact_solref"]    = "0.01 0.8"
-    cfg["cush_contact_solimp"]    = "0.1 0.95 0.005 0.5 2"
-    cfg["cush_corner_solref"]     = "0.01 0.8"
-    cfg["cush_corner_solimp"]     = "0.1 0.95 0.005 0.5 2"
+    # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
+    cfg["components"] = {
+        "paper":      {"div": [5, 5, 1], "use_weld": True,  "mass": 4.0},
+        "cushion":    {"div": [5, 5, 3], "use_weld": True,  "mass": 2.0},
+        "opencell":   {"div": [5, 5, 1], "use_weld": False,  "mass": 5.0},
+        "opencellcoh": {"div": [5, 5, 1], "use_weld": False,  "mass": 0.1},
+        "chassis":    {"div": [5, 5, 1], "use_weld": False,  "mass": 10.0},
+    }
+    cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
+    
+    # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
+    cfg["contacts"] = {
+        ("ground", "paper"):   {"friction": [0.3, 0.3], "solref": [0.01, 1.0], "solimp": [0.9, 0.95, 0.001, 0.5, 2]},
+        ("ground", "cushion"): {"friction": [0.3, 0.3], "solref": [0.1, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("ground", "cushion_edge"): {"friction": [0.3, 0.3], "solref": [0.1, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("paper", "cushion"): {"friction": [0.3, 0.3], "solref": [0.0, 1.0], "solimp": [0.9, 0.95, 0.001, 0.5, 2]},
+        ("cushion", "opencell"):  {"friction": [0.3, 0.3],  "solref": [0.01, 1.0], "solimp": [0.8, 0.9, 0.001, 0.5, 2]},
+        ("cushion", "chassis"):   {"friction": [0.3, 0.3],  "solref": [0.01, 1.0], "solimp": [0.95, 0.99, 0.001, 0.5, 2]},
+    }
+
+    # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
+    cfg["welds"] = {
+        "paper":   {"solref": [0.01, 1.0], "solimp": [0.9, 0.95, 0.001, 0.5, 2]},
+        "cushion": {"solref": [0.02, 0.9], "solimp": [0.1, 0.95, 0.1, 0.5, 2]},
+        "cushion_corner": {"solref": [0.02, 0.9], "solimp": [0.1, 0.95, 0.1, 0.5, 2]},
+        "opencell": {"solref": [0.005, 0.5], "solimp": [0.8, 0.9, 0.001, 0.5, 2]},
+        "chassis":  {"solref": [0.002, 0.5], "solimp": [0.95, 0.99, 0.001, 0.5, 2]},
+    }
     
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
     cfg["plasticity_ratio"]     = 0.5
-    cfg["cush_yield_pressure"]  = 1000.0
-    cfg["plastic_hardening_modulus"] = 2000.0
+    cfg["cush_yield_pressure"]  = 500.0
+    cfg["plastic_hardening_modulus"] = 1000.0
     
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     cfg["mass_paper"]   = 4.0
@@ -291,10 +296,7 @@ def test_case_1_setup(enable_UI: bool = False):
     ]
         
     # [7. GROUND PROPERTIES]
-    cfg["ground_solref_timec"] = 0.002
-    cfg["ground_solref_damprr"] = 0.001
-    cfg["ground_friction"]     = 0.3
-    cfg["ground_solimp"] = "0.1 0.95 0.001"
+    # (Unused legacy keys removed)
 
     # [8. SOLVER & REPORTING OPTIONS]
     cfg["sim_integrator"] = "implicitfast"
@@ -312,12 +314,123 @@ def test_case_1_setup(enable_UI: bool = False):
     cfg["enable_air_squeeze"] = False
 
     # [10. AUTO BALANCING]
-    cfg["enable_target_balancing"] = True
-    cfg["target_mass"] = 25.0
-    cfg["num_balancing_masses"] = 8
+    cfg["components_balance"] = {
+        "target_mass": 25.0,
+        "target_inertia": [2.0, 6.0, 14.0],
+        "count": 4
+    }
 
     # [V5 ADDITIONAL UPDATES]
     cfg["use_jax_reporting"] = True # JAX 엔진 활성화
+
+    # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 확인
+    from run_discrete_builder.whtb_physics import analyze_and_balance_components
+    cfg = analyze_and_balance_components(cfg, verbose=True)
+
+    # 4. 시뮬레이션 실행
+    sim = DropSimulator(config=cfg)
+    sim.simulate(enable_UI=enable_UI)
+    return sim
+
+def test_case_2_setup(enable_UI: bool = False):
+    """
+    [V5.2.8.4] v4의 test_run_case_1 설정을 100% 계승하고 v5용 옵션을 추가함
+    [Case 1] 표준 낙하 테스트 (Golden Case)
+    가장 안정적인 물리 계수와 형상 정보를 포함하는 기준 케이스입니다.
+
+    심플모드로 openchell, chassis 변형 미고려하고, cushion은 이산화 최소화 한다.
+    """
+    print("\n" + "="*85)
+    print("🚀 Running Case 1: Standard Corner 2-3-5 (0.5m)")
+    print("="*85)
+    
+    cfg = get_default_config()
+
+    # [1. GEOMETRY OPTIONS] : 외관 및 어셈블리 형상 정의
+    cfg["box_w"] = 1.841          # 박스 외곽 가로 치수 [m]
+    cfg["box_h"] = 1.103          # 박스 외곽 세로 치수 [m]
+    cfg["box_d"] = 0.170          # 박스 외곽 깊이 치수 [m]
+    cfg["box_thick"] = 0.008      # 박스 골판지(더블 월 등) 두께 [m]
+    cfg["assy_w"] = 1.570         # 제품(TV) 어셈블리 가로 [m]
+    cfg["assy_h"] = 0.860         # 제품(TV) 어셈블리 세로 [m]
+    cfg["cush_gap"] = 0.005       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
+    
+    # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
+    cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
+    cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
+    cfg["drop_height"] = 0.5      # 자유 낙하 높이 [m]
+    cfg["use_postprocess_ui"] = False # 엔진 내부의 구버전 UI 실행 여부
+    cfg["use_viewer"] = True      # MuJoCo Viewer(GUI) 실행 여부
+
+    # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
+    cfg["components"] = {
+        "paper"         : {"div": [5, 5, 1], "use_weld": True,  "mass": 4.0},
+        "cushion"       : {"div": [3, 3, 3], "use_weld": True,  "mass": 2.0},
+        "opencell"      : {"div": [3, 3, 1], "use_weld": False, "mass": 5.0},
+        "opencellcoh"   : {"div": [1, 1, 1], "use_weld": False, "mass": 0.1},
+        "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0},
+    }
+    cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
+
+    # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
+    cfg["contacts"] = {
+        ("ground", "cushion")       : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+        ("ground", "cushion_edge")  : {"friction": [0.3, 0.3], "solref": [1.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+        ("ground", "paper")         : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+        ("cushion", "opencell")     : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+        ("cushion", "chassis")      : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},        
+        ("cushion", "paper")        : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+    }
+
+    # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
+    cfg["welds"] = {
+        "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
+        "cushion"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
+        "cushion_corner" : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
+        "opencell"       : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
+        "chassis"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.99, 0.005, 0.5, 2]},
+    }
+    
+    # [5. PLASTICITY & HARDENING]
+    cfg["enable_plasticity"]    = True
+    cfg["plasticity_ratio"]     = 0.4
+    cfg["cush_yield_pressure"]  = 1000.0
+    cfg["plastic_hardening_modulus"] = 2000.0
+    
+    # [6. MASS TOTALS] : (전체 합계: 25.0kg)
+    # [6. MASS TOTALS & AUTO BALANCING]
+    cfg["components_balance"] = {
+        "target_mass": 45.0,
+        #"target_inertia": [2.0, 6.0, 14.0],
+        #"target_cog": [0.1, 0, 0],  # 10cm 편심 배치 시도
+        "count": 1
+    }
+    # analyze_and_balance_components가 실행되면, 위 설정을 바탕으로 aux 질량이 생성되어 component_aux에 추가됩니다.
+
+    # [7. GROUND PROPERTIES]
+    # (Unused legacy keys removed)
+
+    # [8. SOLVER & REPORTING OPTIONS]
+    cfg["sim_integrator"] = "implicitfast"
+    cfg["sim_timestep"]   = 0.0012
+    cfg["sim_iterations"] = 50
+    cfg["sim_noslip_iterations"] = 0
+    cfg["sim_tolerance"]  = 1e-5
+    cfg["sim_gravity"]    = [0, 0, -9.81]
+    cfg["sim_nthread"]    = 4
+    cfg["reporting_interval"] = 0.0024
+    cfg["sim_duration"] = 2.0
+
+    # [9. AIR FLUIDICS]
+    cfg["enable_air_drag"]    = True
+    cfg["enable_air_squeeze"] = False
+
+    # [V5 ADDITIONAL UPDATES]
+    cfg["use_jax_reporting"] = True # JAX 엔진 활성화
+
+    # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 확인
+    from run_discrete_builder.whtb_physics import analyze_and_balance_components
+    cfg = analyze_and_balance_components(cfg, verbose=True)
 
     # 4. 시뮬레이션 실행
     sim = DropSimulator(config=cfg)
@@ -326,4 +439,5 @@ def test_case_1_setup(enable_UI: bool = False):
 
 if __name__ == "__main__":
     # Case 1 기반으로 디지털 트윈 파이프라인 실행
-    run_digital_twin_pipeline(test_case_1_setup)
+    #run_digital_twin_pipeline(test_case_1_setup)
+    test_case_2_setup()

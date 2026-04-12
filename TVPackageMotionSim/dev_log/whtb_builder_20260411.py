@@ -48,34 +48,18 @@ def get_single_body_instance(body_name: str, config: Optional[Dict[str, Any]] = 
     occ_cut_y = [-assy_h/2 + occ_ithick, assy_h/2 - occ_ithick]
     
     # 4. 부품별 인스턴스화 및 지오메트리 빌드
-    comp = config.get("components", {})
-    
     if body_name == "BPaperBox":
-        p = comp.get("paper", {})
-        b = BPaperBox("BPaperBox", box_w, box_h, box_d, 
-                      p.get("mass", config.get("mass_paper", 4.0)), 
-                      p.get("div", config.get("box_div", [5, 5, 2])), 
-                      box_thick, config["mat_paper"], 
-                      p.get("use_weld", config.get("box_use_weld", False)),
-                      inertia=p.get("inertia", config.get("inertia_paper")))
+        b = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], config["box_div"], box_thick, config["mat_paper"], config["box_use_weld"])
         b.build_geometry(local_offset=[0,0,0], 
                          required_cuts_x=[-box_w/2+box_thick, box_w/2-box_thick],
                          required_cuts_y=[-box_h/2+box_thick, box_h/2-box_thick],
                          required_cuts_z=[-box_d/2+box_thick, box_d/2-box_thick])
-        # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
-        # (create_model 내부에서 전역적으로 처리되므로 여기서는 생략 가능하지만 구조 유지를 위해 둠)
         return b
         
     elif body_name == "BCushion":
-        p = comp.get("cushion", {})
         assy_bbox = [-assy_w/2, assy_w/2, -assy_h/2, assy_h/2, -assy_d/2, assy_d/2]
         BCushion_cutter = { "center": [0, 0, 0, cush_w*0.5, cush_h*0.5, cush_d*2] }
-        b = BCushion("BCushion", cush_w, cush_h, cush_d, 
-                     p.get("mass", config.get("mass_cushion", 2.0)), 
-                     p.get("div", config.get("cush_div", [5, 5, 3])), 
-                     config["mat_cush"], assy_bbox, cush_gap, BCushion_cutter, 
-                     p.get("use_weld", config.get("cush_use_weld", True)),
-                     inertia=p.get("inertia", config.get("inertia_cushion")))
+        b = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], config["cush_div"], config["mat_cush"], assy_bbox, cush_gap, BCushion_cutter, config["cush_use_weld"])
         
         # 완충재는 제품 안착 공간과 커터 위치를 모두 절단선으로 포함
         req_cuts_cush_x = [-assy_w/2 - cush_gap, assy_w/2 + cush_gap]
@@ -90,35 +74,17 @@ def get_single_body_instance(body_name: str, config: Optional[Dict[str, Any]] = 
         return b
         
     elif body_name == "BOpenCell":
-        p = comp.get("opencell", {})
-        b = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, 
-                      p.get("mass", config.get("mass_oc", 5.0)), 
-                      p.get("div", config.get("opencell_div", [5, 5, 1])), 
-                      config["mat_cell"], 
-                      p.get("use_weld", config.get("opencell_use_weld", True)),
-                      inertia=p.get("inertia", config.get("inertia_oc")))
+        b = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, config["mass_oc"], config["opencell_div"], config["mat_cell"], config["opencell_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BOpenCellCohesive":
-        p = comp.get("opencellcoh", {})
-        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, 
-                              p.get("mass", config.get("mass_occ", 0.1)), 
-                              p.get("div", config.get("opencellcoh_div", [5, 5, 1])), 
-                              occ_ithick, config["mat_tape"], 
-                              p.get("use_weld", config.get("opencellcoh_use_weld", True)),
-                              inertia=p.get("inertia", config.get("inertia_occ")))
+        b = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, config["mass_occ"], config["opencellcoh_div"], occ_ithick, config["mat_tape"], config["opencellcoh_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
     elif body_name == "BChassis":
-        p = comp.get("chassis", {})
-        b = BChassis("BChassis", assy_w, assy_h, chassis_d, 
-                     p.get("mass", config.get("mass_chassis", 10.0)), 
-                     p.get("div", config.get("chassis_div", [5, 5, 1])), 
-                     config["mat_tv"], 
-                     p.get("use_weld", config.get("chassis_use_weld", True)),
-                     inertia=p.get("inertia", config.get("inertia_chassis")))
+        b = BChassis("BChassis", assy_w, assy_h, chassis_d, config["mass_chassis"], config["chassis_div"], config["mat_tv"], config["chassis_use_weld"])
         b.build_geometry(local_offset=[0,0,0], required_cuts_x=occ_cut_x, required_cuts_y=occ_cut_y)
         return b
         
@@ -145,11 +111,6 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         5. 관적 계산 및 XML 작성: 어셈블리의 전체 관성을 산출하고 MuJoCo 문법으로 내보냄.
     """
     config = get_default_config(config)
-    
-    # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 최적화 수행
-    from run_discrete_builder.whtb_physics import analyze_and_balance_components
-    config = analyze_and_balance_components(config, verbose=True)
-    
     drop_mode = config["drop_mode"]; drop_height = config["drop_height"]
     include_paperbox = config["include_paperbox"]; include_cushion = config["include_cushion"]
 
@@ -166,73 +127,63 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     mat_paper, mat_cush, mat_tape = config["mat_paper"], config["mat_cush"], config["mat_tape"]
     mat_cell, mat_tv = config["mat_cell"], config["mat_tv"]
 
-    # [V5.6] 명시적 접촉 Pair 시스템으로 전환 (A1: 모든 마찰/접촉 계수는 pair에서 관리)
-    # 모든 geom의 자동 충돌을 비활성화 (contype=0, conaffinity=0)
-    for mat in [mat_paper, mat_cush, mat_cell, mat_tape, mat_tv]:
-        mat["contype"] = "0"
-        mat["conaffinity"] = "0"
+    # 1. 충돌 비트마스크(Collision Bitmask) 설정 로직 (V5.3.1 최적화)
+    # [가정] 박스-내부 부품 간 직접 충돌을 제거하고 완충재(Cushion)를 통한 간접 전달만 허용
+    bit_paper = 1; bit_cushion = 2; bit_oc = 4; bit_occ = 8; bit_chassis = 16
+    bit_ground = 1  # 지면은 기본적으로 bit 1 사용
+    all_bits = bit_paper | bit_cushion | bit_oc | bit_occ | bit_chassis
+    
+    # PaperBox: 지면(1) 및 완충재(2) 하고만 충돌
+    mat_paper["contype"] = f"{bit_paper}"
+    mat_paper["conaffinity"] = f"{bit_cushion | bit_ground}" # 3
+    
+    # Cushion: 박스, 지면, 내부 부품 모두와 충돌 (물리적 장벽 역할)
+    mat_cush["contype"]  = f"{bit_cushion}"
+    mat_cush["conaffinity"]  = f"{all_bits | bit_ground}" # 31
+    
+    # Internal Parts: 완충재(2) 하고만 충돌 (박스와의 무거운 충돌 계산 제거)
+    mat_cell["contype"]  = f"{bit_oc}"; mat_cell["conaffinity"]  = f"{bit_cushion}" # 2
+    mat_tape["contype"]  = f"{bit_occ}"; mat_tape["conaffinity"]  = f"{bit_cushion}" # 2
+    mat_tv["contype"]    = f"{bit_chassis}"; mat_tv["conaffinity"]    = f"{bit_cushion}" # 2
 
+    # 충돌 마스크 요약 테이블 출력을 위한 헬퍼 (비트 분해 표시용)
+    def _fmt_mask(val: str) -> str:
+        v = int(val); parts = []
+        for name, bit in [("Box", 1), ("Cush", 2), ("Cell", 4), ("Tape", 8), ("Chas", 16)]:
+            if v & bit: parts.append(str(bit))
+        return f"{v:<3} (" + "+".join(parts) + ")" if parts else f"{v:<3}"
+
+    h_sep = "-" * 105
     logger("\n" + "="*105)
-    logger(" [Contact Configuration: Explicit Pair System Active]")
-    logger(" - All bitmask collisions (contype/affinity) are disabled.")
-    logger(" - Contacts will be generated as explicit <pair> elements.")
+    logger(" [Collision Mask Configuration Table]")
+    logger(h_sep)
+    logger(f" | {'Body Name':<20} | {'conType':<12} | {'conAffinity (Bit Decomposition)':<35} | {'Notes':<20} |")
+    logger(h_sep)
+    logger(f" | {'BPaperBox':<20} | {f'{bit_paper} (2^0)':<12} | {_fmt_mask(mat_paper['conaffinity']):<35} | {'(Box Group)':<20} |")
+    logger(f" | {'BCushion':<20} | {f'{bit_cushion} (2^1)':<12} | {_fmt_mask(mat_cush['conaffinity']):<35} | {'(Cushion Group)':<20} |")
+    logger(f" | {'BOpenCell':<20} | {f'{bit_oc} (2^2)':<12} | {_fmt_mask(mat_cell['conaffinity']):<35} | {'(Internal Group)':<20} |")
+    logger(f" | {'BCohesive(Tape)':<20} | {f'{bit_occ} (2^3)':<12} | {_fmt_mask(mat_tape['conaffinity']):<35} | {'(Internal Group)':<20} |")
+    logger(f" | {'BChassis':<20} | {f'{bit_chassis} (2^4)':<12} | {_fmt_mask(mat_tv['conaffinity']):<35} | {'(Internal Group)':<20} |")
     logger("="*105 + "\n")
 
-    # 2. 바디 객체 생성 (Dict 기반 설정 우선 적용)
-    comp = config.get("components", {})
+    # 2. 바디 객체 성성
     root_container = BaseDiscreteBody("PackagingBox", 0,0,0, 0, [1,1,1], {})
     
     if include_paperbox: 
-        p = comp.get("paper", {})
-        b_paper = BPaperBox("BPaperBox", box_w, box_h, box_d, 
-                            p.get("mass", config.get("mass_paper", 4.0)), 
-                            p.get("div", config.get("box_div", [5, 5, 2])), 
-                            box_thick, mat_paper, 
-                            p.get("use_weld", config.get("box_use_weld", False)))
+        b_paper = BPaperBox("BPaperBox", box_w, box_h, box_d, config["mass_paper"], config["box_div"], box_thick, mat_paper, config["box_use_weld"])
     else: b_paper = None
     
     assy_group = BaseDiscreteBody("AssySet", 0,0,0, 0, [1,1,1], {})
-    # [WHTOOLS] 어셈블리 세트 전체를 하나로 거동하게 하기 위해 자유도(Joint) 부여 및 강체화
-    assy_group.use_body_joints = True
-    assy_group.use_internal_weld = False
     oc_z = assy_d/2 - opencell_d/2; occ_z = oc_z - opencell_d/2 - opencellcoh_d/2; chas_z = occ_z - opencellcoh_d/2 - chassis_d/2
-    
-    p_oc = comp.get("opencell", {})
-    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, 
-                           p_oc.get("mass", config.get("mass_oc", 5.0)), 
-                           p_oc.get("div", config.get("opencell_div", [5, 5, 1])), 
-                           mat_cell, 
-                           p_oc.get("use_weld", config.get("opencell_use_weld", True)))
-    
-    p_occ = comp.get("opencellcoh", {})
-    b_occ = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, 
-                              p_occ.get("mass", config.get("mass_occ", 0.1)), 
-                              p_occ.get("div", config.get("opencellcoh_div", [5, 5, 1])), 
-                              occ_ithick, mat_tape, 
-                              p_occ.get("use_weld", config.get("opencellcoh_use_weld", True)))
-    
-    p_chas = comp.get("chassis", {})
-    b_chassis = BChassis("BChassis", assy_w, assy_h, chassis_d, 
-                         p_chas.get("mass", config.get("mass_chassis", 10.0)), 
-                         p_chas.get("div", config.get("chassis_div", [5, 5, 1])), 
-                         mat_tv, 
-                         p_chas.get("use_weld", config.get("chassis_use_weld", True)))
-
-    # [WHTOOLS] 컴포넌트가 강체 모드(use_weld=False)인 경우 개별 조인트를 제거하여 AssySet에 고정
-    for b_comp in [b_opencell, b_occ, b_chassis]:
-        if not b_comp.use_internal_weld:
-            b_comp.use_body_joints = False
+    b_opencell = BOpenCell("BOpenCell", assy_w, assy_h, opencell_d, config["mass_oc"], config["opencell_div"], mat_cell, config["opencell_use_weld"])
+    b_occ = BOpenCellCohesive("BOpenCellCohesive", assy_w, assy_h, opencellcoh_d, config["mass_occ"], config["opencellcoh_div"], occ_ithick, mat_tape, config["opencellcoh_use_weld"])
+    b_chassis = BChassis("BChassis", assy_w, assy_h, chassis_d, config["mass_chassis"], config["chassis_div"], mat_tv, config["chassis_use_weld"])
 
     b_cushion = None
     if include_cushion:
-        p_cush = comp.get("cushion", {})
         assy_bbox = [-assy_w/2, assy_w/2, -assy_h/2, assy_h/2, -assy_d/2, assy_d/2]
         BCushion_cutter = { "center": [0, 0, 0, cush_w*0.5, cush_h*0.5, cush_d*2] }
-        b_cushion = BCushion("BCushion", cush_w, cush_h, cush_d, 
-                             p_cush.get("mass", config.get("mass_cushion", 2.0)), 
-                             p_cush.get("div", config.get("cush_div", [5, 5, 3])), 
-                             mat_cush, assy_bbox, cush_gap, BCushion_cutter, 
-                             p_cush.get("use_weld", config.get("cush_use_weld", True)))
+        b_cushion = BCushion("BCushion", cush_w, cush_h, cush_d, config["mass_cushion"], config["cush_div"], mat_cush, assy_bbox, cush_gap, BCushion_cutter, config["cush_use_weld"])
     
     # 3. 트리 구조 조립
     assy_group.add_child(b_opencell); assy_group.add_child(b_occ); assy_group.add_child(b_chassis)
@@ -264,19 +215,21 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
 
     # 보조 질량 추가
     aux_mass_objects = []
-    component_aux = config.get("component_aux", {})
-    for aux_name, aux_config in component_aux.items():
-        b_aux_mass = BAuxBoxMass(name=aux_name, width=aux_config.get("size")[0], height=aux_config.get("size")[1], depth=aux_config.get("size")[2], mass=aux_config.get("mass"))
-        b_aux_mass.build_geometry(local_offset=[aux_config.get("pos")[0], aux_config.get("pos")[1], aux_config.get("pos")[2] + chas_z])
+    chassis_aux_configs = config.get("chassis_aux_masses", [])
+    for i, aux_item_config in enumerate(chassis_aux_configs):
+        b_aux_mass = BAuxBoxMass(name=aux_item_config.get("name", f"AuxMass_{i}"), width=aux_item_config.get("size")[0], height=aux_item_config.get("size")[1], depth=aux_item_config.get("size")[2], mass=aux_item_config.get("mass"))
+        b_aux_mass.build_geometry(local_offset=[aux_item_config.get("pos")[0], aux_item_config.get("pos")[1], aux_item_config.get("pos")[2] + chas_z])
         b_chassis.add_child(b_aux_mass); aux_mass_objects.append(b_aux_mass)
 
     # 5. 부품 간 인터페이스 용접
     inter_weld_xml = []
+    tape_solref = mat_tape.get("weld_solref", "0.02 1.0")
+    tape_solimp = mat_tape.get("weld_solimp", "0.1 0.95 0.005 0.5 2")
     for (i,j,k_occ), blk_occ in b_occ.blocks.items():
         if (i,j,0) in b_opencell.blocks: 
-            inter_weld_xml.append(f'        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_{i}_{j}_{0}_PZ" site2="s_BOpenCell_{i}_{j}_{0}_NZ"/>')
+            inter_weld_xml.append(f'        <weld site1="s_BOpenCellCohesive_{i}_{j}_{0}_PZ" site2="s_BOpenCell_{i}_{j}_{0}_NZ" solref="{tape_solref}" solimp="{tape_solimp}"/>')
         if (i,j,0) in b_chassis.blocks: 
-            inter_weld_xml.append(f'        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_{i}_{j}_{0}_NZ" site2="s_BChassis_{i}_{j}_{0}_PZ"/>')
+            inter_weld_xml.append(f'        <weld site1="s_BOpenCellCohesive_{i}_{j}_{0}_NZ" site2="s_BChassis_{i}_{j}_{0}_PZ" solref="{tape_solref}" solimp="{tape_solimp}"/>')
 
     for b_aux_mass in aux_mass_objects:
         blk_aux = b_aux_mass.blocks[(0, 0, 0)]; min_dist_sq = float('inf'); nearest_chassis_key = None
@@ -290,8 +243,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
             body1_name = f"b_{b_aux_mass.name.lower()}_0_0_0" if b_aux_mass.use_internal_weld else b_aux_mass.name
             body2_name = f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}" if b_chassis.use_internal_weld else b_chassis.name
             
-            # [V5.11.2] 인터페이스 용접 전용 클래스 적용 (솔레프/솔임프 속성 제거)
-            inter_weld_xml.append(f'        <weld class="weld_bauxboxmass" body1="{body1_name}" body2="{body2_name}"/>')
+            inter_weld_xml.append(f'        <weld body1="{body1_name}" body2="{body2_name}" solref="0.002 1.0" solimp="0.9 0.999 0.001"/>')
 
     # 6. 낙하 자세 제어
     drop_direction = config.get("drop_direction", "front")
@@ -313,117 +265,27 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     xml_str_io = io.StringIO()
     xml_str_io.write('<mujoco model="discrete_custom_box">\n  <size memory="512M"/>\n')
     xml_str_io.write(f'  <option integrator="{config["sim_integrator"]}" timestep="{config["sim_timestep"]}" iterations="{config["sim_iterations"]}" noslip_iterations="{config["sim_noslip_iterations"]}" tolerance="{config["sim_tolerance"]}" impratio="{config["sim_impratio"]}" gravity="{config["sim_gravity"][0]} {config["sim_gravity"][1]} {config["sim_gravity"][2]}" density="{config.get("air_density", 1.225)}" viscosity="{config.get("air_viscosity", 1.81e-5)}">\n    <flag contact="enable"/>\n  </option>\n')
-    xml_str_io.write('  <visual>\n    <quality shadowsize="1024"/>\n    <global offwidth="0" offheight="0"/>\n')
+    xml_str_io.write('  <visual>\n    <quality shadowsize="0"/>\n    <global offwidth="0" offheight="0"/>\n')
     xml_str_io.write(f'    <headlight ambient="{config.get("light_head_ambient")}" diffuse="{config.get("light_head_diffuse")}" specular="0.07 0.07 0.07"/>\n    <map znear="0.01"/>\n  </visual>\n')
-    xml_str_io.write('  <asset>\n    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.9" rgb2="0.8 0.9 1.0" width="1024" height="1024"/>\n')
-    xml_str_io.write('    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.85 0.85 0.85" rgb2="0.75 0.75 0.75" markrgb="0.8 0.8 0.8" width="300" height="300"/>\n')
-    xml_str_io.write('    <material name="ground_mat" texture="ground_tex" texrepeat="5 5" texuniform="true" reflectance="0.0"/>\n')
-    xml_str_io.write('  </asset>\n')
-    xml_str_io.write('  <default>\n    <joint armature="0.05" damping="1.0"/>\n    <geom/>\n')
+    xml_str_io.write('  <asset>\n    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>\n    <material name="ground_mat" texture="ground_tex" texrepeat="5 5" texuniform="true" reflectance="0.0"/>\n  </asset>\n')
+    xml_str_io.write('  <default>\n    <joint armature="0.05" damping="1.0"/>\n    <geom friction="0.8" solref="0.02 1.0" solimp="0.1 0.95 0.005"/>\n')
     
-    from .whtb_config import get_friction_standard
-    
-    # [A1/A2] 파트별 기본 클래스 생성: 시각화(Group/RGBA) 및 용접(Weld) 속성 통합
     for mat_name, mat_props in [("bpaperbox", mat_paper), ("bcushion", mat_cush), ("bopencell", mat_cell), ("bopencellcohesive", mat_tape), ("bchassis", mat_tv), ("bauxboxmass", mat_tv.copy())]:
         m_low = mat_name.lower()
         g_grp = 1 if "cushion" in m_low else 2 if any(x in m_low for x in ["chassis", "opencell", "adhesive", "tape", "cohesive"]) else 3 if "aux" in m_low else 0
-        c_rgba = mat_props.get("rgba", "0.8 0.8 0.8 1")
+        c_typ = mat_props.get("contype", "1"); c_aff = mat_props.get("conaffinity", "1"); c_fric = mat_props.get("friction", "0.8"); c_rgba = mat_props.get("rgba", "0.8 0.8 0.8 1")
+        if "auxboxmass" in m_low: c_typ, c_aff, g_grp, c_rgba = "0", "0", 3, "1 0 0 0.4"
         
-        # [V5.11.0] CLEAN: contact_ 접두사 제거, 불필요한 contype/conaffinity/condim 삭제
-        # [V5.11.2] RE-ENABLE: 자동 충돌 방지용 contype=0 conaffinity=0 명시적 추가
-        xml_str_io.write(f'    <default class="{mat_name}">\n      <geom group="{g_grp}" rgba="{c_rgba}" contype="0" conaffinity="0"/>\n    </default>\n')
-        if mat_name == "bcushion":
-            xml_str_io.write(f'    <default class="{mat_name}_edge">\n      <geom group="{g_grp}" rgba="{c_rgba}" contype="0" conaffinity="0"/>\n    </default>\n')
-            
-        # [WHTOOLS] 용접(Weld) 전용 클래스 추가 (Stiffness 통합 제어)
-        w_name = mat_name.replace("b", "", 1) if mat_name.startswith("b") else mat_name
-        if "paperbox" in w_name: w_name = "paper"
-        if "opencellcohesive" in w_name: w_name = "opencell" # Tape properties match cell/chassis logic
-        
-        w_prop = config["welds"].get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2]})
-        sr_w = " ".join(map(str, w_prop["solref"]))
-        si_w = " ".join(map(str, w_prop["solimp"]))
-        # [V5.11.1] MuJoCo: <weld>가 <default> 직접 자식 불가. <equality> 속성으로 정의하여 상속 유도.
-        xml_str_io.write(f'    <default class="weld_{mat_name}">\n      <equality solref="{sr_w}" solimp="{si_w}"/>\n    </default>\n')
-        
-        # [WHTOOLS] Cushion Corner 전용 용접 클래스 추가
-        if mat_name == "bcushion":
-            w_prop_c = config["welds"].get("cushion_corner", w_prop)
-            sr_wc = " ".join(map(str, w_prop_c["solref"]))
-            si_wc = " ".join(map(str, w_prop_c["solimp"]))
-            xml_str_io.write(f'    <default class="weld_{mat_name}_corner">\n      <equality solref="{sr_wc}" solimp="{si_wc}"/>\n    </default>\n')
-
-    # [WHTOOLS] Ground 전용 클래스 정의 (물리 파라미터 통합)
-    gr_f = f"{config.get('ground_friction')} {config.get('ground_friction')}"
-    gr_sr = config.get("ground_solref")
-    gr_si = config.get("ground_solimp")
-    xml_str_io.write(f'    <default class="ground">\n      <geom friction="{gr_f}" solref="{gr_sr}" solimp="{gr_si}" condim="3" contype="0" conaffinity="0" group="0" material="ground_mat"/>\n    </default>\n')
+        xml_str_io.write(f'    <default class="contact_{mat_name}">\n      <geom solref="{mat_props.get("solref", "0.02 1.0")}" solimp="{mat_props.get("solimp", "0.1 0.95 0.005 0.5 2")}" contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n    </default>\n')
+        if "corner_solref" in mat_props: 
+            xml_str_io.write(f'    <default class="contact_{mat_name}_edge">\n      <geom solref="{mat_props["corner_solref"]}" solimp="{mat_props.get("corner_solimp", "0.1 0.95 0.005 0.5 2")}" contype="{c_typ}" conaffinity="{c_aff}" group="{g_grp}" friction="{c_fric}" rgba="{c_rgba}"/>\n    </default>\n')
     
-    # --- Contact Pair Database Generation ---
-    # 수집 엔진: 모든 바디의 모든 geom을 리스트업
-    # [V5.10.0] 위치(pos) 및 크기(size) 데이터 추가
-    all_geoms = [("ground", "ground", -1, (0, 0, 0), (2.5, 2.5, 0.1))] # (name, type, instance_id, pos, size)
-    
-    def _collect_metadata(body):
-        t_map = {"bpaperbox":"paper", "bcushion":"cushion", "bopencell":"opencell", "bopencellcohesive":"paper", "bchassis":"chassis"}
-        m_type = t_map.get(body.__class__.__name__.lower(), "part")
-        
-        for idx, blk in body.blocks.items():
-            g_name = f"g_{body.name.lower()}_{idx[0]}_{idx[1]}_{idx[2]}"
-            cur_type = m_type
-            if hasattr(body, 'is_corner_block') and body.is_corner_block(*idx):
-                g_name += "_edge"
-                cur_type += "_edge"
-            # 위치 및 크기 정보를 메타데이터에 포함
-            all_geoms.append((g_name, cur_type, id(body), (blk.cx, blk.cy, blk.cz), (blk.dx, blk.dy, blk.dz)))
-            
-        for child in body.children: _collect_metadata(child)
-    
-    _collect_metadata(root_container)
-    
-    # Pair 생성을 위한 Default 클래스 및 Pair 구문 조립
-    pair_classes_xml = ""
-    contact_pairs_xml = ""
-    defined_classes = set()
-    
-    for (t1, t2), p in config["contacts"].items():
-        cls_name = f"cls_{t1}_{t2}"
-        f_str = " ".join(map(str, get_friction_standard(p["friction"], 5)))
-        sr_str = " ".join(map(str, p["solref"]))
-        si_str = " ".join(map(str, p["solimp"]))
-        
-        pair_classes_xml += f'    <default class="{cls_name}">\n      <pair friction="{f_str}" solref="{sr_str}" solimp="{si_str}"/>\n    </default>\n'
-        
-        # 실제 조합 검색 및 Pair 추가
-        for i in range(len(all_geoms)):
-            for j in range(i+1, len(all_geoms)):
-                gn1, gt1, gi1, p1, s1 = all_geoms[i]
-                gn2, gt2, gi2, p2, s2 = all_geoms[j]
-                
-                # Rule 1: Exclusion (Same instance, unless one is floor)
-                if gi1 == gi2 and gi1 != -1: continue
-                
-                # Rule 2: Type Match
-                if (gt1 == t1 and gt2 == t2) or (gt1 == t2 and gt2 == t1):
-                    # [V5.10.1] Distance-Based Pair Filter (Skip far away blocks)
-                    # Ground 접촉은 필터를 적용하지 않음 (사용자 요청)
-                    if gt1 != "ground" and gt2 != "ground":
-                        dist = np.sqrt(np.sum((np.array(p1) - np.array(p2))**2))
-                        max_dim_i = max(s1) * 2.0; max_dim_j = max(s2) * 2.0
-                        if dist > 1.5 * max(max_dim_i, max_dim_j):
-                            continue # 멀리 떨어져 있으면 Pair 생성을 건너뜀
-
-                    contact_pairs_xml += f'    <pair class="{cls_name}" geom1="{gn1}" geom2="{gn2}"/>\n'
-
-    xml_str_io.write(pair_classes_xml)
     xml_str_io.write('  </default>\n')
     xml_str_io.write(f'  <worldbody>\n    <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>\n    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{config.get("light_main_diffuse")}" ambient="{config.get("light_main_ambient")}" castshadow="false"/>\n    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{config.get("light_sub_diffuse")}" castshadow="false"/>\n')
-    xml_str_io.write(f'    <geom name="ground" type="plane" size="2.5 2.5 0.1" class="ground"/>\n')
-    xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n      <freejoint/>\n      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="10 10 0.1" friction="1.0 {config.get("ground_friction")} {config.get("ground_friction")}" contype="1" conaffinity="1" group="0" material="ground_mat" solref="{config.get("ground_solref")}" solimp="{config.get("ground_solimp")}"/>\n')
+    xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n      <freejoint/>\n      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0" contype="0" conaffinity="0" friction="0.8"/>\n')
     for line in root_container.get_worldbody_xml_strings(indent_level=3): xml_str_io.write(line + "\n")
-    xml_str_io.write('    </body>\n  </worldbody>\n')
-    xml_str_io.write(f'  <contact>\n{contact_pairs_xml}  </contact>\n')
-    xml_str_io.write('  <equality>\n')
+    xml_str_io.write('    </body>\n  </worldbody>\n  <equality>\n')
     for line in root_container.get_weld_xml_strings() + inter_weld_xml: xml_str_io.write(line + "\n")
     xml_str_io.write('  </equality>\n</mujoco>\n')
     
