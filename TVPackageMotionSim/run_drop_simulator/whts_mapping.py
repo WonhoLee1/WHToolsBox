@@ -55,9 +55,13 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     indices = body_map.keys()
     if not indices: return {}, {}
 
-    max_i = max(idx[0] for idx in indices)
-    max_j = max(idx[1] for idx in indices)
-    max_k = max(idx[2] for idx in indices)
+    # [V5.6.2] 인덱스 정규화 (단일 블록인 경우 0으로 기본값 설정)
+    if not indices:
+        max_i, max_j, max_k = 0, 0, 0
+    else:
+        max_i = max(idx[0] for idx in indices) if indices else 0
+        max_j = max(idx[1] for idx in indices) if indices else 0
+        max_k = max(idx[2] for idx in indices) if indices else 0
 
     face_prefix = {"Front": "F", "Rear": "R", "Left": "L", "Right": "Ri", "Top": "T", "Bottom": "B"}
     face_markers = {face: {} for face in face_prefix}

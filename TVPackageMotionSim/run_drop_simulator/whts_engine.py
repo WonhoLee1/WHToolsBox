@@ -120,9 +120,23 @@ class DropSimulator:
         self.model = mujoco.MjModel.from_xml_string(xml_content)
         self.data = mujoco.MjData(self.model)
         
-        # 메타데이터 추출
-        self.root_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "chassis")
-        if self.root_id == -1: self.root_id = 0
+        # 메타데이터 추출 (Root Body: Chassis 식별)
+        self.root_id = -1
+        # [V6.3] 'chassis'를 포함하는 가장 짧은 이름의 바디를 Root로 선정 (bchassis 대응)
+        candidates = []
+        for i in range(self.model.nbody):
+            b_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i)
+            if b_name and "chassis" in b_name.lower():
+                candidates.append((len(b_name), i, b_name))
+        
+        if candidates:
+            candidates.sort() # 이름 길이 짧은 순
+            self.root_id = candidates[0][1]
+            self.log(f"📍 Root Body Identified: '{candidates[0][2]}' (ID: {self.root_id})")
+        
+        if self.root_id == -1: 
+            self.root_id = 0
+            self.log("⚠️ Warning: Chassis body not found. Falling back to WorldBody (ID: 0).")
         
         # 기하 원본 데이터 저장 (소성 변형 계산용)
         self.original_geom_size = self.model.geom_size.copy()
