@@ -1,0 +1,7 @@
+- [ ] `.gitignore` 파일 업데이트 (`*.vtkhdf`, `*.pkl`, `export_*` 폴더 제외)
+- [ ] 전체 히스토리에서 대용량 파일 제거 및 인덱스 정리
+- [ ] 히스토리 정리 작업 검증
+- [x] GitHub에 강제 푸시 (`--force`)
+- [ ] [v5] VTKHDF Export Crash 방지 로직 (analyzers == 0 대응)
+- [ ] [v5] `whts_mapping.py` 유연한 명칭 매핑 (Partial match) 적용
+- [ ] [v5] `v6.py` 실행 및 ParaView 자율 대시보드 검증

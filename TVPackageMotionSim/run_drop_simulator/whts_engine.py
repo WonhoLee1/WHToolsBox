@@ -138,7 +138,7 @@ class DropSimulator:
         mujoco.set_mjcb_control(self._mjcb_control)
         
         self.start_real_time = time.time()
-        self.log(f"📦 Assembly Info: {len(self.components)} components identified. Physics callback registered.")
+        self.log(f"📦 Assembly Info: {len(self.components)} components identified: {list(self.components.keys())}. Physics callback registered.")
 
     def _discover_components(self) -> None:
         self.components = {}

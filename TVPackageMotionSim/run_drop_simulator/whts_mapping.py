@@ -34,10 +34,24 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     - mode='kinematic': 본체 회전 행렬 기반 역학적 정렬 (시뮬레이션 Truth 대응)
     """
     comp_name = part_name.lower()
-    if not hasattr(result, 'components') or comp_name not in result.components:
+    
+    # [WHTOOLS] Flexible Name Mapping (Substring support)
+    # If exact match fails, look for a key that is a substring of comp_name or vice-versa
+    found_key = None
+    if hasattr(result, 'components'):
+        if comp_name in result.components:
+            found_key = comp_name
+        else:
+            # Try to find a partial match (e.g., 'cushion' inside 'bcushion')
+            for key in result.components.keys():
+                if key in comp_name or comp_name in key:
+                    found_key = key
+                    break
+    
+    if found_key is None:
         return {}, {}
 
-    body_map = result.components[comp_name]
+    body_map = result.components[found_key]
     indices = body_map.keys()
     if not indices: return {}, {}
 
