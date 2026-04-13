@@ -338,7 +338,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         # [WHTOOLS] 용접(Weld) 전용 클래스 추가 (Stiffness 통합 제어)
         w_name = mat_name.replace("b", "", 1) if mat_name.startswith("b") else mat_name
         if "paperbox" in w_name: w_name = "paper"
-        if "opencellcohesive" in w_name: w_name = "opencell" # Tape properties match cell/chassis logic
+        if "opencellcohesive" in w_name: w_name = "opencellcoh" # Standardize to config key
         
         w_prop = config["welds"].get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2]})
         sr_w = " ".join(map(str, w_prop["solref"]))

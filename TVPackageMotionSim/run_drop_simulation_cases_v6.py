@@ -177,7 +177,7 @@ def test_case_1_setup(enable_UI: bool = False):
     cfg["assy_w"] = 1.570         # 제품(TV) 어셈블리 가로 [m]
     cfg["assy_h"] = 0.860         # 제품(TV) 어셈블리 세로 [m]
     cfg["cush_gap"] = 0.005       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
-    
+    cfg["occ_ithick"] = 0.100      # Cohesive의 테두리 폭 (30-->100mm)
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
@@ -189,9 +189,9 @@ def test_case_1_setup(enable_UI: bool = False):
     cfg["components"] = {
         "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0},
         "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 2.0},
-        "opencell"      : {"div": [3, 3, 3], "use_weld": True, "mass": 5.0},
-        "opencellcoh"   : {"div": [3, 3, 3], "use_weld": True, "mass": 0.1},
-        "chassis"       : {"div": [3, 3, 3], "use_weld": True, "mass": 10.0},
+        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0},
+        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1},
+        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0},
     }
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
@@ -211,6 +211,7 @@ def test_case_1_setup(enable_UI: bool = False):
         "cushion"        : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "cushion_corner" : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "opencell"       : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencellcoh"    : {"solref": [0.100, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "chassis"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.99, 0.01, 0.5, 2]},
     }
     
