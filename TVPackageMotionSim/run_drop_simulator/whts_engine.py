@@ -413,7 +413,7 @@ class DropSimulator:
         if self.config.get("use_postprocess_v2", False):
             self.log(">> [Integrated UI] Launching V2 Control Center..."); subprocess_call(self)
         elif self.ctrl_open_ui or self.config.get("use_postprocess_ui", True):
-            self.log(">> [Legacy UI] Launching Tkinter Post-Processing..."); from .whts_postprocess_ui import PostProcessingUI; PostProcessingUI(self).on_simulation_complete(); self.tk_root.mainloop()
+            self.log(">> [Legacy UI] Launching Tkinter Post-Processing..."); from .whts_postprocess_ui import PostProcessingUI; PostProcessingUI(self, master=self.tk_root).on_simulation_complete(); self.tk_root.mainloop()
 
     def apply_balancing(self) -> None:
         self.config["chassis_aux_masses"] = calculate_required_aux_masses(self.config, self.config.get("target_mass"), self.config.get("target_cog"), self.config.get("target_moi"))

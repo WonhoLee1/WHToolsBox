@@ -103,15 +103,11 @@ class BCushion(BaseDiscreteBody):
         if not self.use_internal_weld:
             return weld_xml
             
-        weld_class_base = "weld_bcushion"
-        # 모서리 전용 물성(solref 등)이 설정되어 있는지 확인
-        has_corner_weld = "corner_weld_solref" in self.material_props and self.material_props["corner_weld_solref"]
-        solref = self.material_props.get("weld_solref", "0.02 1.0")
-        solimp = self.material_props.get("weld_solimp", "0.1 0.95 0.005 0.5 2")
+
         block_keys = set(self.blocks.keys())
         
         for (i, j, k), blk1 in self.blocks.items():
-            is_c1 = self.is_edge_block(i, j, k)
+            is_c1 = self.is_corner_block(i, j, k)
             
             # X, Y, Z 양방향 인접 블록 탐색
             for di, dj, dk, suffix in [(1,0,0, "PX"), (0,1,0, "PY"), (0,0,1, "PZ")]:
@@ -124,15 +120,16 @@ class BCushion(BaseDiscreteBody):
                     elif dk == 1: match = abs((blk1.cz + blk1.dz) - (blk2.cz - blk2.dz)) < 1e-4
                     
                     if match:
-                        is_c2 = self.is_edge_block(ni, nj, nk)
-                        curr_solref = solref
-                        if has_corner_weld and (is_c1 or is_c2):
-                            curr_solref = self.material_props["corner_weld_solref"]
+                        is_c2 = self.is_corner_block(ni, nj, nk)
+                        
+                        # [V6.1] 클래스 기반 용접 시스템 적용: solref/solimp 직접 기입 대신 class 속성 활용
+                        # 두 블록 중 하나라도 코너 블록인 경우 corner 클래스 적용
+                        w_class = "weld_bcushion_corner" if (is_c1 or is_c2) else "weld_bcushion"
                             
                         site1_name = f"s_{self.name}_{i}_{j}_{k}_{suffix}"
                         opp_suffix = "NX" if suffix=="PX" else "NY" if suffix=="PY" else "NZ"
                         site2_name = f"s_{self.name}_{ni}_{nj}_{nk}_{opp_suffix}"
-                        weld_xml.append(f'        <weld site1="{site1_name}" site2="{site2_name}" solref="{curr_solref}" solimp="{solimp}"/>')
+                        weld_xml.append(f'        <weld class="{w_class}" site1="{site1_name}" site2="{site2_name}"/>')
                         
         # 자식 요소들의 Weld 정보도 병합
         for child in self.children:

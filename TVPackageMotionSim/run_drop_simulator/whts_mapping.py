@@ -27,11 +27,12 @@ def get_face_index_logic(face_name: str, max_indices: Tuple[int, int, int]) -> D
     }
     return logic.get(face_name)
 
-def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[float, float, float] = None, mode: str = 'statistical') -> Tuple[Dict, Dict]:
+def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[float, float, float] = None, mode: str = 'statistical', use_virtual_markers: bool = False) -> Tuple[Dict, Dict]:
     """
     [WHTOOLS Hybrid Marker Extraction v5.6.0]
     - mode='statistical': PCA/SVD 기반 통계적 정렬 (MoCap 데이터 대응)
     - mode='kinematic': 본체 회전 행렬 기반 역학적 정렬 (시뮬레이션 Truth 대응)
+    - use_virtual_markers: True 시 단일 강체에서도 4x4 가상 격자 마커 추출 (기본: False)
     """
     comp_name = part_name.lower()
     
@@ -90,23 +91,46 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
             p_axes = face_logic["plane"]
             d_val = {"i": dx, "j": dy, "k": dz}
             
-            for s1 in [-1, 1]:
-                for s2 in [-1, 1]:
-                    lv = np.zeros(3)
-                    lv_idx = 0 if target_axis=="i" else 1 if target_axis=="j" else 2
-                    lv[lv_idx] = norm_vec[lv_idx] * d_val[target_axis]
-                    
-                    p1_idx = 0 if p_axes[0]=="i" else 1 if p_axes[0]=="j" else 2
-                    p2_idx = 0 if p_axes[1]=="i" else 1 if p_axes[1]=="j" else 2
-                    lv[p1_idx], lv[p2_idx] = s1 * d_val[p_axes[0]], s2 * d_val[p_axes[1]]
-                    
-                    ni = [i, j, k]
-                    ni[p1_idx] = ni[p1_idx] if s1 < 0 else ni[p1_idx] + 1
-                    ni[p2_idx] = ni[p2_idx] if s2 < 0 else ni[p2_idx] + 1
-                    node_idx = tuple(ni)
-                    
-                    if node_idx not in node_accumulator: node_accumulator[node_idx] = []
-                    node_accumulator[node_idx].append((body_id, lv))
+            if use_virtual_markers:
+                # [v7.4] 가상 격자 모드: 단일 바디에서도 고밀도 마커 추출
+                # 각 블록 면을 N×N 격자로 세분화 (비활성화 기본값)
+                grid_n = 4
+                coords = np.linspace(-1, 1, grid_n)
+                for si, s1 in enumerate(coords):
+                    for sj, s2 in enumerate(coords):
+                        lv = np.zeros(3)
+                        lv_idx = 0 if target_axis=="i" else 1 if target_axis=="j" else 2
+                        lv[lv_idx] = norm_vec[lv_idx] * d_val[target_axis]
+                        p1_idx = 0 if p_axes[0]=="i" else 1 if p_axes[0]=="j" else 2
+                        p2_idx = 0 if p_axes[1]=="i" else 1 if p_axes[1]=="j" else 2
+                        lv[p1_idx], lv[p2_idx] = s1 * d_val[p_axes[0]], s2 * d_val[p_axes[1]]
+                        # 가상 격자 인덱스: 블록 기저에 세분화 오프셋 추가
+                        ni = [i * grid_n, j * grid_n, k * grid_n]
+                        ni[p1_idx] += si
+                        ni[p2_idx] += sj
+                        node_idx = tuple(ni)
+                        if node_idx not in node_accumulator: node_accumulator[node_idx] = []
+                        node_accumulator[node_idx].append((body_id, lv))
+            else:
+                # [v7.4-HOTFIX] 원본 코너 추출 로직 완전 복구
+                # 인접 블록이 공유하는 코너를 동일 node_idx로 병합하는 핵심 로직
+                # ni = [i, j, k] + 조건부 +1 → 공유 코너 자동 병합
+                for s1 in [-1, 1]:
+                    for s2 in [-1, 1]:
+                        lv = np.zeros(3)
+                        lv_idx = 0 if target_axis=="i" else 1 if target_axis=="j" else 2
+                        lv[lv_idx] = norm_vec[lv_idx] * d_val[target_axis]
+                        p1_idx = 0 if p_axes[0]=="i" else 1 if p_axes[0]=="j" else 2
+                        p2_idx = 0 if p_axes[1]=="i" else 1 if p_axes[1]=="j" else 2
+                        lv[p1_idx], lv[p2_idx] = s1 * d_val[p_axes[0]], s2 * d_val[p_axes[1]]
+                        # 원본 노드 인덱싱: 인접 블록 공유 코너 병합 보장
+                        ni = [i, j, k]
+                        ni[p1_idx] = ni[p1_idx] if s1 < 0 else ni[p1_idx] + 1
+                        ni[p2_idx] = ni[p2_idx] if s2 < 0 else ni[p2_idx] + 1
+                        node_idx = tuple(ni)
+                        if node_idx not in node_accumulator: node_accumulator[node_idx] = []
+                        node_accumulator[node_idx].append((body_id, lv))
+
 
         for node_idx, contributions in node_accumulator.items():
             node_pos_final = np.zeros((n_frames, 3))
@@ -155,9 +179,12 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
         
         if mode == 'statistical':
             # 통계 모드일 때만 장단축비 기반 90도 회전 보정 (MoCap 대응)
-            if face_name in ["Top", "Bottom"]:   w_nom, h_nom = p_size[0], p_size[2] if p_size else (1,1)
-            elif face_name in ["Front", "Rear"]: w_nom, h_nom = p_size[0], p_size[1] if p_size else (1,1)
-            else:                                w_nom, h_nom = p_size[2], p_size[1] if p_size else (1,1)
+            if p_size:
+                if face_name in ["Top", "Bottom"]:   w_nom, h_nom = p_size[0], p_size[2]
+                elif face_name in ["Front", "Rear"]: w_nom, h_nom = p_size[0], p_size[1]
+                else:                                w_nom, h_nom = p_size[2], p_size[1]
+            else:
+                w_nom, h_nom = 1.0, 1.0
             
             w_a = np.max(P2D[:,0]) - np.min(P2D[:,0])
             h_a = np.max(P2D[:,1]) - np.min(P2D[:,1])
@@ -169,12 +196,12 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
 
     return face_markers, face_offsets
 
-def get_assembly_data_from_sim(result: DropSimResult, target_parts: List[str], mode: str = 'statistical') -> Tuple[Dict, Dict]:
+def get_assembly_data_from_sim(result: DropSimResult, target_parts: List[str], mode: str = 'statistical', use_virtual_markers: bool = False) -> Tuple[Dict, Dict]:
     total_markers, total_offsets = {}, {}
     for part in target_parts:
         p_c = result.config.get(part, {})
         p_size = (p_c.get("box_w", 1.0), p_c.get("box_h", 1.0), p_c.get("box_d", 1.0))
-        m, o = extract_face_markers(result, part, p_size, mode=mode)
+        m, o = extract_face_markers(result, part, p_size, mode=mode, use_virtual_markers=use_virtual_markers)
         total_markers[part], total_offsets[part] = m, o
     return total_markers, total_offsets
 

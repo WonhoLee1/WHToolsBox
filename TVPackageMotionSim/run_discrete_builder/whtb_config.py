@@ -5,7 +5,7 @@
 수치적 안정성을 보장합니다.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, List, Tuple
 
 def sync_phys_config(config: Dict[str, Any]):
     """
@@ -83,6 +83,40 @@ def sync_phys_config(config: Dict[str, Any]):
         "weld_solref": f"{config['chassis_weld_solref']}",
         "weld_solimp": f"{config['chassis_weld_solimp']}"
     }
+
+def get_friction_standard(mu: Union[float, List[float], Tuple[float, ...]], dim: int = 5) -> List[float]:
+    """
+    [WHTOOLS] 마찰 계수를 MuJoCo 표준 차원(dim)에 맞게 정규화합니다.
+    
+    Args:
+        mu (float, list, tuple): 입력 마찰 계수. 단일 값 또는 시퀀스 가능.
+        dim (int): 목표 차원 (기본값 5: MuJoCo Sliding2, Torsional1, Rolling2).
+        
+    Returns:
+        List[float]: 규격화된 마찰 계수 리스트.
+    """
+    if isinstance(mu, (list, tuple)):
+        result = [float(x) for x in mu]
+    else:
+        result = [float(mu)]
+    
+    # 부족한 차원 보완 (Tangential 2개, Torsional 1개, Rolling 2개 기준)
+    # 기본값: [Tangential, Tangential, Torsional(0.005), Rolling(0.0001), Rolling(0.0001)]
+    defaults = [0.0, 0.0, 0.005, 0.0001, 0.0001]
+    
+    # 1. Tangential이 1개만 있으면 복사하여 2개로 확장
+    if len(result) == 1:
+        result.append(result[0])
+        
+    # 2. 지정된 dim까지 default로 채움
+    while len(result) < dim:
+        idx = len(result)
+        if idx < len(defaults):
+            result.append(defaults[idx])
+        else:
+            result.append(0.0)
+            
+    return result[:dim]
 
 def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """

@@ -31,9 +31,17 @@
 
 ## [P4] 90-Degree In-Plane Rotation of Side Faces
 
-- **Status**: 완료
+- [Resolution]: o_data_hint를 이용한 Kabsch 캘리브레이션 로직을 복구하여 설계 좌표계와 3D 기저를 동기화함.
+- [Status]: 완료 (4/13)
+
+## [P5] SVD Non-convergence & Export Pipeline Crash (v6)
+
+- **Status**: 진행 중
 - **Issue Description**:
-  - `ShellDeformationAnalyzer`에서 PCA 기반 기저 산출 시, 세로로 긴(tall-narrow) 측면 패널의 기저축이 90도 회전되어 렌더링되는 문제.
-- **Resolution**:
-  - `o_data_hint`를 이용한 Kabsch 캘리브레이션 로직을 복구하여 설계 좌표계와 3D 기저를 동기화함.
-  - `fit_reference_plane` 메서드가 힌트 좌표를 참조하여 로컬 기저를 산출하도록 수정 완료.
+  - `ShellDeformationAnalyzer.remove_rigid_motion`에서 고해상도/고강성 조건 시 SVD가 수렴하지 않는 현상 발생.
+  - 이로 인해 분석 결과가 비게 되어 `whts_exporter.py`에서 `KeyError: 'Displacement [mm]'`로 프로세스 전체가 중단됨.
+- **Requester**: User
+- **Action Plan**:
+  1. `whts_multipostprocessor_engine.py`: SVD 연산 안정화 (Epsilon 추가) 및 예외 처리 (Fallback) 도입.
+  2. `whts_exporter.py`: 분석 결과 누락 시 `KeyError` 방지 가드 추가.
+  3. 시뮬레이션 종료 후 UI 자동 팝업 안정화.

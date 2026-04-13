@@ -115,8 +115,8 @@ class PostProcessingUI(tk.Toplevel):
         "Geo Center", "Mass Center (CoM)"
     ]
 
-    def __init__(self, parent_sim):
-        super().__init__()
+    def __init__(self, parent_sim, master=None):
+        super().__init__(master=master)
         self.sim = parent_sim
         self.title("WHTOOLS Post-Processing Explorer v4")
         self.geometry("1160x820")
@@ -2056,6 +2056,12 @@ class PostProcessingUI(tk.Toplevel):
         """UI 종료 시 애니메이션을 정지하고 창을 닫습니다."""
         self._on_stop()
         self.destroy()
+        if self.master:
+            try:
+                self.master.destroy()
+                self.master.quit()
+            except:
+                pass
 
 class SSRAnalyzerDialog(tk.Toplevel):
     """

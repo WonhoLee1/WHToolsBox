@@ -167,23 +167,25 @@ class BaseDiscreteBody:
             for child in self.children: weld_xml.extend(child.get_weld_xml_strings())
             return weld_xml
 
-        solref = self.material_props.get("weld_solref", "0.02 1.0")
-        solimp = self.material_props.get("weld_solimp", "0.1 0.95 0.005 0.5 2")
+
         block_keys = set(self.blocks.keys())
         for (i, j, k), blk1 in self.blocks.items():
             # X, Y, Z 방향으로 인접한 블록이 있는지 확인하여 용접 결합 생성
+            # [V6.1] 클래스 기반 용접 시스템 적용: solref/solimp 직접 기입 대신 class 속성 활용
+            weld_class = f"weld_{self.name.lower()}"
+
             if (i+1, j, k) in block_keys:
                 blk2 = self.blocks[(i+1, j, k)]
                 if abs((blk1.cx + blk1.dx) - (blk2.cx - blk2.dx)) < 1e-4:
-                    weld_xml.append(f'        <weld site1="s_{self.name}_{i}_{j}_{k}_PX" site2="s_{self.name}_{i+1}_{j}_{k}_NX" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PX" site2="s_{self.name}_{i+1}_{j}_{k}_NX"/>')
             if (i, j+1, k) in block_keys:
                 blk2 = self.blocks[(i, j+1, k)]
                 if abs((blk1.cy + blk1.dy) - (blk2.cy - blk2.dy)) < 1e-4:
-                    weld_xml.append(f'        <weld site1="s_{self.name}_{i}_{j}_{k}_PY" site2="s_{self.name}_{i}_{j+1}_{k}_NY" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PY" site2="s_{self.name}_{i}_{j+1}_{k}_NY"/>')
             if (i, j, k+1) in block_keys:
                 blk2 = self.blocks[(i, j, k+1)]
                 if abs((blk1.cz + blk1.dz) - (blk2.cz - blk2.dz)) < 1e-4:
-                    weld_xml.append(f'        <weld site1="s_{self.name}_{i}_{j}_{k}_PZ" site2="s_{self.name}_{i}_{j}_{k+1}_NZ" solref="{solref}" solimp="{solimp}"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PZ" site2="s_{self.name}_{i}_{j}_{k+1}_NZ"/>')
         
         for child in self.children: weld_xml.extend(child.get_weld_xml_strings())
         return weld_xml
@@ -283,7 +285,7 @@ class BaseDiscreteBody:
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="0 0 1"/>')
                 xml_outs.append(f'{ind_c}<joint type="ball"/>')
             for (i, j, k), blk in self.blocks.items():
-                geom_class = f"contact_{self.__class__.__name__.lower()}"
+                geom_class = self.__class__.__name__.lower()
                 geom_name = f"g_{self.name.lower()}_{i}_{j}_{k}"
                 if hasattr(self, 'is_corner_block') and self.is_corner_block(i, j, k): 
                     geom_class += "_edge"
@@ -310,7 +312,7 @@ class BaseDiscreteBody:
                 xml_outs.append(f'{ind_cc}<joint type="slide" axis="0 1 0"/>')
                 xml_outs.append(f'{ind_cc}<joint type="slide" axis="0 0 1"/>')
                 xml_outs.append(f'{ind_cc}<joint type="ball"/>')
-                geom_class = f"contact_{self.__class__.__name__.lower()}"
+                geom_class = self.__class__.__name__.lower()
                 geom_name = f"g_{self.name.lower()}_{i}_{j}_{k}"
                 if hasattr(self, 'is_corner_block') and self.is_corner_block(i, j, k): 
                     geom_class += "_edge"

@@ -439,5 +439,5 @@ def test_case_2_setup(enable_UI: bool = False):
 
 if __name__ == "__main__":
     # Case 1 기반으로 디지털 트윈 파이프라인 실행
-    #run_digital_twin_pipeline(test_case_1_setup)
-    test_case_2_setup()
+    run_digital_twin_pipeline(test_case_2_setup)
+    #test_case_2_setup()
