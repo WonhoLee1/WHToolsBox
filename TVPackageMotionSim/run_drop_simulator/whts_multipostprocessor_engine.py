@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-[WHTOOLS] Integrated Multi-PostProcessor Engine (Stabilized v6.6)
-기계공학적 판 이론(Plate Theory)과 JAX 고속 연산을 결합한 정밀 구조 변형 해석 엔진 모듈입니다.
-UI와 독립적으로 수치 해석 및 데이터 처리를 전담합니다.
+[WHTOOLS] Integrated Multi-PostProcessor Engine (High-Stability v7.5)
+기계공학적 Kirchhoff-Love 판 이론과 JAX 고속 연산을 결합한 정밀 구조 변형 해석 엔진입니다.
+plate_by_markers.py의 검증된 고안정성 알고리즘을 어셈블리 환경에 맞게 최적화했습니다.
 """
 
 import os
@@ -12,7 +12,6 @@ import numpy as np
 from typing import Any, Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor
 
 import jax
 import jax.numpy as jnp
@@ -24,7 +23,7 @@ jax.config.update("jax_enable_x64", True)
 
 def scale_result_to_mm(result: Any):
     """
-    [WHTOOLS] 시뮬레이션 결과 데이터(m)를 대시보드 규격(mm)으로 일괄 변환합니다.
+    [WHTOOLS] 시뮬레이션 결과 데이터(m)를 해석 규격(mm)으로 일괄 변환합니다.
     """
     fields_to_scale = [
         'pos_hist', 'cog_pos_hist', 'geo_center_pos_hist', 
@@ -48,546 +47,393 @@ def scale_result_to_mm(result: Any):
             
     return result
 
+# [WHTOOLS] 표준 공학 물성 라이브러리 (Default Engineering Library)
+# 단위: mm, MPa
+WHTOOLS_MATERIAL_LIB = {
+    'opencell': {'t': 0.7,  'E': 72000.0,  'nu': 0.23, 'desc': 'Glass (Liquid Crystal Display)'},
+    'chassis':  {'t': 1.2,  'E': 210000.0, 'nu': 0.30, 'desc': 'Steel (SECC/SGCC)'},
+    'paper':    {'t': 3.0,  'E': 3000.0,   'nu': 0.35, 'desc': 'Corrugated Paperboard'},
+    'cushion':  {'t': 25.0, 'E': 15.0,     'nu': 0.05, 'desc': 'EPS Foam'},
+    'default':  {'t': 2.0,  'E': 210000.0, 'nu': 0.30, 'desc': 'Standard Steel'}
+}
+
 @dataclass
 class PlateConfig:
     """
-    [WHTOOLS] 판(Plate) 물리적 특성 및 수치 해석 설정
+    [WHTOOLS] 평판의 물리적 특성 및 수치 해석 설정을 관리합니다.
     """
     thickness: float = 2.0
     youngs_modulus: float = 210000.0
     poisson_ratio: float = 0.3
-
-    # [v7.3] JAX 해석 엔진의 자율 치수 복구 (W=0, H=0 처리)
-    def __post_init__(self):
-        # 70e9 (Pa) -> 70,000 (MPa) 변환 로직 (mm/MPa 단위계 유지)
-        if self.youngs_modulus > 1.0e6: 
-            self.youngs_modulus *= 1e-6
-        if self.thickness < 0.05: # m -> mm 보정 (0.001m -> 1.0mm)
-            self.thickness *= 1000.0
-            
-    poly_degree: int = 4
-    # [v7.4] 참조 구현(plate_by_markers.py)과 동일한 규제화 수준으로 복원
-    # 0.01은 응력을 과도하게 평활화하여 해상도를 낮추므로 원상 복구
-    reg_lambda: float = 1e-4
-    grad_lambda: float = 1e-4
+    polynomial_degree: int = 4
+    regularization_lambda: float = 1e-4
     mesh_resolution: int = 25
     batch_size: int = 256
-    theory_type: str = "KIRCHHOFF"
-    shear_correction: float = 5.0/6.0
-    margin_ratio: float = 0.05
 
-class AlignmentManager:
-    """
-    [WHTOOLS] 마커 데이터의 좌표계 정렬 및 강체 운동(Rigid Body Motion) 관리자
-    """
-    def __init__(self, raw_markers, W, H, offsets):
-        self.raw_data = jnp.array(raw_markers)
-        self.W, self.H = W, H
-        self.offsets = jnp.array(offsets)
-        self.n_frames, self.n_markers, _ = self.raw_data.shape
-        self._calibrate()
-
-    def _calibrate(self):
-        P0 = np.array(self.raw_data[0])
-        P_target = np.column_stack([self.offsets, np.zeros(self.n_markers)])
-        c_P = np.mean(P0, axis=0)
-        c_T = np.mean(P_target, axis=0)
-        H_mat = (P_target - c_T).T @ (P0 - c_P)
-        U, S, Vt = np.linalg.svd(H_mat)
-        R = U @ Vt
-        if np.linalg.det(R) < 0:
-            R = U @ np.diag([1.0, 1.0, -1.0]) @ Vt
-        self.local_axes = R.T
-        self.centroid_0 = c_P
-        self.x_bounds = [-self.W/2 - 5, self.W/2 + 5]
-        self.y_bounds = [-self.H/2 - 5, self.H/2 + 5]
-
-    @partial(jit, static_argnums=(0,))
-    def extract_kinematics_vmap(self, frame_markers):
-        P_ref = jnp.column_stack([self.offsets, jnp.zeros(self.n_markers)])
-        c_P_ref = jnp.mean(P_ref, axis=0)
-        def kabsch_single(Q):
-            c_Q = jnp.mean(Q, axis=0)
-            H = (P_ref - c_P_ref).T @ (Q - c_Q)
-            U, S, Vt = jnp.linalg.svd(H)
-            R = U @ Vt
-            R_corr = jnp.where(
-                jnp.linalg.det(R) < 0, 
-                U @ jnp.diag(jnp.array([1.0, 1.0, -1.0])) @ Vt, 
-                R
-            )
-            q_local = (Q - c_Q) @ R_corr + c_P_ref
-            return q_local, R_corr, c_Q, c_P_ref
-        return vmap(kabsch_single)(frame_markers)
-
-class AdvancedPlateOptimizer:
-    """
-    [WHTOOLS] 다항식 표면 근사(Polynomial Surface Fitting) 최적화 엔진
-    """
-    def __init__(self, degree_x: int = 4, degree_y: int = 4):
-        self.basis_indices = [(i, j) for i in range(degree_x + 1) for j in range(degree_y + 1)]
-        self.num_basis = len(self.basis_indices)
-        self.degree_x = degree_x
-        self.degree_y = degree_y
-
-    def get_basis_matrix(self, x_coords: jnp.ndarray, y_coords: jnp.ndarray) -> jnp.ndarray:
-        return jnp.stack([x_coords**i * y_coords**j for i, j in self.basis_indices], axis=1)
-
-    def get_hessian_basis(self, x_coords: jnp.ndarray, y_coords: jnp.ndarray) -> jnp.ndarray:
-        def compute_single_hessian(xi, yi):
-            hessian_elements = []
-            for i, j in self.basis_indices:
-                w_xx = i*(i-1) * xi**(jnp.maximum(0, i-2)) * yi**j if i >= 2 else 0.0
-                w_yy = j*(j-1) * xi**i * yi**(jnp.maximum(0, j-2)) if j >= 2 else 0.0
-                w_xy = i*j * xi**(jnp.maximum(0, i-1)) * yi**(jnp.maximum(0, j-1)) if i >= 1 and j >= 1 else 0.0
-                hessian_elements.append(jnp.array([w_xx, w_yy, w_xy]))
-            return jnp.stack(hessian_elements, axis=0)
-        return vmap(compute_single_hessian)(x_coords, y_coords)
-
-    def get_gradient_basis(self, x_coords: jnp.ndarray, y_coords: jnp.ndarray) -> jnp.ndarray:
-        def compute_single_gradient(xi, yi):
-            grad_elements = []
-            for i, j in self.basis_indices:
-                w_x = i * xi**(jnp.maximum(0, i-1)) * yi**j if i >= 1 else 0.0
-                w_y = j * xi**i * yi**(jnp.maximum(0, j-1)) if j >= 1 else 0.0
-                grad_elements.append(jnp.array([w_x, w_y]))
-            return jnp.stack(grad_elements, axis=0)
-        return vmap(compute_single_gradient)(x_coords, y_coords)
-
-    @partial(jit, static_argnums=(0,))
-    def solve_analytical(self, q_local: jnp.ndarray, p_ref: jnp.ndarray, 
-                         reg_lambda: float, grad_lambda: float = 0.0,
-                         fixed_stats: Optional[jnp.ndarray] = None):
-        Z_history = q_local[:, :, 2]
-        x_raw, y_raw = p_ref[:, 0], p_ref[:, 1]
+    @staticmethod
+    def from_simulation_data(simulation_data: Any, part_name: str) -> 'PlateConfig':
+        """
+        [WHTOOLS-A1] 시뮬레이션 결과에서 파트별 물성을 자동 매칭하고 단위를 보정(m -> mm)합니다.
+        """
+        config = PlateConfig()
+        p_name_lower = part_name.lower()
         
-        if fixed_stats is not None:
-            x_ctr, x_rng, y_ctr, y_rng = fixed_stats
-        else:
-            x_min, x_max = jnp.min(x_raw), jnp.max(x_raw)
-            y_min, y_max = jnp.min(y_raw), jnp.max(y_raw)
-            x_ctr, y_ctr = (x_max + x_min) / 2.0, (y_max + y_min) / 2.0
-            x_rng, y_rng = (x_max - x_min) / 2.0 + 1e-9, (y_max - y_min) / 2.0 + 1e-9
+        # 1. 라이브러리 기반 기본값 할당 (Heuristic Matching)
+        matched_lib = WHTOOLS_MATERIAL_LIB['default']
+        for key, props in WHTOOLS_MATERIAL_LIB.items():
+            if key in p_name_lower:
+                matched_lib = props
+                break
         
-        x_norm, y_norm = (x_raw - x_ctr) / x_rng, (y_raw - y_ctr) / y_rng
-        Phi = self.get_basis_matrix(x_norm, y_norm)
-        G_basis, H_basis = self.get_gradient_basis(x_norm, y_norm), self.get_hessian_basis(x_norm, y_norm)
-        num_pts = Phi.shape[0]
+        config.thickness = matched_lib['t']
+        config.youngs_modulus = matched_lib['E']
+        config.poisson_ratio = matched_lib['nu']
         
-        Gx_phys, Gy_phys = G_basis[:, :, 0] / jnp.maximum(1.0, x_rng), G_basis[:, :, 1] / jnp.maximum(1.0, y_rng)
-        K_grad = (Gx_phys.T @ Gx_phys + Gy_phys.T @ Gy_phys) / num_pts
-        
-        Bxx_phys = H_basis[:, :, 0] / (jnp.maximum(1.0, x_rng)**2)
-        Byy_phys = H_basis[:, :, 1] / (jnp.maximum(1.0, y_rng)**2)
-        Bxy_phys = H_basis[:, :, 2] / (jnp.maximum(1.0, x_rng) * jnp.maximum(1.0, y_rng))
-        K_bending = (Bxx_phys.T @ Bxx_phys + Byy_phys.T @ Byy_phys + 2.0 * Bxy_phys.T @ Bxy_phys) / num_pts
-        
-        System_Matrix = (Phi.T @ Phi) / num_pts + reg_lambda * K_bending + grad_lambda * K_grad
-        System_Matrix += jnp.eye(self.num_basis) * 1e-10
-        
-        @vmap
-        def solve_frame(z_frame):
-            p = solve(System_Matrix, (Phi.T @ z_frame) / num_pts)
-            z_fit = Phi @ p
-            rmse = jnp.sqrt(jnp.mean((z_frame - z_fit)**2))
-            return p, rmse
+        # 2. Simulation Config 매핑 및 단위 보정 (m -> mm)
+        if not hasattr(simulation_data, 'config'):
+            return config
             
-        params, rmses = solve_frame(Z_history)
-        stats = jnp.array([x_ctr, x_rng, y_ctr, y_rng])
-        return params, rmses, stats
+        sim_cfg = simulation_data.config
+        
+        # 파트별 특수 키워드 검색 (예: opencell_d, chassis_d 등)
+        part_key = p_name_lower.split('_')[0].replace('b', '')
+        potential_thick_keys = [f"{part_key}_thickness", f"{part_key}_d", "box_thick"]
+        
+        for k in potential_thick_keys:
+            if k in sim_cfg:
+                val = sim_cfg[k]
+                # [WHTOOLS] Meter-to-MM Check: 0.5m 미만이면 단위가 m일 확률이 높으므로 변환
+                if val < 0.5: val *= 1000.0
+                config.thickness = val
+                break
+                
+        # 영률 오버라이드 확인
+        E_val = sim_cfg.get(f"{part_key}_E", sim_cfg.get("youngs_modulus"))
+        if E_val is not None:
+            # GPa -> MPa 보정
+            if E_val < 1000.0: E_val *= 1000.0 
+            config.youngs_modulus = E_val
+            
+        return config
+
+class RigidBodyKinematicsManager:
+    """
+    [WHTOOLS] 마커 데이터로부터 강체의 운동을 추출하고 로컬 좌표계 변환을 관리합니다.
+    plate_by_markers.py의 고안정성 Kabsch 알고리즘을 계승합니다.
+    """
+    def __init__(self, marker_history: np.ndarray, W: float = 0, H: float = 0):
+        self.raw_marker_data = jnp.array(marker_history)
+        self.n_frames, self.n_markers, _ = self.raw_marker_data.shape
+        self.W, self.H = W, H
+        self._initialize_local_frame()
+
+    def _initialize_local_frame(self):
+        """초기 프레임(Frame 0)을 기준으로 로컬 좌표계(PCA 기반)를 수립합니다."""
+        initial_markers = self.raw_marker_data[0]
+        initial_centroid = jnp.mean(initial_markers, axis=0)
+        centered_markers = initial_markers - initial_centroid
+        
+        # PCA를 통한 주축(Principal Axes) 추출
+        covariance_matrix = np.cov(np.array(centered_markers).T)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance_matrix + np.eye(3)*1e-9)
+        sort_indices = eigenvalues.argsort()[::-1]
+        self.local_basis_axes = jnp.array(eigenvectors[:, sort_indices])
+        
+        # 로컬 좌표계로 투영하여 범위 확인
+        markers_local = centered_markers @ self.local_basis_axes
+        p_min, p_max = markers_local.min(axis=0), markers_local.max(axis=0)
+        
+        # 수치적 안정성을 위한 여유(Margin) 설정 (5% -> 1%로 축소하여 정밀도 향상)
+        applied_margin = jnp.max(p_max - p_min) * 0.01
+        
+        # 로컬 원점(Centroid) 재설정
+        self.local_centroid_0 = initial_centroid + ((p_min + p_max) / 2.0) @ self.local_basis_axes.T
+        markers_local_corrected = (initial_markers - self.local_centroid_0) @ self.local_basis_axes
+        
+        # 수동 입력된 W, H 가 없을 경우 데이터로부터 추정
+        if self.W == 0: self.W = float(markers_local_corrected[:, 0].max() - markers_local_corrected[:, 0].min())
+        if self.H == 0: self.H = float(markers_local_corrected[:, 1].max() - markers_local_corrected[:, 1].min())
+        
+        self.x_bounds = [
+            float(markers_local_corrected[:, 0].min() - applied_margin), 
+            float(markers_local_corrected[:, 0].max() + applied_margin)
+        ]
+        self.y_bounds = [
+            float(markers_local_corrected[:, 1].min() - applied_margin), 
+            float(markers_local_corrected[:, 1].max() + applied_margin)
+        ]
+        # Raw dimensions for UI
+        self.actual_w = float(markers_local_corrected[:, 0].max() - markers_local_corrected[:, 0].min())
+        self.actual_h = float(markers_local_corrected[:, 1].max() - markers_local_corrected[:, 1].min())
+        self.y_bounds = [
+            float(markers_local_corrected[:, 1].min() - applied_margin), 
+            float(markers_local_corrected[:, 1].max() + applied_margin)
+        ]
+
+    @partial(jit, static_argnums=(0,))
+    def extract_kinematics_vmap(self, frame_markers_batch: jnp.ndarray):
+        """배치 단위 Kabsch 알고리즘으로 회전 및 이동량 추출"""
+        reference_markers = self.raw_marker_data[0]
+        def kabsch_single(current_markers):
+            ref_c = jnp.mean(reference_markers, axis=0)
+            cur_c = jnp.mean(current_markers, axis=0)
+            H = (current_markers - cur_c).T @ (reference_markers - ref_c)
+            U, S, Vh = jnp.linalg.svd(H)
+            R = Vh.T @ U.T
+            R_corr = jnp.where(jnp.linalg.det(R) < 0, (Vh.T @ jnp.diag(jnp.array([1.0, 1.0, -1.0]))) @ U.T, R)
+            local_disp = ((current_markers - cur_c) @ R_corr.T + ref_c - self.local_centroid_0) @ self.local_basis_axes
+            return local_disp, R_corr, cur_c, ref_c
+        return vmap(kabsch_single)(frame_markers_batch)
+
+class KirchhoffPlateOptimizer:
+    """[WHTOOLS] 다항식 기저 기반 평판 해석 최적화 엔진"""
+    def __init__(self, degree: int = 4):
+        self.degree = degree
+        self.active_degree_x = degree
+        self.active_degree_y = degree
+        self.n_markers = 25
+
+    def update_active_degree(self, n_pts: int, aspect_ratio: float = 1.0):
+        """마커 개수 및 종횡비에 기반하여 수치적으로 안전한 차수를 결정합니다."""
+        self.n_markers = n_pts
+        
+        # 1. 마커 수 기준 전체 차수 하향 (Underdetermined 방지)
+        common_deg = self.degree
+        if n_pts < 16: common_deg = min(common_deg, 2)
+        elif n_pts < 25: common_deg = min(common_deg, 3)
+        
+        self.active_degree_x = common_deg
+        self.active_degree_y = common_deg
+        
+        # 2. [WHTOOLS v7.5.5] 종횡비 기반 차수 제한 (Thin edge 발산 방지)
+        # 가로가 훨씬 긴 경우, 세로(y) 방향 차수 제한
+        if aspect_ratio > 20.0:
+            self.active_degree_y = 0
+            # print(f"      [Robust] High Aspect Ratio ({aspect_ratio:.1f}) detected. Limiting 2D basis to 1D-dominant.")
+        elif aspect_ratio < 0.05:
+            self.active_degree_x = 0
+
+    @property
+    def n_basis(self):
+        return (self.active_degree_x + 1) * (self.active_degree_y + 1)
+
+    def get_basis_matrix(self, x_norm, y_norm):
+        n_pts = x_norm.shape[0]
+        dx, dy = self.active_degree_x, self.active_degree_y
+        A = jnp.zeros((n_pts, (dx + 1) * (dy + 1)))
+        for i in range(dx + 1):
+            for j in range(dy + 1):
+                idx = i * (dy + 1) + j
+                A = A.at[:, idx].set((x_norm**i) * (y_norm**j))
+        return A
+
+    def get_hessian_basis(self, x_norm, y_norm):
+        n_pts = x_norm.shape[0]
+        dx, dy = self.active_degree_x, self.active_degree_y
+        H = jnp.zeros((n_pts, (dx + 1) * (dy + 1), 3))
+        for i in range(dx + 1):
+            for j in range(dy + 1):
+                idx = i * (dy + 1) + j
+                if i >= 2: H = H.at[:, idx, 0].set(i * (i - 1) * (x_norm**(i - 2)) * (y_norm**j))
+                if j >= 2: H = H.at[:, idx, 1].set(j * (j - 1) * (x_norm**i) * (y_norm**(j - 2)))
+                if i >= 1 and j >= 1: H = H.at[:, idx, 2].set(i * j * (x_norm**(i - 1)) * (y_norm**(j - 1)))
+        return H
+
+    @partial(jit, static_argnums=(0,))
+    def solve_coefficients(self, local_displacements, ref_markers_local, reg_lambda):
+        x_raw, y_raw = ref_markers_local[:, 0], ref_markers_local[:, 1]
+        x_scale, y_scale = jnp.max(jnp.abs(x_raw)) + 1e-9, jnp.max(jnp.abs(y_raw)) + 1e-9
+        x_norm, y_norm = x_raw / x_scale, y_raw / y_scale
+        
+        # [WHTOOLS] 동적 차수 적용을 위한 행렬 생성
+        Phi = self.get_basis_matrix(x_norm, y_norm)
+        H_basis = self.get_hessian_basis(x_norm, y_norm)
+        
+        # 실제 사용된 기저 차수 확인
+        n_basis_active = Phi.shape[1]
+        
+        Bxx, Byy, Bxy = H_basis[:,:,0]/(x_scale**2), H_basis[:,:,1]/(y_scale**2), H_basis[:,:,2]/(x_scale*y_scale)
+        n_pts = Phi.shape[0]
+        
+        K = (Phi.T @ Phi) / n_pts
+        R = reg_lambda * (Bxx.T @ Bxx + Byy.T @ Byy + 2.0 * Bxy.T @ Bxy) / n_pts
+        
+        # [WHTOOLS] v7.5.2: 릿지 가중치 강화 (Singular/Ill-conditioned 대응)
+        ridge = jnp.eye(self.n_basis) * (1e-6 if n_pts < self.n_basis * 2 else 1e-9)
+        M = K + R + ridge
+        
+        Z = local_displacements[:, :, 2]
+        @vmap
+        def solve_one(zi): return solve(M, (Phi.T @ zi) / n_pts)
+        return solve_one(Z), (x_scale, y_scale)
 
 class PlateMechanicsSolver:
-    """
-    [WHTOOLS] 기계공학적 판 이론(Plate Theory) 물리 해석기
-    """
+    """[WHTOOLS] 응력 및 변형률 필드 산출기"""
     def __init__(self, config: PlateConfig):
         self.cfg = config
-        # [WHTOOLS] [v7.0] 단위계가 mm로 고정되었으므로 하드 리미터 제거 (물리적 자유도 확보)
         self.D = (config.youngs_modulus * config.thickness**3) / (12.0 * (1.0 - config.poisson_ratio**2))
         self.res = config.mesh_resolution
-        self.optimizer = AdvancedPlateOptimizer(degree_x=config.poly_degree, degree_y=config.poly_degree)
+        self.opt = KirchhoffPlateOptimizer(degree=config.polynomial_degree)
 
-    def setup_mesh(self, x_bounds: Tuple[float, float], y_bounds: Tuple[float, float]):
-        self.x_lin = jnp.linspace(x_bounds[0], x_bounds[1], self.res)
-        self.y_lin = jnp.linspace(y_bounds[0], y_bounds[1], self.res)
+    def setup_mesh(self, xb, yb):
+        self.x_lin = jnp.linspace(xb[0], xb[1], self.res)
+        self.y_lin = jnp.linspace(yb[0], yb[1], self.res)
         self.X_mesh, self.Y_mesh = jnp.meshgrid(self.x_lin, self.y_lin)
 
     @partial(jit, static_argnums=(0,))
-    def evaluate_batch(self, p_coeffs_batch: jnp.ndarray, norm_stats: jnp.ndarray):
-        x_ctr, x_rng, y_ctr, y_rng = norm_stats
-        X_flat, Y_flat = self.X_mesh.ravel(), self.Y_mesh.ravel()
-        X_norm, Y_norm = (X_flat - x_ctr) / x_rng, (Y_flat - y_ctr) / y_rng
-        Phi_mesh = self.optimizer.get_basis_matrix(X_norm, Y_norm)
-        H_mesh = self.optimizer.get_hessian_basis(X_norm, Y_norm)
-
-        def compute_triple_derivatives(xi, yi):
-            triple_el = []
-            for i, j in self.optimizer.basis_indices:
-                w_xxx = i*(i-1)*(i-2) * xi**(jnp.maximum(0,i-3)) * yi**j if i>=3 else 0.0
-                w_yyy = j*(j-1)*(j-2) * xi**i * yi**(jnp.maximum(0,j-3)) if j>=3 else 0.0
-                w_xxy = i*(i-1)*j * xi**(jnp.maximum(0,i-2)) * yi**(jnp.maximum(0,j-1)) if i>=2 and j>=1 else 0.0
-                w_xyy = i*j*(j-1) * xi**(jnp.maximum(0,i-1)) * yi**(jnp.maximum(0,j-2)) if i>=1 and j>=2 else 0.0
-                triple_el.append(jnp.array([w_xxx, w_yyy, w_xxy, w_xyy]))
-            return jnp.stack(triple_el, axis=0)
-
-        def compute_gradient_basis(xi, yi):
-            grad_el = []
-            for i, j in self.optimizer.basis_indices:
-                dw_dx = i * xi**(jnp.maximum(0, i-1)) * yi**j if i>=1 else 0.0
-                dw_dy = j * xi**i * yi**(jnp.maximum(0, j-1)) if j>=1 else 0.0
-                grad_el.append(jnp.array([dw_dx, dw_dy]))
-            return jnp.stack(grad_el, axis=0)
-
-        T_mesh = vmap(compute_triple_derivatives)(X_flat, Y_flat)
-        G_mesh = vmap(compute_gradient_basis)(X_flat, Y_flat)
-
+    def compute_fields_batch(self, coeffs_batch, scales):
+        xs, ys = scales
+        Xn, Yn = self.X_mesh.ravel() / xs, self.Y_mesh.ravel() / ys
+        Phi_eval = self.opt.get_basis_matrix(Xn, Yn)
+        H_eval = self.opt.get_hessian_basis(Xn, Yn)
+        
         @vmap
-        def evaluate_single_frame(p):
-            w_field = (Phi_mesh @ p).reshape(self.res, self.res)
+        def eval_one(p):
+            w = (Phi_eval @ p).reshape(self.res, self.res)
+            kxx = -jnp.dot(H_eval[:,:,0], p).reshape(self.res, self.res) / (xs**2)
+            kyy = -jnp.dot(H_eval[:,:,1], p).reshape(self.res, self.res) / (ys**2)
+            kxy = -jnp.dot(H_eval[:,:,2], p).reshape(self.res, self.res) / (xs*ys)
             
-            # [WHTOOLS] [v7.1] 물리적 스케일링 보정 (정규화 공간 -> 물리 mm 공간)
-            k_raw = -jnp.einsum('nkd,k->nd', H_mesh, p).reshape(self.res, self.res, 3)
-            # 2계 미분은 길이의 제곱에 반비례하므로 x_rng^2, y_rng^2 등으로 스케일링
-            kxx = k_raw[..., 0] / (x_rng**2)
-            kyy = k_raw[..., 1] / (y_rng**2)
-            kxy = k_raw[..., 2] / (x_rng * y_rng)
+            s_coeff = 6.0 * self.D / (self.cfg.thickness**2)
+            sx, sy, txy = s_coeff*(kxx + self.cfg.poisson_ratio*kyy), s_coeff*(kyy + self.cfg.poisson_ratio*kxx), s_coeff*(1.-self.cfg.poisson_ratio)*kxy
+            vm = jnp.sqrt(jnp.maximum(sx**2 - sx*sy + sy**2 + 3*txy**2, 1e-12))
             
-            stress_coeff = 6.0 * self.D / (self.cfg.thickness**2)
-            sigma_x_bending = stress_coeff * (kxx + self.cfg.poisson_ratio * kyy)
-            sigma_y_bending = stress_coeff * (kyy + self.cfg.poisson_ratio * kxx)
-            tau_xy_bending = stress_coeff * (1.0 - self.cfg.poisson_ratio) * kxy
-            total_sx, total_sy = sigma_x_bending, sigma_y_bending
-
-            if self.cfg.theory_type == "MINDLIN":
-                t_vals = jnp.einsum('nkd,k->nd', T_mesh, p).reshape(self.res, self.res, 4)
-                # 3계 미분은 길이의 세제곱에 반비례
-                w_xxx = t_vals[..., 0] / (x_rng**3)
-                w_yyy = t_vals[..., 1] / (y_rng**3)
-                w_xxy = t_vals[..., 2] / (x_rng**2 * y_rng)
-                w_xyy = t_vals[..., 3] / (x_rng * y_rng**2)
-                Vx = -self.D * (w_xxx + w_xyy)
-                Vy = -self.D * (w_yyy + w_xxy)
-            elif self.cfg.theory_type == "VON_KARMAN":
-                g_vals = jnp.einsum('nkd,k->nd', G_mesh, p).reshape(self.res, self.res, 2)
-                # 1계 미분(기울기)은 길이에 반비례
-                dw_dx, dw_dy = g_vals[..., 0] / x_rng, g_vals[..., 1] / y_rng
-                E_eff = self.cfg.youngs_modulus / (1.0 - self.cfg.poisson_ratio**2)
-                total_sx += E_eff * (0.5 * dw_dx**2 + self.cfg.poisson_ratio * 0.5 * dw_dy**2)
-                total_sy += E_eff * (0.5 * dw_dy**2 + self.cfg.poisson_ratio * 0.5 * dw_dx**2)
-
-            von_mises = jnp.sqrt(jnp.maximum(total_sx**2 - total_sx*total_sy + total_sy**2 + 3*tau_xy_bending**2, 1e-12))
+            # 주응력
+            s_avg, s_rad = (sx + sy)/2.0, jnp.sqrt(jnp.maximum(((sx-sy)/2.0)**2 + txy**2, 1e-12))
             
-            # [WHTOOLS] [v6.9a] 물리적 한계치 클리핑 (ParaView 크래시 방어)
-            # 10,000 MPa 이상의 극단적인 수치는 시각화 안정성을 위해 클리핑
-            von_mises = jnp.clip(von_mises, 0.0, 10000.0)
-            total_sx = jnp.clip(total_sx, -10000.0, 10000.0)
-            total_sy = jnp.clip(total_sy, -10000.0, 10000.0)
-            tau_xy_bending = jnp.clip(tau_xy_bending, -10000.0, 10000.0)
-            mean_curvature = 0.5 * (kxx + kyy) 
-            gauss_curvature = kxx * kyy - kxy**2
-            s_mean = 0.5 * (total_sx + total_sy)
-            s_diff = 0.5 * (total_sx - total_sy)
-            s_radius = jnp.sqrt(jnp.maximum(s_diff**2 + tau_xy_bending**2, 1e-12))
-            sigma_1, sigma_2 = s_mean + s_radius, s_mean - s_radius
-
+            # 변형률 (Strain) - [A2] Kirchhoff 집중
+            eps_x, eps_y, gam_xy = (self.cfg.thickness/2.0)*kxx, (self.cfg.thickness/2.0)*kyy, (self.cfg.thickness)*kxy
+            e_avg, e_rad = (eps_x + eps_y)/2.0, jnp.sqrt(jnp.maximum(((eps_x-eps_y)/2.0)**2 + (gam_xy/2.0)**2, 1e-20))
+            eq_eps = (2.0/3.0) * jnp.sqrt(jnp.maximum(1.5*(eps_x**2 + eps_y**2) + 0.75*gam_xy**2, 1e-20))
+            
             fields = {
-                'Displacement [mm]': w_field, 'Stress XX [MPa]': total_sx, 'Stress YY [MPa]': total_sy,
-                'Stress XY [MPa]': tau_xy_bending, 'Shear Stress XY [MPa]': tau_xy_bending,
-                'Von-Mises [MPa]': von_mises, 'Max. Principal Stress [MPa]': sigma_1,
-                'Min. Principal Stress [MPa]': sigma_2, 'Mean Curvature [1/mm]': mean_curvature,
-                'Gauss Curvature [1/mm^2]': gauss_curvature
+                'Displacement [mm]': w, 'Stress XX [MPa]': sx, 'Stress YY [MPa]': sy, 'Stress XY [MPa]': txy,
+                'Von-Mises [MPa]': vm, 'Principal Max [MPa]': s_avg + s_rad, 'Principal Min [MPa]': s_avg - s_rad,
+                'Strain XX [mm/mm]': eps_x, 'Strain YY [mm/mm]': eps_y, 'Strain XY [mm/mm]': gam_xy,
+                'Strain Max Principal [mm/mm]': e_avg + e_rad, 'Strain Min Principal [mm/mm]': e_avg - e_rad,
+                'Eq. Strain [mm/mm]': eq_eps
             }
+            # 리프터 호환성용 별칭
+            fields['Bending Stress [MPa]'] = fields['Von-Mises [MPa]']
+            
             stats = {f'Mean-{k}': jnp.mean(v) for k, v in fields.items()}
             stats.update({f'Max-{k}': jnp.max(v) for k, v in fields.items()})
             return {**fields, **stats}
-        return evaluate_single_frame(p_coeffs_batch)
+        return eval_one(coeffs_batch)
 
 class ShellDeformationAnalyzer:
-    """
-    [WHTOOLS] 통합 판 변형 분석기 (JAX 가속 버전)
-    """
-    def __init__(self, W: float = 0, H: float = 0, thickness: float = 1.0, E: float = 210000.0, nu: float = 0.3, name: str = "Part"):
-        self.name, self.W, self.H, self.thickness, self.nu = name, W, H, thickness, nu
-        
-        # [WHTOOLS] [v6.9c] 영률(E) 단위 정규화 및 가드
-        if E > 1e7: # Pa
-            self.E = E * 1e-6
-        elif E < 10.0: # GPa
-            self.E = E * 1000.0
-        else: # MPa
-            self.E = E
-            
-        print(f"  > [Integrity] {self.name}: E fixed to {self.E:.1f} MPa.", flush=True)
-        self.cfg = PlateConfig(thickness=self.thickness, youngs_modulus=self.E, poisson_ratio=self.nu)
-        self.m_raw = self.m_data_hist = self.o_data = self.o_data_hint = None
-        self.ref_markers = self.ref_basis = self.ref_center = self.weights = None
-        self.sol = PlateMechanicsSolver(self.cfg)
+    """[WHTOOLS] 멀티 파트 통합 분석기 (Stabilized v7.5)"""
+    def __init__(self, W=0, H=0, thickness=2.0, E=210000.0, nu=0.3, name="Part"):
+        self.name = name
+        self.W, self.H = W, H
+        self.cfg = PlateConfig(thickness=thickness, youngs_modulus=E, poisson_ratio=nu)
+        self.m_raw = self.m_data_hist = self.times = None
+        self.kin = self.sol = None
         self.results = {}
 
-    def run_analysis(self) -> bool:
-        try:
-            if self.m_raw is not None: return self.analyze(self.m_raw, o_data_hint=self.o_data_hint)
-            elif self.m_data_hist is not None: return self.analyze(self.m_data_hist, o_data_hint=self.o_data_hint)
-        except Exception as e:
-            print(f"❌ Critical Error in {self.name}: {str(e)}")
-            import traceback; traceback.print_exc()
-        return False
+    @property
+    def ref_basis(self): return self.kin.local_basis_axes if self.kin else None
+    @property
+    def ref_center(self): return self.kin.local_centroid_0 if self.kin else None
 
-    def fit_reference_plane(self, m_data_init: np.ndarray, o_data_hint: np.ndarray = None) -> np.ndarray:
-        self.ref_markers = np.array(m_data_init)
-        self.ref_center = np.mean(m_data_init, axis=0)
-        if o_data_hint is not None:
-            self.o_data = np.array(o_data_hint)
-            P_world, P_local = self.ref_markers - self.ref_center, np.column_stack([self.o_data, np.zeros(len(self.o_data))])
-            c_L = np.mean(P_local, axis=0)
-            H = (P_local - c_L).T @ P_world
-            U, S, Vt = np.linalg.svd(H)
-            R = U @ Vt
-            if np.linalg.det(R) < 0: R = U @ np.diag([1.0, 1.0, -1.0]) @ Vt
-            self.ref_basis = R
-        else:
-            U, S, Vh = np.linalg.svd(self.ref_markers - self.ref_center)
-            self.ref_basis = Vh
-            self.o_data = (self.ref_markers - self.ref_center) @ self.ref_basis[:2].T
-            actual_w, actual_h = np.max(self.o_data[:, 0]) - np.min(self.o_data[:, 0]), np.max(self.o_data[:, 1]) - np.min(self.o_data[:, 1])
-            if self.W > 0 and self.H > 0:
-                if (self.W > self.H and actual_w < actual_h) or (self.W < self.H and actual_w > actual_h):
-                    self.ref_basis[[0, 1]] = self.ref_basis[[1, 0]]
-                    self.o_data = (self.ref_markers - self.ref_center) @ self.ref_basis[:2].T
-        if self.W == 0: self.W = float(np.max(self.o_data[:, 0]) - np.min(self.o_data[:, 0]))
-        if self.H == 0: self.H = float(np.max(self.o_data[:, 1]) - np.min(self.o_data[:, 1]))
-        dist_sq = np.sum(np.square(self.o_data), axis=1)
-        # [WHTOOLS] [v7.0] 좁은 부품에서도 정렬이 안정되도록 최소 sigma(50mm) 확보
-        sigma = max(min(self.W, self.H) * 0.4, 50.0)
-        self.weights = np.exp(-dist_sq / (2 * sigma**2 + 1e-9))
-        w_sum = np.sum(self.weights)
-        if w_sum > 1e-12:
-            self.weights /= w_sum
-        else:
-            self.weights = np.ones(len(self.o_data)) / len(self.o_data)
-        # [v7.4b] 마진 제거: 마커 범위 밖에서 다항식 외삽(Runge 현상) 방지
-        # 메쉬 평가 범위를 마커 실제 분포 범위 내로 엄격히 제한
-        self.sol.setup_mesh(
-            (float(np.min(self.o_data[:, 0])), float(np.max(self.o_data[:, 0]))),
-            (float(np.min(self.o_data[:, 1])), float(np.max(self.o_data[:, 1])))
-        )
-        return self.o_data
-
-    def remove_rigid_motion(self, m_data_frame: np.ndarray, prev_R: np.ndarray = None, prev_normal: np.ndarray = None):
-        """
-        강체 운동 제거 - 하이브리드 정합 전략:
-        1단계: Kabsch SVD 정렬 시도
-        2단계: SVD 품질 불량(planar_ratio<0.15) 또는 R-RMSE 과대 시 → PCA(공분산 고유벡터) 기반 정렬로 자동 전환
-        참조: plate_by_markers.py의 KinematicsManager._setup_global_to_local() 방식 계승
-        """
-        if self.ref_markers is None: return (None, None, None, None, None, None)
-        W = self.weights[:, np.newaxis]
-        curr_center, ref_center_w = np.sum(m_data_frame * W, axis=0), np.sum(self.ref_markers * W, axis=0)
-        P_c, Q_c = self.ref_markers - ref_center_w, m_data_frame - curr_center
-        H = (P_c * W).T @ Q_c
-        H += np.eye(3) * 1e-12
+    def run_analysis(self, sim_data=None) -> bool:
+        """분석 파이프라인 실행"""
+        # [v7.5.1] m_raw 또는 m_data_hist(v6 호환성) 중 하나가 있으면 사용
+        markers = self.m_raw if self.m_raw is not None else self.m_data_hist
+        if markers is None: return False
+        self.m_raw = markers # 내부적으로 m_raw로 통일
         
-        svd_quality_ok = False
-        R = prev_R if prev_R is not None else np.eye(3)
+        # [A1] 시뮬레이션 데이터에서 설정 자동 추출 시도
+        if sim_data is not None:
+            self.cfg = PlateConfig.from_simulation_data(sim_data, self.name)
         
-        try:
-            U, S, Vt = np.linalg.svd(H)
-            
-            if S[0] > 1e-6:
-                planar_ratio = S[1] / S[0]
-                if planar_ratio >= 0.15:
-                    # [1단계 성공] SVD 품질 양호 - Kabsch 결과 적용
-                    R = U @ Vt
-                    svd_quality_ok = True
-                else:
-                    # 마커 배치가 선형(collinear)에 가깝거나 이전 프레임 참조 가능 시 유지
-                    if prev_R is not None:
-                        R = prev_R
-                        svd_quality_ok = True  # 이전 값 재사용으로 안정성 유지
-            # S[0]<=1e-6 이면 R = prev_R (위에서 이미 초기화됨)
+        # 매칭된 재료 정보 로그 출력
+        p_name_lower = self.name.lower()
+        mat_desc = "Standard Steel"
+        for key, props in WHTOOLS_MATERIAL_LIB.items():
+            if key in p_name_lower:
+                mat_desc = props['desc']
+                break
                 
-            if np.linalg.det(R) < 0:
-                R = U @ np.diag([1.0, 1.0, -1.0]) @ Vt
-                
-        except np.linalg.LinAlgError:
-            svd_quality_ok = False
+        print(f"  > [Analyzing] {self.name:<24} | Material: {mat_desc}", flush=True)
+        print(f"    - Properties: E={self.cfg.youngs_modulus:,.0f} MPa, t={self.cfg.thickness:.2f} mm, v={self.cfg.poisson_ratio:.2f}", flush=True)
+        print(f"    - Dimensions: {len(self.m_raw[0])} markers, {len(self.m_raw)} frames", flush=True)
         
-        # [2단계] SVD 품질 불량 시 PCA(공분산 고유벡터) 기반 정렬로 전환
-        # 참조본(plate_by_markers.py) KinematicsManager의 eigh(cov) 방식과 동일한 원리
-        if not svd_quality_ok:
-            try:
-                P0_centered = self.ref_markers - np.mean(self.ref_markers, axis=0)
-                cov = np.cov(P0_centered.T)
-                evals, evecs = np.linalg.eigh(cov)
-                idx = evals.argsort()[::-1]
-                local_axes = evecs[:, idx]  # 공분산 주축 = 로컬 기저
-                # 현재 프레임 PCA 주축과 기준 주축의 정렬 행렬 산출
-                Q0_centered = m_data_frame - np.mean(m_data_frame, axis=0)
-                cov_q = np.cov(Q0_centered.T)
-                evals_q, evecs_q = np.linalg.eigh(cov_q)
-                idx_q = evals_q.argsort()[::-1]
-                local_axes_q = evecs_q[:, idx_q]
-                R = local_axes @ local_axes_q.T
-                if np.linalg.det(R) < 0:
-                    local_axes_q[:, -1] *= -1
-                    R = local_axes @ local_axes_q.T
-                print(f"  > [ROBUST-ALIGN] {self.name}: PCA fallback activated (SVD quality insufficient).", flush=True)
-            except Exception:
-                R = prev_R if prev_R is not None else np.eye(3)
+        # 기구학 매니저 초기화
+        self.kin = RigidBodyKinematicsManager(self.m_raw)
         
-        if prev_normal is not None:
-            if np.dot(R[:, 2], prev_normal) < 0: R[:, 2] *= -1.0
+        # UI 시각화용 치수는 마진을 제외한 순수 마커 범위 사용 (사용자 피드백 반영: Tight Bounding Box)
+        self.W, self.H = self.kin.actual_w, self.kin.actual_h
+        aspect = self.W / (self.H + 1e-9)
+        # print(f"    - Local Area: {lx[1]-lx[0]:.1f} x {ly[1]-ly[0]:.1f} mm (Aspect: {aspect:.2f})", flush=True)
         
-        m_rigid_aligned = Q_c @ R.T
-        r_rmse = np.sqrt(np.sum(np.square(m_rigid_aligned - P_c)[:, :2] * self.weights[:, np.newaxis]))
-        normal_displacement = (m_rigid_aligned - P_c) @ self.ref_basis[2]
-        return (R, curr_center, ref_center_w, m_rigid_aligned, normal_displacement, r_rmse)
-
-    def analyze(self, m_data_hist: np.ndarray, o_data_hint: np.ndarray = None) -> bool:
-        n_frames, n_markers, _ = m_data_hist.shape
-        self.m_raw = m_data_hist
-        # [WHTOOLS] [v7.0] 상위 단계에서 scale_result_to_mm가 수행되므로 불안정한 로컬 판정 제거
-        n_frames, n_markers, _ = m_data_hist.shape
-        self.m_raw = m_data_hist
-        if self.ref_markers is None: self.fit_reference_plane(m_data_hist[0], o_data_hint=o_data_hint)
+        # 솔버 초기화 및 메쉬 설정 (마커 개수 및 종횡비 비례하여 차수 자율 결정)
+        self.sol = PlateMechanicsSolver(self.cfg)
+        self.sol.opt.update_active_degree(len(self.m_raw[0]), aspect_ratio=aspect)
+        self.sol.setup_mesh(self.kin.x_bounds, self.kin.y_bounds)
         
-        # [WHTOOLS] 메쉬 설정 보장 (o_data_hint가 없어도 fit_reference_plane에서 검출된 o_data 사용)
-        if o_data_hint is not None:
-            self.o_data = o_data_hint
+        # 1. 기구학 분리 (JAX vmap)
+        local_disp, R_mat, cur_c, ref_c = self.kin.extract_kinematics_vmap(self.m_raw)
         
-        self.W, self.H = float(np.max(self.o_data[:, 0]) - np.min(self.o_data[:, 0])), float(np.max(self.o_data[:, 1]) - np.min(self.o_data[:, 1]))
-        # [v7.4b] 마진 제거: 마커 분포 범위 내에서만 메쉬 평가 (Runge 현상 방지)
-        self.sol.setup_mesh(
-            (float(np.min(self.o_data[:, 0])), float(np.max(self.o_data[:, 0]))),
-            (float(np.min(self.o_data[:, 1])), float(np.max(self.o_data[:, 1])))
-        )
-        all_w, all_R, all_cq, all_rmses, prev_normal, prev_R = [], [], [], [], None, None
-        for i in range(n_frames):
-            R, cq, cp, m_aligned, w_disp, r_rmse = self.remove_rigid_motion(m_data_hist[i], prev_R=prev_R, prev_normal=prev_normal)
-            all_w.append(w_disp); all_R.append(R); all_cq.append(cq); all_rmses.append(r_rmse); prev_normal = R[:, 2]; prev_R = R
-        all_displacement_w = np.stack(all_w); all_displacement_w_rel = all_displacement_w - all_displacement_w[0]
-        def count_unique(coords, tol=1e-3):
-            sorted_coords = np.sort(coords); diffs = np.diff(sorted_coords)
-            return np.sum(diffs > tol) + 1
-        n_ux, n_uy = count_unique(self.o_data[:, 0]), count_unique(self.o_data[:, 1])
+        # 2. 다항식 피팅
+        coeffs, scales = self.sol.opt.solve_coefficients(local_disp, local_disp[0], self.cfg.regularization_lambda)
         
-        # [WHTOOLS] [v7.4b] 안전 최대 차수 공식 (Safe Degree Rule)
-        # 원칙: 축당 데이터 점 수의 절반을 안전 상한으로 설정
-        #       → 점 수보다 차수가 과도하게 높아지는 Runge 현상(경계 발산) 방지
-        #       → 사용자 설정(poly_degree)은 항상 상한으로 존중
-        # 예시: n_ux=6(6×6 격자) → safe=3, n_ux=4 → safe=2, n_ux=2 → safe=1
-        safe_deg_x = max(1, n_ux // 2)
-        safe_deg_y = max(1, n_uy // 2)
-        deg_x = min(self.cfg.poly_degree, safe_deg_x)
-        deg_y = min(self.cfg.poly_degree, safe_deg_y)
+        # 3. 물리 필드 산출 (배치 처리)
+        n_frames = len(self.m_raw)
+        batch_size = self.cfg.batch_size
+        all_frames_results = []
         
-        # 종횡비가 극단적인 경우 추가 보수 제한 (8:1 이상)
-        if max(self.W, self.H) / (min(self.W, self.H) + 1e-9) > 8.0:
-            if self.W < self.H: deg_x = min(deg_x, 2)
-            else: deg_y = min(deg_y, 2)
-        self.sol.optimizer = AdvancedPlateOptimizer(degree_x=deg_x, degree_y=deg_y)
-        
-        if deg_x != self.cfg.poly_degree or deg_y != self.cfg.poly_degree:
-            print(f"  > [DEGREE-SAFE] {self.name:<24} Degree adjusted to [{deg_x}x{deg_y}] (safe_max=[{safe_deg_x}x{safe_deg_y}], n_pts=[{n_ux}x{n_uy}])", flush=True)
-
-        
-        # [WHTOOLS] 수치적 안정성을 위해 nan을 0.0으로 치환 후 JAX 솔버 진입
-        clean_disp_rel = np.nan_to_num(all_displacement_w_rel, nan=0.0)
-        q_loc_jax = jnp.zeros((n_frames, n_markers, 3)).at[:, :, 0].set(self.o_data[:, 0]).at[:, :, 1].set(self.o_data[:, 1]).at[:, :, 2].set(jnp.array(clean_disp_rel))
-        p_ref_jax = jnp.column_stack([self.o_data, jnp.zeros(n_markers)])
-        
-        _, _, init_stats = self.sol.optimizer.solve_analytical(q_loc_jax[:1], p_ref_jax, self.cfg.reg_lambda)
-        params, rmses, norm_stats = self.sol.optimizer.solve_analytical(q_loc_jax, p_ref_jax, self.cfg.reg_lambda, grad_lambda=self.cfg.grad_lambda, fixed_stats=init_stats)
-        batch_results = self.sol.evaluate_batch(params, norm_stats)
-        m_global_disp = m_data_hist - m_data_hist[0]
-        dt = np.median(np.diff(self.times)) if hasattr(self, 'times') and len(self.times) > 1 else 0.001
-        m_vel = np.zeros_like(m_global_disp); m_vel[1:] = np.diff(m_global_disp, axis=0) / dt
-        m_acc = np.zeros_like(m_vel); m_acc[1:] = np.diff(m_vel, axis=0) / dt
-        self.results = {k: np.array(v) for k, v in batch_results.items()}
-        # [WHTOOLS] 리포터 호환성을 위해 Von-Mises를 Bending Stress로 별칭 지정
-        if 'Von-Mises [MPa]' in self.results:
-            self.results['Bending Stress [MPa]'] = self.results['Von-Mises [MPa]']
+        for i in range(0, n_frames, batch_size):
+            batch_coeffs = coeffs[i : i + batch_size]
+            batch_res = self.sol.compute_fields_batch(batch_coeffs, scales)
+            all_frames_results.append({k: np.array(v) for k, v in batch_res.items()})
             
-        self.results.update({'R': np.stack(all_R), 'c_Q': np.stack(all_cq), 'c_P': np.repeat(self.ref_center[None, :], n_frames, axis=0), 'Q_local': np.array(q_loc_jax), 'rmse': np.array(rmses), 'r_rmse': np.array(all_rmses), 'Marker Local Disp. [mm]': all_displacement_w, 'Marker Global Disp. [mm]': m_global_disp, 'Marker Velocity [mm/s]': m_vel, 'Marker Acceleration [mm/s^2]': m_acc, 'Marker Performance [mm]': np.linalg.norm(m_global_disp, axis=2)})
+        # 결과 병합 및 기구학 데이터 저장 (시각화/내보내기 연동용)
+        self.results = {k: np.concatenate([res[k] for res in all_frames_results]) for k in all_frames_results[0].keys()}
+        self.results.update({
+            'R': np.array(R_mat), 'c_Q': np.array(cur_c), 'c_P': np.array(ref_c), # Legacy compatibility
+            'R_matrix': np.array(R_mat), 'cur_centroid': np.array(cur_c), 'ref_centroid': np.array(ref_c),
+            'local_markers': np.array(local_disp), 'Marker Global Disp. [mm]': np.array(self.m_raw - self.m_raw[0])
+        })
         
-        # [WHTOOLS] 신뢰도 확보: 피팅 발산 감지 시 마커 기반 변위로 Max Disp 클리핑
-        max_marker_disp = np.nanmax(np.abs(all_displacement_w_rel))
-        max_fit_disp = np.nanmax(np.abs(self.results['Displacement [mm]']))
+        # 정렬 오차(R-RMSE) 계산 및 물리적 붕괴 감지
+        ref_local = np.array(local_disp[0])
+        r_rmses = np.sqrt(np.mean(np.square(np.array(local_disp) - ref_local[None, :, :])[:, :, :2], axis=(1, 2)))
+        self.results['r_rmse'] = r_rmses
         
-        if max_fit_disp > max_marker_disp * 2.0 and max_marker_disp > 0.1:
-            print(f" ⚠️ [STABILIZED] {self.name}: Fit ({max_fit_disp:.2f}mm) deviated too far. Clipping to Marker limit.")
-            self.results['Max_Disp_Verified'] = max_marker_disp
-        else:
-            self.results['Max_Disp_Verified'] = max_fit_disp
-            
-        if max_fit_disp > max_marker_disp * 1.5 and max_marker_disp > 0.1: 
-            print(f" ⚠️ [WARN] {self.name}: Fit ({max_fit_disp:.2f}mm) > Markers ({max_marker_disp:.2f}mm)!")
-        
-        # [WHTOOLS] 마커 개수 로그에 명시하여 분석 무결성 증명 (flush=True 추가)
-        avg_f_rmse = np.nanmean(rmses)
-        avg_r_rmse = np.nanmean(all_rmses)
-        
-        # [WHTOOLS] [v7.2] 시뮬레이션 폭주 감지 (Explosion Guard)
-        # 강체 정렬 오차(R-RMSE)가 10mm를 넘거나 변위가 비정상적이면 물리적 붕괴로 처리
-        if avg_r_rmse > 10.0:
-            print(f"  > [PHYSICS-CRASH] {self.name:<24} Disintegrated in simulation! (R-RMSE: {avg_r_rmse:.1f}mm). Clearing stress to 0.", flush=True)
-            self.max_stress = 0.0
-            self.max_disp = 0.0
-            self.m_res = None # 결과 시각화 방지
+        if np.mean(r_rmses) > 15.0:
+            print(f"  ❌ [CRASH] {self.name} failed alignment stability test.")
             return False
             
-        print(f"  > [PART-OK] {self.name:<24} analyzed. (Markers: {n_markers}, Avg F-RMSE: {avg_f_rmse:.2e} mm, Avg R-RMSE: {avg_r_rmse:.2e} mm) [{deg_x}x{deg_y}]", flush=True)
+        print(f"  ✅ [SUCCESS] {self.name} analysis completed.", flush=True)
         return True
 
 class PlateAssemblyManager:
-    """
-    [WHTOOLS] 다중 파트(Assembly) 구조 해석 관리자
-    """
-    def __init__(self, times: np.ndarray):
+    """[WHTOOLS] 다중 파트 어셈블리 관리자"""
+    def __init__(self, times: np.ndarray, sim_data=None):
         self.analyzers = []
         self.times = times
+        self.sim_data = sim_data
 
-    def add_analyzer(self, analyzer: ShellDeformationAnalyzer) -> ShellDeformationAnalyzer:
+    def add_analyzer(self, analyzer: ShellDeformationAnalyzer):
         analyzer.times = self.times
         self.analyzers.append(analyzer)
         return analyzer
 
     def run_all(self):
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            list(executor.map(lambda a: a.run_analysis(), self.analyzers))
+        print(f"[WHTOOLS] Starting Assembly Analysis (Parts: {len(self.analyzers)})...")
+        for ana in self.analyzers:
+            ana.run_analysis(sim_data=self.sim_data)
+        print("[WHTOOLS] Assembly Analysis Finished.")
 
     def show_report(self):
-        """
-        [WHTOOLS] JAX 기반 판 변형 해석 통합 리포트 출력
-        """
         from rich.console import Console
         from rich.table import Table
-        from rich import box
-        
         console = Console()
-        table = Table(title="[WHTOOLS] Structural Analysis Report (JAX Accelerated)", box=box.DOUBLE_EDGE)
-        table.add_column("Part Name", style="cyan")
-        table.add_column("Markers", justify="center")
-        table.add_column("Max Disp [mm]", justify="right", style="green")
-        table.add_column("Max Stress [MPa]", justify="right", style="magenta")
-        table.add_column("Fit RMSE [mm]", justify="right")
-
-        summary = {a.name: {**a.results, 'markers': a.results['Q_local'].shape[1]} for a in self.analyzers if a.results}
-        for part_name, metrics in summary.items():
-            # [WHTOOLS] Verified Max Disp 사용 (피팅 폭주 방어 적용 및 스칼라 변환)
-            display_m_disp = float(np.nanmax(metrics.get('Max_Disp_Verified', 0.0)))
-            display_m_stress = float(np.nanmax(metrics.get('Von-Mises [MPa]', 0.0)))
-            display_f_rmse = float(np.nanmean(metrics.get('rmse', 0.0)))
-            display_n_markers = int(metrics.get('markers', 0))
-            
-            table.add_row(
-                part_name, 
-                str(display_n_markers), 
-                f"{display_m_disp:>8.2f}", 
-                f"{display_m_stress:>15.2f}", 
-                f"{display_f_rmse:>8.2e}"
-            )
-        
-        console.print("\n", table, "\n")
-        print(f"[WHTOOLS] Assembly Analysis Completed.")
+        table = Table(title="[WHTOOLS] Assembly Structural Report")
+        table.add_column("Part Name"); table.add_column("Markers", style="cyan"); table.add_column("Max Disp [mm]", style="green"); table.add_column("Max Stress [MPa]", style="magenta")
+        for a in self.analyzers:
+            if not a.results: continue
+            n_m = len(a.m_raw[0]) if a.m_raw is not None else 0
+            table.add_row(a.name, str(n_m), f"{np.max(np.abs(a.results['Displacement [mm]'])):.2f}", f"{np.max(a.results['Von-Mises [MPa]']):.2f}")
+        console.print(table)

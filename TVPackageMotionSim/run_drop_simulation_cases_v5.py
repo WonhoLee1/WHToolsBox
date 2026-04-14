@@ -354,41 +354,42 @@ def test_case_2_setup(enable_UI: bool = False):
     cfg["assy_w"] = 1.570         # 제품(TV) 어셈블리 가로 [m]
     cfg["assy_h"] = 0.860         # 제품(TV) 어셈블리 세로 [m]
     cfg["cush_gap"] = 0.005       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
-    
+    cfg["occ_ithick"] = 0.100      # Cohesive의 테두리 폭 (30-->100mm)
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
     cfg["drop_height"] = 0.5      # 자유 낙하 높이 [m]
-    cfg["use_postprocess_ui"] = False # 엔진 내부의 구버전 UI 실행 여부
-    cfg["use_viewer"] = True      # MuJoCo Viewer(GUI) 실행 여부
+    cfg["use_postprocess_ui"] = False  # 엔진 내부의 구버전 UI 실행 여부
+    cfg["use_viewer"] = True          # MuJoCo Viewer(GUI) 실행 여부
 
     # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
     cfg["components"] = {
-        "paper"         : {"div": [5, 5, 1], "use_weld": True,  "mass": 4.0},
-        "cushion"       : {"div": [3, 3, 3], "use_weld": True,  "mass": 2.0},
-        "opencell"      : {"div": [3, 3, 1], "use_weld": False, "mass": 5.0},
-        "opencellcoh"   : {"div": [1, 1, 1], "use_weld": False, "mass": 0.1},
-        "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0},
+        "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0},
+        "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 2.0},
+        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0},
+        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1},
+        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0},
     }
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     cfg["contacts"] = {
-        ("ground", "cushion")       : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
-        ("ground", "cushion_edge")  : {"friction": [0.3, 0.3], "solref": [1.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
-        ("ground", "paper")         : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
-        ("cushion", "opencell")     : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
-        ("cushion", "chassis")      : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},        
-        ("cushion", "paper")        : {"friction": [0.3, 0.3], "solref": [0.01, 0.8], "solimp": [0.1, 0.95, 0.01, 0.5, 2]},
+        ("ground", "cushion")       : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("ground", "cushion_edge")  : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("ground", "paper")         : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("cushion", "opencell")     : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("cushion", "chassis")      : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},        
+        ("cushion", "paper")        : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
     }
 
     # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
     cfg["welds"] = {
-        "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
-        "cushion"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
-        "cushion_corner" : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
-        "opencell"       : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
-        "chassis"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.99, 0.005, 0.5, 2]},
+        "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "cushion"        : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "cushion_corner" : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencell"       : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencellcoh"    : {"solref": [0.100, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "chassis"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.99, 0.01, 0.5, 2]},
     }
     
     # [5. PLASTICITY & HARDENING]

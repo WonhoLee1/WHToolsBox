@@ -13,9 +13,15 @@ from functools import partial
 
 import numpy as np
 import matplotlib.pyplot as plt
+import koreanize_matplotlib
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+
+# --- 전역 시각화 설정 (WHTOOLS Rules) ---
+plt.rcParams['font.size'] = 9
+FIGURE_WIDTH = 12
+FIGURE_HEIGHT = 8
 
 import pyvista as pv
 from pyvistaqt import QtInteractor
@@ -215,7 +221,13 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             print("❌ No analyzers provided to dashboard!")
             return
             
-        p0 = manager.analyzers[0]; n_f = len(self.mgr.times); res_sq = p0.sol.res**2
+        # [WHTOOLS] v7.5.1: 해석에 성공한 첫 번째 파트를 기준으로 필드 키 검색
+        valid_analyzers = [a for a in manager.analyzers if a.sol is not None and a.results]
+        if not valid_analyzers:
+            print("❌ No valid analysis results found. Dashboard cannot be initialized.")
+            return
+
+        p0 = valid_analyzers[0]; n_f = len(self.mgr.times); res_sq = p0.sol.res**2
         self.field_keys = [k for k in p0.results if p0.results[k].ndim == 3 and p0.results[k].size // n_f == res_sq]
         self.stat_keys = [k for k in p0.results if k not in self.field_keys and p0.results[k].ndim < 3] + ['Marker Local Disp. [mm]', 'Marker Global Disp. [mm]']
         
@@ -329,16 +341,20 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         gp = pv.Plane(center=self.floor_origin, direction=self.floor_normal, i_size=self.floor_w, j_size=self.floor_h); self.ground = self.v_int.add_mesh(gp, color="blue", opacity=0.1)
         self.lut = pv.LookupTable(cmap="turbo"); self.lut.below_range_color = 'lightgrey'; self.lut.above_range_color = 'magenta'
         for i, ana in enumerate(self.mgr.analyzers):
-            if ana.m_raw is None: continue
+            # [WHTOOLS] v7.5.3: 마커 데이터나 솔버가 없는 파트는 시각화에서 완전히 제외
+            if ana.m_raw is None or ana.sol is None:
+                self.part_actors[i] = {'mesh': None, 'visible': False}
+                continue
+                
             poly = pv.Plane(i_size=ana.W, j_size=ana.H, i_resolution=ana.sol.res-1, j_resolution=ana.sol.res-1)
             ma = self.v_int.add_mesh(poly, scalars=None, cmap=self.lut, show_edges=True, edge_color="darkgray", show_scalar_bar=False)
             mp = pv.PolyData(np.array(ana.m_raw[0])); n_m = ana.m_raw.shape[1]; mp.point_data["names"] = [f"{ana.name}_M{j:02d}" for j in range(n_m)]
             mka = self.v_int.add_mesh(mp, render_points_as_spheres=True, point_size=10, color='skyblue')
             la = self.v_int.add_point_labels(mp, "names", font_size=self.v_font_size, text_color='black', always_visible=True, point_size=0, shadow=False)
-            # [WHTOOLS] 해석 성공 여부 및 메쉬 속성 존재 확인 (AttributeError 방지)
+            
+            # [WHTOOLS] 추가 데이터 검증
             if not hasattr(ana.sol, 'X_mesh') or ana.sol.X_mesh is None:
-                print(f"  > [Warning] {ana.name} has no mesh data. Skipping 3D visualization for this part.")
-                self.part_actors[i] = {'mesh': None, 'visible': False}
+                ma.SetVisibility(False); self.part_actors[i] = {'mesh': ma, 'visible': False}
                 continue
                 
             mka.SetVisibility(False); la.SetVisibility(False); self.part_actors[i] = {'mesh': ma, 'poly': poly, 'm_poly': mp, 'markers': mka, 'labels': la, 'visible': True, 'visible_markers': False, 'p_base': np.column_stack([ana.sol.X_mesh.ravel(), ana.sol.Y_mesh.ravel(), np.zeros(ana.sol.res**2)])}
@@ -377,31 +393,43 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             inf['mesh'].SetVisibility(mv); inf['markers'].SetVisibility(mkv); inf['labels'].SetVisibility(mkv)
             if not mv and not mkv: continue
             
-            wd = ana.results.get('Displacement [mm]', np.zeros((n_frames_tot, ana.sol.res, ana.sol.res)))[f_i]
-            pd = inf['p_base'].copy(); pd[:, 2] = wd.ravel() * sc
+            # [WHTOOLS] v7.5 안정화 정적 변형 및 기구학 연동
+            displacement_w = ana.results.get('Displacement [mm]', np.zeros((n_frames_tot, ana.sol.res, ana.sol.res)))[f_i]
+            points_local = inf['p_base'].copy()
+            points_local[:, 2] = displacement_w.ravel() * sc
             
-            R_hist = ana.results.get('R', np.repeat(np.eye(3)[None,...], n_frames_tot, axis=0))
-            cq_hist = ana.results.get('c_Q', np.zeros((n_frames_tot, 3)))
-            R, cq, b = R_hist[f_i], cq_hist[f_i], ana.ref_basis
+            R_matrix = ana.results.get('R_matrix')[f_i]
+            cur_centroid = ana.results.get('cur_centroid')[f_i]
+            ref_centroid = ana.results.get('ref_centroid')[f_i]
+            local_basis = np.array(ana.kin.local_basis_axes)
+            local_cent_0 = np.array(ana.kin.local_centroid_0)
             
             if vm == "Global":
-                inf['poly'].points = (pd @ b) @ R + cq
+                # 로컬 -> 글로벌 변환 (Robust Inverse Kinematics)
+                # Formula: (P_local @ Basis.T + Centroid_0 - Ref_Centroid) @ R + Cur_Centroid
+                inf['poly'].points = (
+                    points_local @ local_basis.T + 
+                    local_cent_0 - ref_centroid
+                ) @ R_matrix + cur_centroid
                 inf['m_poly'].points = np.array(ana.m_raw[f_i])
             else:
-                inf['poly'].points = pd
-                inf['m_poly'].points = np.array(ana.results.get('Q_local', np.zeros_like(ana.m_raw))[f_i])
+                inf['poly'].points = points_local
+                inf['m_poly'].points = np.array(ana.results.get('local_markers')[f_i])
                 
             if fk in ["Body Color", "Face Color"]:
                 inf['mesh'].mapper.scalar_visibility = False
                 inf['mesh'].GetProperty().SetColor(plt.cm.tab20(i%20)[:3])
             else:
                 inf['mesh'].mapper.scalar_visibility = True
-                k = fk if fk in ana.results else 'Displacement [mm]'
-                fv = ana.results.get(k, np.zeros((n_frames_tot, ana.sol.res, ana.sol.res)))[f_i]
-                if fv.size == ana.sol.res**2:
-                    inf['poly'].point_data["S"] = fv.ravel()
+                # 필드 키 정합성 확인 (결과에 없을 경우 기본 Displacement 시각화)
+                active_key = fk if fk in ana.results else 'Displacement [mm]'
+                if not inf['visible'] or ana.sol is None or active_key not in ana.results: continue
+                
+                field_val = ana.results.get(active_key)[f_i]
+                if field_val.size == ana.sol.res**2:
+                    inf['poly'].point_data["S"] = field_val.ravel()
                     inf['poly'].set_active_scalars("S")
-                    av.append(fv)
+                    av.append(field_val)
             inf['poly'].Modified(); inf['m_poly'].Modified()
             
         if av and fk not in ["Body Color", "Face Color"]:
@@ -427,6 +455,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             if not cfg: continue
             ana, key = self.mgr.analyzers[cfg.part_idx], cfg.data_key
             if cfg.plot_type == "contour":
+                if ana.sol is None: continue
                 d2 = ana.results.get(key, np.zeros((len(self.mgr.times), ana.sol.res, ana.sol.res)))[f_i]
                 if self.ims[i] is None:
                     ax.clear(); self.ims[i] = ax.imshow(d2, cmap='turbo', origin='lower')
@@ -451,7 +480,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             ax = f.add_subplot(r, col, i+1); cfg = self.plot_slots[i]
             if cfg:
                 ana, key = self.mgr.analyzers[cfg.part_idx], cfg.data_key
-                if cfg.plot_type=="contour":
+                if ana.results and ana.sol:
                     res_val = ana.results.get(key, np.zeros((len(self.mgr.times), ana.sol.res, ana.sol.res)))[self.current_frame]
                     im = ax.imshow(res_val, cmap='turbo', origin='lower'); f.colorbar(im, ax=ax)
                 else:

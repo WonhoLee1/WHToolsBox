@@ -50,7 +50,7 @@ class WHToolsExporter:
         print(f"\n[WHTOOLS] Exporting Global GLB (Premium) to: {output_dir}")
         
         for analyzer in self.manager.analyzers:
-            if not analyzer.results or 'Displacement [mm]' not in analyzer.results:
+            if analyzer.sol is None or not analyzer.results or 'Displacement [mm]' not in analyzer.results:
                 continue
             
             target_idx = frame_idx
@@ -111,6 +111,8 @@ class WHToolsExporter:
         point_offset = 0
         
         for p_idx, analyzer in enumerate(self.manager.analyzers):
+            if analyzer.sol is None:
+                continue
             res = analyzer.sol.res
             num_pts = res * res
             quads = []
@@ -170,6 +172,8 @@ class WHToolsExporter:
             for t in range(self.n_frames):
                 frm_pts, frm_dsp, frm_vm = [], [], []
                 for az in self.manager.analyzers:
+                    if az.sol is None:
+                        continue
                     res_m = az.sol.res
                     X, Y = np.array(az.sol.X_mesh), np.array(az.sol.Y_mesh)
                     rb, rc = np.array(az.ref_basis), np.array(az.ref_center)
