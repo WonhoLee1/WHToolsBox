@@ -67,7 +67,7 @@ class PlateConfig:
     poisson_ratio: float = 0.3
     polynomial_degree: int = 4
     regularization_lambda: float = 1e-4
-    mesh_resolution: int = 25
+    mesh_resolution: int = 10
     batch_size: int = 256
 
     @staticmethod
