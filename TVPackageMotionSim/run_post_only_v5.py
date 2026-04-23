@@ -12,7 +12,7 @@ from run_drop_simulation_cases_v5 import run_analysis_and_dashboard
 
 def get_latest_result_dir():
     """가장 최근에 생성된 시뮬레이션 결과 디렉토리를 찾습니다."""
-    dirs = glob.glob("rds-*")
+    dirs = glob.glob("results/rds-*")
     if not dirs:
         return None
     # 디렉토리 생성 시간 순으로 정렬
