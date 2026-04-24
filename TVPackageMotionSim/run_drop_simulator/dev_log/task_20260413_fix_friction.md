@@ -1,0 +1,4 @@
+- [x] Implementation Plan 수립 및 승인
+- [/] `whtb_config.py` 내 `get_friction_standard` 함수 구현
+- [ ] 시뮬레이션(`v6`) 재구동 및 정상 동작 확인
+- [ ] 작업 완료 및 Walkthrough 작성

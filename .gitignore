@@ -41,3 +41,7 @@ __pycache__/
 # Simulation Results
 rds-*/
 temp_drop_sim.xml
+TVPackageMotionSim/results/
+**/*.vtu
+**/*.pvd
+**/*.glb

@@ -52,8 +52,8 @@ def parse_drop_target(mode_str: str, direction_str: str, box_w: float, box_h: fl
         5:[0,0,1], 6:[0,0,-1]  # Front/Back
     }
     ltl_map = {
-        1:[0,1,0], 2:[0,-1,0], # Top/Bottom
-        3:[0,0,-1], 4:[0,0,1], # Rear/Front Screen
+        1:[0,1,0], 2:[0,0,-1], # Top/Back (Rear)
+        3:[0,-1,0], 4:[0,0,1], # Bottom/Front Screen
         5:[1,0,0], 6:[-1,0,0]  # Right/Left Side
     }
     

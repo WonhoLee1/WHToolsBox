@@ -89,9 +89,9 @@ class ControlPanel(QMainWindow):
         playback_layout = QHBoxLayout(playback_group)
         
         self.btn_reset = QPushButton("🔄 Reset")
-        self.btn_back = QPushButton("⏪ Step")
+        self.btn_back = QPushButton("⏪ Back")
         self.btn_play = QPushButton("▶️ Play")
-        self.btn_forward = QPushButton("⏩ Step")
+        self.btn_forward = QPushButton("⏩ Forward")
         
         for btn in [self.btn_reset, self.btn_back, self.btn_play, self.btn_forward]:
             btn.setMinimumHeight(40)
@@ -129,6 +129,15 @@ class ControlPanel(QMainWindow):
         # 3. 타임라인 슬라이더
         slider_group = QGroupBox("Timeline Navigation")
         slider_layout = QVBoxLayout(slider_group)
+        
+        info_layout = QHBoxLayout()
+        info_layout.addWidget(QLabel("Snapshot History:"))
+        self.lbl_frame_info = QLabel("Frame: 0 / 0")
+        self.lbl_frame_info.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_frame_info.setFont(QFont("Consolas", 10))
+        info_layout.addWidget(self.lbl_frame_info)
+        slider_layout.addLayout(info_layout)
+
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 0)
         self.slider.valueChanged.connect(self._on_slider_moved)
@@ -160,6 +169,13 @@ class ControlPanel(QMainWindow):
         self.btn_camera.setMinimumHeight(35)
         self.btn_camera.clicked.connect(self._on_camera_export)
         row1.addWidget(self.btn_camera)
+
+        # [WHTOOLS] 모션 상태 로그 버튼 추가
+        self.btn_log_motion = QPushButton("📋 Log Motion")
+        self.btn_log_motion.setMinimumHeight(35)
+        self.btn_log_motion.clicked.connect(self._on_log_motion)
+        row1.addWidget(self.btn_log_motion)
+        
         util_layout.addLayout(row1)
 
         self.btn_reload_xml = QPushButton("📂 Open & Reload XML File")
@@ -236,7 +252,11 @@ class ControlPanel(QMainWindow):
             # self.slider.setValue(snap_count - 1) 
 
         # 재생 버튼 텍스트 업데이트
-        self.btn_play.setText("▶️ Resume" if self.sim.ctrl_paused else "⏸️ Pause")
+        self.btn_play.setText("▶️ Play" if self.sim.ctrl_paused else "⏸️ Pause")
+        
+        # 타임라인 정보 업데이트
+        current_snap = self.slider.value()
+        self.lbl_frame_info.setText(f"Frame: {current_snap} / {max(0, snap_count - 1)}")
         
         # 효과 버튼 상태 동기화 (시뮬레이터 내부 상태 -> UI)
         self.btn_slow.setChecked(self.sim.ctrl_slow_motion)
@@ -272,6 +292,30 @@ class ControlPanel(QMainWindow):
 
     def _on_camera_export(self):
         self.sim.ctrl_export_camera = True
+
+    def _on_log_motion(self):
+        """현재 시점의 강체 거동 정보를 로그로 출력합니다."""
+        if not self.sim.rot_axis_hist:
+            self.sim.log("⚠️ No motion data available yet.", level="warning")
+            return
+            
+        axis = self.sim.rot_axis_hist[-1]
+        speed = self.sim.rot_speed_hist[-1]
+        tvel = self.sim.trans_vel_hist[-1]
+        tvel_res = self.sim.trans_vel_res_hist[-1]
+        
+        # 각도로 변환된 회전축 방향
+        import numpy as np
+        azi = np.degrees(np.arctan2(axis[1], axis[0]))
+        ele = np.degrees(np.arcsin(np.clip(axis[2], -1, 1)))
+        
+        msg = (
+            f"\n[📊 Current Motion State at Time {self.sim.data.time:.4f}s]\n"
+            f"- Rotation Axis: [{axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f}] (Azi: {azi:.1f}°, Ele: {ele:.1f}°)\n"
+            f"- Rotation Speed: {speed:.4f} rad/s\n"
+            f"- Trans. Velocity: [{tvel[0]:.4f}, {tvel[1]:.4f}, {tvel[2]:.4f}] (Resultant: {tvel_res:.4f} m/s)"
+        )
+        self.sim.log(msg, level="info")
 
     def _on_monitor(self):
         """실시간 모니터링 설정 다이얼로그를 띄우고 그래프 윈도우를 생성합니다."""

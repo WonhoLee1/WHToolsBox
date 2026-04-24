@@ -207,20 +207,22 @@ def test_case_1_setup():
 
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.7, 0.7]
+    p_solref = [-15000.0,-500.0]
+    p_solimp = [0.10, 0.95, 0.01, 0.5, 2]
     cfg["contacts"] = {
         ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
         ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
         ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
-        ("cushion", "opencell")     : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
-        ("cushion", "chassis")      : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},        
+        ("cushion", "opencell")     : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
+        ("cushion", "chassis")      : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},        
         ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
     }
 
     # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
     cfg["welds"] = {
         "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion"        : {"solref": [-15000.0,-500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion_corner" : {"solref": [-15000.0,-350.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "cushion"        : {"solref": p_solref, "solimp": p_solimp},
+        "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
         "opencell"       : {"solref": [-40000000, -400.0], "solimp": [0.10, 0.95, 0.1, 0.5, 2]},
         "opencellcoh"    : {"solref": [-15000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "chassis"        : {"solref": [-40000000, -200.0], "solimp": [0.10, 0.99, 0.1, 0.5, 2]},
@@ -228,9 +230,9 @@ def test_case_1_setup():
     
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
-    cfg["plasticity_ratio"]     = 0.4
+    cfg["plasticity_ratio"]     = 0.8
     cfg["cush_yield_pressure"]  = 1000.0
-    cfg["plastic_hardening_modulus"] = 2000.0
+    cfg["plastic_hardening_modulus"] = 1000.0
     
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     # [6. MASS TOTALS & AUTO BALANCING]
