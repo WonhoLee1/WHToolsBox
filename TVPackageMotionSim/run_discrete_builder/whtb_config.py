@@ -55,7 +55,7 @@ def sync_phys_config(config: Dict[str, Any]):
     }
 
     config["mat_cush"] = {
-        "rgba": "1 1 1 0.4",
+        "rgba": "0.9 0.9 0.9 0.5",
         "friction": f"{config['cush_friction']}",
         "solref": f"{config['cush_contact_solref']}",
         "solimp": f"{config['cush_contact_solimp']}",
@@ -64,7 +64,7 @@ def sync_phys_config(config: Dict[str, Any]):
     }
 
     config["mat_cell"] = {
-        "rgba": "0.1 0.1 0.1 1",
+        "rgba": "0.1 0.1 0.1 1.0",
         "friction": "0.5",
         "solref": f"{config['opencell_weld_solref']}",
         "solimp": f"{config['opencell_weld_solimp']}"
@@ -78,7 +78,7 @@ def sync_phys_config(config: Dict[str, Any]):
     }
 
     config["mat_tv"] = {
-        "rgba": "0.1 0.1 0.1 1",
+        "rgba": "0.5 0.5 0.5 1.0",
         "friction": "0.5",
         "weld_solref": f"{config['chassis_weld_solref']}",
         "weld_solimp": f"{config['chassis_weld_solimp']}"
@@ -176,8 +176,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         ],
 
         # [Light/Visuals]
-        "light_main_diffuse": "0.8 0.8 0.8", "light_main_ambient": "0.3 0.3 0.3",
-        "light_sub_diffuse": "0.4 0.4 0.4", "light_head_ambient": "0.4 0.4 0.4", "light_head_diffuse": "0.8 0.8 0.8",
+        "light_main_diffuse": "0.7 0.7 0.7", "light_main_ambient": "0.3 0.3 0.3",
+        "light_sub_diffuse": "0.3 0.3 0.3", "light_head_ambient": "0.1 0.1 0.1", "light_head_diffuse": "0.5 0.5 0.5",
 
         # [Air Fluidics]
         "air_density": 1.225, "air_viscosity": 1.81e-5, "air_cd_drag": 1.05, "air_cd_viscous": 0.01,

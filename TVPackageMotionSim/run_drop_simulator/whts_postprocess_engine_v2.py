@@ -144,7 +144,7 @@ def run_simulation_async(config: Dict[str, Any], callback_log=None, callback_fin
                 sim.log = new_log
 
             # 3. 실행
-            sim.simulate(enable_UI=False) # Qt UI를 사용할 것이므로 sim 내부 Tkinter UI는 끔
+            sim.simulate() # Qt UI를 사용할 것이므로 sim 내부 Tkinter UI는 끔
             
             if callback_finished:
                 callback_finished(True, "Simulation Completed Successfully")

@@ -32,11 +32,14 @@ from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
 from run_drop_simulator.whts_multipostprocessor_engine import (
     ShellDeformationAnalyzer, 
     PlateAssemblyManager, 
+    PlateConfig,
     scale_result_to_mm
 )
 from run_drop_simulator.whts_exporter import WHToolsExporter
 from run_drop_simulator.whts_multipostprocessor_ui import QtVisualizerV2
 from PySide6 import QtWidgets
+import run_drop_simulator.whts_multipostprocessor_engine as eng
+print(f"🔍 [DEBUG] Engine Path: {eng.__file__}", flush=True)
 
 def run_analysis_and_dashboard_minimal(result: Any):
     """
@@ -66,9 +69,15 @@ def run_analysis_and_dashboard_minimal(result: Any):
             m_names = sorted(list(markers.keys()))
             m_data = np.stack([markers[name] for name in m_names], axis=0).transpose(1, 0, 2)
             
-            # [WHTOOLS] [CRITICAL] 설계 치수(W, H)와 오프셋(o_data_hint)을 생략합니다.
-            # Analyzer 내부의 SVD 및 PCA 로직이 자율적으로 로컬 좌표계를 생성합니다.
-            analyzer = ShellDeformationAnalyzer(W=0, H=0, name=full_name)
+            # [WHTOOLS] [CRITICAL] 파트별 고유 물성치를 라이브러리에서 가져와 적용합니다.
+            p_cfg = PlateConfig.from_simulation_data(result, full_name)
+            analyzer = ShellDeformationAnalyzer(
+                W=0, H=0, 
+                thickness=p_cfg.thickness, 
+                E=p_cfg.youngs_modulus, 
+                nu=p_cfg.poisson_ratio, 
+                name=full_name
+            )
             analyzer.m_data_hist = m_data
             
             manager.add_analyzer(analyzer)
@@ -147,7 +156,7 @@ def run_digital_twin_pipeline_v6(case_func):
     print(f"🚀 Digital Twin Pipeline v6.0 (Autonomous): {case_func.__name__}")
     print("="*85)
     
-    sim = case_func(enable_UI=False)
+    sim = case_func()
     if sim is None or sim.result is None:
         print("❌ Simulation failed.")
         return
@@ -155,7 +164,7 @@ def run_digital_twin_pipeline_v6(case_func):
     # [v6] 최소 정보 기반 분석 호출
     run_analysis_and_dashboard_minimal(sim.result)
 
-def test_case_1_setup(enable_UI: bool = False):
+def test_case_1_setup():
     """
     [V5.2.8.4] v4의 test_run_case_1 설정을 100% 계승하고 v5용 옵션을 추가함
     [Case 1] 표준 낙하 테스트 (Golden Case)
@@ -168,6 +177,7 @@ def test_case_1_setup(enable_UI: bool = False):
     print("="*85)
     
     cfg = get_default_config()
+    cfg["use_viewer"] = True  # 인터랙티브 모드 활성화 (컨트롤 패널 표시)
 
     # [1. GEOMETRY OPTIONS] : 외관 및 어셈블리 형상 정의
     cfg["box_w"] = 1.841          # 박스 외곽 가로 치수 [m]
@@ -196,23 +206,24 @@ def test_case_1_setup(enable_UI: bool = False):
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
+    common_friction = [0.7, 0.7]
     cfg["contacts"] = {
-        ("ground", "cushion")       : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
-        ("ground", "cushion_edge")  : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
-        ("ground", "paper")         : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
-        ("cushion", "opencell")     : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
-        ("cushion", "chassis")      : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},        
-        ("cushion", "paper")        : {"friction": [0.3, 0.3], "solref": [0.001, 1.8], "solimp": [0.1, 0.95, 0.005, 0.5, 2]},
+        ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("cushion", "opencell")     : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("cushion", "chassis")      : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},        
+        ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
     }
 
     # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
     cfg["welds"] = {
         "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion"        : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion_corner" : {"solref": [-9000.0,-600.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "opencell"       : {"solref": [0.005, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "opencellcoh"    : {"solref": [0.100, 0.80], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "chassis"        : {"solref": [0.005, 0.80], "solimp": [0.10, 0.99, 0.01, 0.5, 2]},
+        "cushion"        : {"solref": [-15000.0,-500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "cushion_corner" : {"solref": [-15000.0,-350.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencell"       : {"solref": [-40000000, -400.0], "solimp": [0.10, 0.95, 0.1, 0.5, 2]},
+        "opencellcoh"    : {"solref": [-15000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "chassis"        : {"solref": [-40000000, -200.0], "solimp": [0.10, 0.99, 0.1, 0.5, 2]},
     }
     
     # [5. PLASTICITY & HARDENING]
@@ -224,7 +235,7 @@ def test_case_1_setup(enable_UI: bool = False):
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     # [6. MASS TOTALS & AUTO BALANCING]
     cfg["components_balance"] = {
-        "target_mass": 45.0,
+        "target_mass": 30.0,
         #"target_inertia": [2.0, 6.0, 14.0],
         #"target_cog": [0.1, 0, 0],  # 10cm 편심 배치 시도
         "count": 1
@@ -247,7 +258,7 @@ def test_case_1_setup(enable_UI: bool = False):
 
     # [9. AIR FLUIDICS]
     cfg["enable_air_drag"]    = True
-    cfg["enable_air_squeeze"] = False
+    cfg["enable_air_squeeze"] = True
 
     # [V5 ADDITIONAL UPDATES]
     cfg["use_jax_reporting"] = True # JAX 엔진 활성화
@@ -258,7 +269,7 @@ def test_case_1_setup(enable_UI: bool = False):
 
     # 4. 시뮬레이션 실행
     sim = DropSimulator(config=cfg)
-    sim.simulate(enable_UI=enable_UI)
+    sim.simulate()
     return sim
 
 if __name__ == "__main__":

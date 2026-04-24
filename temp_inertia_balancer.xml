@@ -6,8 +6,8 @@
   <visual>
     <quality shadowsize="0"/>
     <global offwidth="0" offheight="0"/>
-    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.07 0.07 0.07"/>
-    <map znear="0.01"/>
+    <headlight active="1" ambient="0.1 0.1 0.1" diffuse="0.5 0.5 0.5" specular="0.07 0.07 0.07"/>
+    <map znear="0.01" fogstart="2" fogend="10"/>
   </visual>
   <asset>
     <texture type="skybox" builtin="gradient" rgb1="0.1 0.1 0.1" rgb2="0.3 0.3 0.3" width="1024" height="1024"/>
@@ -24,37 +24,37 @@
       <equality solref="0.01 1.0" solimp="0.1 0.95 0.01 0.5 2"/>
     </default>
     <default class="bcushion">
-      <geom group="1" rgba="1 1 1 0.4" contype="0" conaffinity="0"/>
+      <geom group="1" rgba="0.9 0.9 0.9 0.5" contype="0" conaffinity="0"/>
     </default>
     <default class="bcushion_edge">
-      <geom group="1" rgba="1 1 1 0.4" contype="0" conaffinity="0"/>
+      <geom group="1" rgba="0.9 0.9 0.9 0.5" contype="0" conaffinity="0"/>
     </default>
     <default class="weld_bcushion">
-      <equality solref="-9000.0 -600.0" solimp="0.1 0.95 0.01 0.5 2"/>
+      <equality solref="-15000.0 -500.0" solimp="0.1 0.95 0.01 0.5 2"/>
     </default>
     <default class="weld_bcushion_corner">
-      <equality solref="-9000.0 -600.0" solimp="0.1 0.95 0.01 0.5 2"/>
+      <equality solref="-15000.0 -350.0" solimp="0.1 0.95 0.01 0.5 2"/>
     </default>
     <default class="bopencell">
-      <geom group="2" rgba="0.1 0.1 0.1 1" contype="0" conaffinity="0"/>
+      <geom group="2" rgba="0.1 0.1 0.1 1.0" contype="0" conaffinity="0"/>
     </default>
     <default class="weld_bopencell">
-      <equality solref="0.005 0.8" solimp="0.1 0.95 0.01 0.5 2"/>
+      <equality solref="-40000000 -400.0" solimp="0.1 0.95 0.1 0.5 2"/>
     </default>
     <default class="bopencellcohesive">
       <geom group="2" rgba="1 0.1 0.1 0.4" contype="0" conaffinity="0"/>
     </default>
     <default class="weld_bopencellcohesive">
-      <equality solref="0.1 0.8" solimp="0.1 0.95 0.01 0.5 2"/>
+      <equality solref="-15000.0 -500.0" solimp="0.1 0.95 0.01 0.5 2"/>
     </default>
     <default class="bchassis">
-      <geom group="2" rgba="0.1 0.1 0.1 1" contype="0" conaffinity="0"/>
+      <geom group="2" rgba="0.5 0.5 0.5 1.0" contype="0" conaffinity="0"/>
     </default>
     <default class="weld_bchassis">
-      <equality solref="0.005 0.8" solimp="0.1 0.99 0.01 0.5 2"/>
+      <equality solref="-40000000 -200.0" solimp="0.1 0.99 0.1 0.5 2"/>
     </default>
     <default class="bauxboxmass">
-      <geom group="3" rgba="0.1 0.1 0.1 1" contype="0" conaffinity="0"/>
+      <geom group="3" rgba="0.5 0.5 0.5 1.0" contype="0" conaffinity="0"/>
     </default>
     <default class="weld_bauxboxmass">
       <equality solref="0.02 1.0" solimp="0.1 0.95 0.005 0.5 2"/>
@@ -63,30 +63,29 @@
       <geom friction="1.0 1.0" solref="0.002 0.001" solimp="0.9 0.99 0.001" condim="3" contype="0" conaffinity="0" group="0" material="ground_mat"/>
     </default>
     <default class="cls_ground_cushion">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
     <default class="cls_ground_cushion_edge">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
     <default class="cls_ground_paper">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
     <default class="cls_cushion_opencell">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
     <default class="cls_cushion_chassis">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
     <default class="cls_cushion_paper">
-      <pair friction="0.3 0.3 0.005 0.0001 0.0001" solref="0.001 1.8" solimp="0.1 0.95 0.005 0.5 2"/>
+      <pair friction="0.7 0.7 0.005 0.0001 0.0001" solref="0.001 1.0" solimp="0.1 0.95 0.05 0.5 2"/>
     </default>
   </default>
   <worldbody>
-    <camera name="iso_view" pos="4.5 -4.5 3.5" xyaxes="1 1 0 -0.4 0.4 1" mode="fixed"/>
-    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="0.8 0.8 0.8" ambient="0.3 0.3 0.3" castshadow="false"/>
-    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="0.4 0.4 0.4" castshadow="false"/>
+    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="0.7 0.7 0.7" ambient="0.3 0.3 0.3" castshadow="false"/>
+    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="0.3 0.3 0.3" castshadow="false"/>
     <geom name="ground" type="plane" size="2.5 2.5 0.1" class="ground"/>
-    <body name="BPackagingBox" pos="0.00000 0.00000 1.57643" axisangle="0.5139 0.8578 0.0000 94.5291">
+    <body name="BPackagingBox" pos="0.00000 0.00000 1.57643" axisangle="0.5139 0.8578 0.0000 85.4709">
       <freejoint/>
       <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0"/>
       <body name="BCushion">
@@ -1793,7 +1792,7 @@
               <joint type="slide" axis="0 1 0"/>
               <joint type="slide" axis="0 0 1"/>
               <joint type="ball"/>
-              <geom name="g_autobalance_main_0_0_0" type="box" size="0.02500 0.02500 0.02500" mass="28.000000" class="bauxboxmass"/>
+              <geom name="g_autobalance_main_0_0_0" type="box" size="0.02500 0.02500 0.02500" mass="13.000000" class="bauxboxmass"/>
               <site name="s_AutoBalance_Main_0_0_0_PX" pos="0.02500 0 0"/>
               <site name="s_AutoBalance_Main_0_0_0_NX" pos="-0.02500 0 0"/>
               <site name="s_AutoBalance_Main_0_0_0_PY" pos="0 0.02500 0"/>

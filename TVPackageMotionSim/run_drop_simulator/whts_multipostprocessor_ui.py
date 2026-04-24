@@ -479,12 +479,17 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self._init_animation_dock()
 
     def _init_settings_controls(self, p):
-        """환경 설정 패널 구성"""
-        l = QtWidgets.QHBoxLayout(p)
+        """환경 설정 패널 구성 (Ultra-Compact Horizontal Layout)"""
+        main_l = QtWidgets.QHBoxLayout()
+        main_l.setAlignment(QtCore.Qt.AlignLeft)
+        main_l.setContentsMargins(2, 2, 2, 2)
+        main_l.setSpacing(2)
+        p.setLayout(main_l)
         
-        # 일반 설정
-        g1 = QtWidgets.QGroupBox("General Settings")
+        # Group 1: General & Info
+        g1 = QtWidgets.QGroupBox("General & Info")
         gl1 = QtWidgets.QGridLayout(g1)
+        gl1.setSpacing(2); gl1.setContentsMargins(4, 8, 4, 4)
         
         b_vis = QtWidgets.QPushButton("Visibility Manager")
         b_vis.clicked.connect(self.visibility_tool.show)
@@ -496,11 +501,12 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         
         b_abt = QtWidgets.QPushButton("About WHTOOLS")
         b_abt.clicked.connect(self._show_about)
-        gl1.addWidget(b_abt, 1, 0, 1, 2)
-        l.addWidget(g1)
+        gl1.addWidget(b_abt, 1, 0)
         
-        # 애니메이션 설정
-        g2 = QtWidgets.QGroupBox("Animation Settings")
+        main_l.addWidget(g1)
+        
+        # Group 2: Animation & Step Settings
+        g2 = QtWidgets.QGroupBox("Animation & Step Settings")
         gl2 = QtWidgets.QGridLayout(g2)
         
         gl2.addWidget(QtWidgets.QLabel("Skip Frames (Step):"), 0, 0)
@@ -510,20 +516,25 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.sp_step.valueChanged.connect(self._update_step)
         gl2.addWidget(self.sp_step, 0, 1)
         
-        l.addWidget(g2)
-        l.addStretch()
+        main_l.addWidget(g2)
+        main_l.addStretch()
 
     def _update_step(self, v): 
         """애니메이션 스킵 프레임 간격 업데이트"""
         self.anim_step = v
 
     def _init_3d_controls(self, p):
-        """3D 뷰어 제어 패널 구성"""
-        l = QtWidgets.QHBoxLayout(p)
+        """3D 뷰어 제어 패널 구성 (Ultra-Compact Horizontal Layout)"""
+        main_l = QtWidgets.QHBoxLayout()
+        main_l.setAlignment(QtCore.Qt.AlignLeft)
+        main_l.setContentsMargins(2, 2, 2, 2)
+        main_l.setSpacing(2)
+        p.setLayout(main_l)
         
-        # View & Deformation Group
+        # Group 1: View & Deformation
         g1 = QtWidgets.QGroupBox("View & Deformation")
         gl1 = QtWidgets.QGridLayout(g1)
+        gl1.setSpacing(2); gl1.setContentsMargins(4, 8, 4, 4)
         
         gl1.addWidget(QtWidgets.QLabel("View:"), 0, 0)
         self.cmb_v = QtWidgets.QComboBox()
@@ -541,18 +552,20 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.ch_per = QtWidgets.QCheckBox("Perspective")
         self.ch_per.setChecked(True)
         self.ch_per.toggled.connect(self._on_persp_toggled)
-        gl1.addWidget(self.ch_per, 1, 0, 1, 2)
+        gl1.addWidget(self.ch_per, 1, 0)
         
-        gl1.addWidget(QtWidgets.QLabel("Background:"), 1, 2)
+        gl1.addWidget(QtWidgets.QLabel("Background:"), 1, 1)
         self.cmb_bg = QtWidgets.QComboBox()
         self.cmb_bg.addItems(["White", "Grey Grad.", "Sky Grad."])
         self.cmb_bg.currentTextChanged.connect(self._on_bg_changed)
-        gl1.addWidget(self.cmb_bg, 1, 3)
-        l.addWidget(g1)
+        gl1.addWidget(self.cmb_bg, 1, 2, 1, 2) # Span 2 columns
         
-        # Field & Range Group
-        g2 = QtWidgets.QGroupBox("Field & Range")
+        main_l.addWidget(g1)
+        
+        # Group 2: Field & Range Analysis
+        g2 = QtWidgets.QGroupBox("Field & Range Analysis")
         gl2 = QtWidgets.QGridLayout(g2)
+        gl2.setSpacing(2); gl2.setContentsMargins(4, 8, 4, 4)
         
         gl2.addWidget(QtWidgets.QLabel("Field:"), 0, 0)
         self.cmb_3d = QtWidgets.QComboBox()
@@ -566,75 +579,66 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.cmb_l.currentTextChanged.connect(self._on_legend_mode_changed)
         gl2.addWidget(self.cmb_l, 0, 3)
         
-        # Min/Max Limit Controls (with bypass checkboxes)
-        hmin = QtWidgets.QHBoxLayout()
-        self.ch_min = QtWidgets.QCheckBox("")
-        self.ch_min.setFixedWidth(20)
-        self.ch_min.toggled.connect(lambda: self.update_frame(self.current_frame))
-        hmin.addWidget(self.ch_min)
-        hmin.addWidget(QtWidgets.QLabel("Min:"))
+        gl2.addWidget(QtWidgets.QLabel("Min:"), 1, 0)
         self.sp_min = QtWidgets.QDoubleSpinBox()
-        self.sp_min.setRange(-1e9, 1e9)
-        self.sp_min.setDecimals(4)
+        self.sp_min.setRange(-1e9, 1e9); self.sp_min.setDecimals(4)
         self.sp_min.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        hmin.addWidget(self.sp_min)
-        gl2.addLayout(hmin, 1, 0, 1, 2)
+        gl2.addWidget(self.sp_min, 1, 1)
         
-        hmax = QtWidgets.QHBoxLayout()
-        self.ch_max = QtWidgets.QCheckBox("")
-        self.ch_max.setFixedWidth(20)
-        self.ch_max.toggled.connect(lambda: self.update_frame(self.current_frame))
-        hmax.addWidget(self.ch_max)
-        hmax.addWidget(QtWidgets.QLabel("Max:"))
+        gl2.addWidget(QtWidgets.QLabel("Max:"), 1, 2)
         self.sp_max = QtWidgets.QDoubleSpinBox()
-        self.sp_max.setRange(-1e9, 1e9)
-        self.sp_max.setDecimals(4)
+        self.sp_max.setRange(-1e9, 1e9); self.sp_max.setDecimals(4)
         self.sp_max.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        hmax.addWidget(self.sp_max)
-        gl2.addLayout(hmax, 1, 2, 1, 2)
+        gl2.addWidget(self.sp_max, 1, 3)
         
-        l.addWidget(g2)
-        l.addStretch()
+        main_l.addWidget(g2)
+        main_l.addStretch()
 
     def _init_2d_controls(self, p):
-        """2D 그래프 세션 제어 패널 구성"""
-        l = QtWidgets.QHBoxLayout(p)
+        """2D 그래프 세션 제어 패널 구성 (Ultra-Compact Horizontal Layout)"""
+        main_l = QtWidgets.QHBoxLayout()
+        main_l.setAlignment(QtCore.Qt.AlignLeft)
+        main_l.setContentsMargins(2, 2, 2, 2)
+        main_l.setSpacing(2)
+        p.setLayout(main_l)
         
-        # 레이아웃 설정
+        # Group 1: 2D Slot Layout
         g1 = QtWidgets.QGroupBox("2D Slot Layout")
         gl1 = QtWidgets.QGridLayout(g1)
+        gl1.setSpacing(2); gl1.setContentsMargins(4, 8, 4, 4)
         
+        gl1.addWidget(QtWidgets.QLabel("Grid:"), 0, 0)
         self.cmb_lay = QtWidgets.QComboBox()
         self.cmb_lay.addItems(["1x1", "1x2", "2x2", "3x2"])
         self.cmb_lay.setCurrentText(self.cfg.layout_2d)
         self.cmb_lay.currentTextChanged.connect(self._init_2d_plots)
-        
-        gl1.addWidget(QtWidgets.QLabel("Grid:"), 0, 0)
         gl1.addWidget(self.cmb_lay, 0, 1)
         
         bt_add = QtWidgets.QPushButton("+ Add Plot")
         bt_add.clicked.connect(self._show_add_plot_dialog)
-        gl1.addWidget(bt_add, 1, 0, 1, 2)
-        l.addWidget(g1)
+        gl1.addWidget(bt_add, 1, 0, 1, 2) # Span 2 columns
         
-        # 가시성 및 부가 옵션
-        g2 = QtWidgets.QGroupBox("Display Options")
-        gl2 = QtWidgets.QVBoxLayout(g2)
+        main_l.addWidget(g1)
+        
+        # Group 2: Display & Tools
+        g2 = QtWidgets.QGroupBox("Display & Tools")
+        gl2 = QtWidgets.QGridLayout(g2)
+        gl2.setSpacing(2); gl2.setContentsMargins(4, 8, 4, 4)
         
         self.checks = {}
-        for t, s in [("Sync Timeline", True), ("Interpolation", True)]:
+        for i, (t, s) in enumerate([("Sync Timeline", True), ("Interpolation", True)]):
             c = QtWidgets.QCheckBox(t)
             c.setChecked(s)
             c.toggled.connect(lambda: self.update_frame(self.current_frame))
-            gl2.addWidget(c)
+            gl2.addWidget(c, i, 0)
             self.checks[t.split()[0]] = c
             
         bt_pop = QtWidgets.QPushButton("Pop-out View")
         bt_pop.clicked.connect(self._pop_out_2d)
-        gl2.addWidget(bt_pop)
+        gl2.addWidget(bt_pop, 0, 1, 2, 1) # Span 2 rows
         
-        l.addWidget(g2)
-        l.addStretch()
+        main_l.addWidget(g2)
+        main_l.addStretch()
 
     def _init_animation_dock(self):
         """하단 애니메이션 타임라인 및 제어 도크 초기화"""
@@ -700,7 +704,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.ground = self.v_int.add_mesh(gp, color="blue", opacity=0.1)
         
         # 컬러맵/룩업테이블 설정
-        self.lut = pv.LookupTable(cmap="turbo")
+        self.lut = pv.LookupTable(cmap="turbo", flip=True)
         self.lut.below_range_color = 'lightgrey'
         self.lut.above_range_color = 'magenta'
         
@@ -797,7 +801,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.ov = self.v_int.add_text("-", position='upper_right', font_size=9, color='black')
         self.gui_txt = self.v_int.add_text(
             "[Space]: Play/Pause | [R]: Reset | [W]: Wireframe", 
-            position='upper_left', 
+            position='upper_right', 
             font_size=9, 
             color='black'
         )
@@ -925,7 +929,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                     ai['mesh'].mapper.SetScalarRange(clim[0], clim[1])
                     
             status_text = f"[{fk}]\nMin: {v_min:.3e}\nMax: {v_max:.3e}"
-            self.v_int.add_text(status_text, position='upper_left', font_size=9, color='black', name='st_ov')
+            self.v_int.add_text(status_text, position='upper_left', font_size=6, color='black', name='st_ov')
         else:
             self.sb.SetVisibility(False)
             self.v_int.add_text("", position='upper_left', name='st_ov')
@@ -970,6 +974,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.axes = []
         self.ims = [None] * 6
         self.vls = [None] * 6
+        self.cbs = [None] * 6
         
         self.fig.clear()
         self.fig.subplots_adjust(hspace=0.4, wspace=0.3)
@@ -1008,8 +1013,14 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 
                 if self.ims[i] is None:
                     ax.clear()
-                    self.ims[i] = ax.imshow(data_2d, cmap='turbo', origin='lower')
-                    self.fig.colorbar(self.ims[i], ax=ax, format="%.2e")
+                    # [WHTOOLS] 기존 컬러바 제거 (중복 생성 방지)
+                    if self.cbs[i] is not None:
+                        try: self.cbs[i].remove()
+                        except: pass
+                    
+                    # [WHTOOLS] 실제 치수 비(W:H)에 맞게 extent 설정하여 Aspect Ratio 보정
+                    self.ims[i] = ax.imshow(data_2d, cmap='turbo', origin='lower', extent=[0, ana.W, 0, ana.H])
+                    self.cbs[i] = self.fig.colorbar(self.ims[i], ax=ax, format="%.2e")
                 
                 self.ims[i].set_data(data_2d)
                 self.ims[i].set_interpolation('bilinear' if use_interp else 'nearest')
@@ -1019,6 +1030,11 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 # 1D 시계열 곡선 (Curve)
                 if self.vls[i] is None:
                     ax.clear()
+                    # [WHTOOLS] 이전 타입이 Contour였을 경우 컬러바 제거
+                    if self.cbs[i] is not None:
+                        try: self.cbs[i].remove()
+                        except: pass
+                        self.cbs[i] = None
                     ax.grid(True, alpha=0.3)
                     stat_data = ana.results.get(key, np.zeros(len(self.mgr.times)))
                     
@@ -1257,7 +1273,10 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
 
     def _show_add_plot_dialog(self):
         pn = [p.name for p in self.mgr.analyzers]; d = AddPlotDialog(self.active_slot, pn, self.field_keys, self.stat_keys, self)
-        if d.exec(): self.plot_slots[self.active_slot] = d.get_config(); self.ims[self.active_slot] = self.vls[self.active_slot] = None; self.update_frame(self.current_frame)
+        if d.exec(): 
+            self.plot_slots[self.active_slot] = d.get_config()
+            self.ims[self.active_slot] = self.vls[self.active_slot] = self.cbs[self.active_slot] = None
+            self.update_frame(self.current_frame)
 
     def _ctrl_slot(self, c):
         n_frames = len(self.mgr.times) if self.mgr.times is not None else 1

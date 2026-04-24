@@ -148,7 +148,14 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
         all_node_names = sorted(list(face_markers[face_name].keys()))
         if not all_node_names: continue
         
-        P0 = np.stack([face_markers[face_name][m][0] for m in all_node_names])
+        # [v6.1] 데이터가 없는 경우(n_frames=0)를 위한 방어 코드 추가
+        try:
+            sample_marker = face_markers[face_name][all_node_names[0]]
+            if sample_marker.shape[0] == 0: continue
+            P0 = np.stack([face_markers[face_name][m][0] for m in all_node_names])
+        except (IndexError, AttributeError):
+            continue
+            
         c_P = np.mean(P0, axis=0)
         
         if mode == 'kinematic':

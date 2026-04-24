@@ -44,7 +44,7 @@ def parse_drop_target(mode_str: str, direction_str: str, box_w: float, box_h: fl
     # [WHTOOLS ISTA 6-Amazon Mapping] - Y=Height, Z=Depth 기준
     # 1: Top (+Y), 2: Bottom (-Y)
     # Parcel(G): 3/4=Sides(±X), 5/6=FrontBack(±Z)
-    # LTL(H): 3/4=FrontBack(±Z), 5/6=Sides(±X)
+    # LTL(H): 3/4=RearFront(±Z), 5/6=Sides(±X)
     
     parcel_map = {
         1:[0,1,0], 2:[0,-1,0], # Top/Bottom
@@ -53,7 +53,7 @@ def parse_drop_target(mode_str: str, direction_str: str, box_w: float, box_h: fl
     }
     ltl_map = {
         1:[0,1,0], 2:[0,-1,0], # Top/Bottom
-        3:[0,0,1], 4:[0,0,-1], # Front/Back Screen
+        3:[0,0,-1], 4:[0,0,1], # Rear/Front Screen
         5:[1,0,0], 6:[-1,0,0]  # Right/Left Side
     }
     

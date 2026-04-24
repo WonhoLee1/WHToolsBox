@@ -56,7 +56,7 @@ class SimulationThread(QThread):
             from run_drop_simulator import DropSimulator
             sim = DropSimulator(config=self.config)
             # 시뮬레이션 시작
-            sim.simulate(enable_UI=False)
+            sim.simulate()
             self.finished_signal.emit(True, "Simulation Completed Successfully.")
         except Exception as e:
             self.finished_signal.emit(False, str(e))

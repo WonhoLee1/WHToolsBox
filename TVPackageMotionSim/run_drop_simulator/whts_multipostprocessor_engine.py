@@ -79,40 +79,49 @@ class PlateConfig:
         p_name_lower = part_name.lower()
         
         # 1. 라이브러리 기반 기본값 할당 (Heuristic Matching)
-        matched_lib = WHTOOLS_MATERIAL_LIB['default']
+        print(f"DEBUG: Mapping material for {part_name}...", flush=True)
+        found_lib = False
+        matched_key = 'default'
         for key, props in WHTOOLS_MATERIAL_LIB.items():
-            if key in p_name_lower:
-                matched_lib = props
+            if key != 'default' and key in p_name_lower:
+                config.thickness = props['t']
+                config.youngs_modulus = props['E']
+                config.poisson_ratio = props['nu']
+                matched_key = key
+                found_lib = True
                 break
         
-        config.thickness = matched_lib['t']
-        config.youngs_modulus = matched_lib['E']
-        config.poisson_ratio = matched_lib['nu']
-        
-        # 2. Simulation Config 매핑 및 단위 보정 (m -> mm)
-        if not hasattr(simulation_data, 'config'):
-            return config
+        if not found_lib:
+            config.thickness = WHTOOLS_MATERIAL_LIB['default']['t']
+            config.youngs_modulus = WHTOOLS_MATERIAL_LIB['default']['E']
+            config.poisson_ratio = WHTOOLS_MATERIAL_LIB['default']['nu']
+            matched_key = 'default'
+
+        # 2. Simulation Config 매핑 (m -> mm)
+        if hasattr(simulation_data, 'config'):
+            sim_cfg = simulation_data.config
+            part_key = p_name_lower.split('_')[0].replace('b', '')
             
-        sim_cfg = simulation_data.config
-        
-        # 파트별 특수 키워드 검색 (예: opencell_d, chassis_d 등)
-        part_key = p_name_lower.split('_')[0].replace('b', '')
-        potential_thick_keys = [f"{part_key}_thickness", f"{part_key}_d", "box_thick"]
-        
-        for k in potential_thick_keys:
-            if k in sim_cfg:
-                val = sim_cfg[k]
-                # [WHTOOLS] Meter-to-MM Check: 0.5m 미만이면 단위가 m일 확률이 높으므로 변환
-                if val < 0.5: val *= 1000.0
-                config.thickness = val
-                break
+            # [두께 결정] 파트 전용 키가 최우선
+            thick_val = sim_cfg.get(f"{part_key}_thickness") or sim_cfg.get(f"{part_key}_d") or sim_cfg.get(f"{part_key}_t")
+            if thick_val is None and matched_key == 'default':
+                thick_val = sim_cfg.get("box_thick")
                 
-        # 영률 오버라이드 확인
-        E_val = sim_cfg.get(f"{part_key}_E", sim_cfg.get("youngs_modulus"))
-        if E_val is not None:
-            # GPa -> MPa 보정
-            if E_val < 1000.0: E_val *= 1000.0 
-            config.youngs_modulus = E_val
+            if thick_val is not None:
+                if thick_val < 0.5: thick_val *= 1000.0
+                config.thickness = thick_val
+                    
+            # [영률 결정] 파트 전용 키가 최우선
+            E_val = sim_cfg.get(f"{part_key}_E")
+            if E_val is None and matched_key == 'default':
+                E_val = sim_cfg.get("youngs_modulus")
+                
+            if E_val is not None:
+                if E_val < 1000.0: E_val *= 1000.0 
+                config.youngs_modulus = E_val
+
+        # 최종 확인 로그 (사용자 확인용)
+        # print(f"  [DEBUG] Part: {part_name:<15} | Key: {matched_key:<10} | E: {config.youngs_modulus:>8.0f} MPa", flush=True)
             
         return config
 
@@ -306,12 +315,17 @@ class PlateMechanicsSolver:
             e_avg, e_rad = (eps_x + eps_y)/2.0, jnp.sqrt(jnp.maximum(((eps_x-eps_y)/2.0)**2 + (gam_xy/2.0)**2, 1e-20))
             eq_eps = (2.0/3.0) * jnp.sqrt(jnp.maximum(1.5*(eps_x**2 + eps_y**2) + 0.75*gam_xy**2, 1e-20))
             
+            # 곡률 (Curvature) - [WHTOOLS] 기하학적 표면 특성 분석
+            h_mean = -(kxx + kyy) / 2.0
+            k_gauss = kxx * kyy - kxy**2
+            
             fields = {
                 'Displacement [mm]': w, 'Stress XX [MPa]': sx, 'Stress YY [MPa]': sy, 'Stress XY [MPa]': txy,
                 'Von-Mises [MPa]': vm, 'Principal Max [MPa]': s_avg + s_rad, 'Principal Min [MPa]': s_avg - s_rad,
                 'Strain XX [mm/mm]': eps_x, 'Strain YY [mm/mm]': eps_y, 'Strain XY [mm/mm]': gam_xy,
                 'Strain Max Principal [mm/mm]': e_avg + e_rad, 'Strain Min Principal [mm/mm]': e_avg - e_rad,
-                'Eq. Strain [mm/mm]': eq_eps
+                'Eq. Strain [mm/mm]': eq_eps,
+                'Curvature Mean [1/mm]': h_mean, 'Curvature Gauss [1/mm^2]': k_gauss
             }
             # 리프터 호환성용 별칭
             fields['Bending Stress [MPa]'] = fields['Von-Mises [MPa]']
@@ -357,6 +371,12 @@ class ShellDeformationAnalyzer:
                 
         print(f"  > [Analyzing] {self.name:<24} | Material: {mat_desc}", flush=True)
         print(f"    - Properties: E={self.cfg.youngs_modulus:,.0f} MPa, t={self.cfg.thickness:.2f} mm, v={self.cfg.poisson_ratio:.2f}", flush=True)
+
+        # [WHTOOLS] 데이터 유효성 검사 (IndexError 방지)
+        if self.m_raw is None or len(self.m_raw) == 0:
+            print(f"  ⚠️ [Warning] {self.name:<24} has no marker data. Skipping.", flush=True)
+            return
+
         print(f"    - Dimensions: {len(self.m_raw[0])} markers, {len(self.m_raw)} frames", flush=True)
         
         # 기구학 매니저 초기화

@@ -1,0 +1,11 @@
+- `[/]` v5 접촉 시스템 리팩토링 및 포팅
+    - [ ] `whtb_config.py` 설정 구조 개편
+        - [ ] `CONTACT_PAIRS` 기본값 정의 및 `get_friction_standard` 유틸리티 추가
+        - [ ] 기존 매터리얼 기반 마찰/접촉 속성 제거 및 정리
+    - [x] `whtb_builder.py` XML 생성 엔진 전환
+        - [x] 모든 geom의 비트마스크(`contype`, `conaffinity`) 비활성화 (0)
+        - [x] 명시적 `<contact><pair>` 생성 루프 구현 (자가 접촉 제외 적용)
+        - [x] 쿠션 모서리(`_edge`) 서브타입 Pairing 로직 구현
+    - [x] `run_drop_simulation_cases_v5.py` 적용 및 검증
+        - [x] 케이스 설정 내 `contacts` 오버라이드 코드 추가
+        - [x] XML 생성 유효성 검사 및 정적 부하 테스트

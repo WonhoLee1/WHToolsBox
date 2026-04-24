@@ -23,7 +23,7 @@ from run_discrete_builder import get_default_config
 # [WHTOOLS: Case Execution Pipeline for ISTA 6-Amazon LTL]
 # =====================================================================
 
-def test_run_case_1(enable_UI: bool = False):
+def test_run_case_1():
     """
     [Case 1] 표준 낙하 테스트 (Golden Case)
     가장 안정적인 물리 계수와 형상 정보를 포함하는 기준 케이스입니다.
@@ -122,12 +122,12 @@ def test_run_case_1(enable_UI: bool = False):
     sim = DropSimulator(config=cfg)
     try:
         sim.log(">> [Case Manager] Golden Case 설정 복원 완료. 시뮬레이션 시작...")
-        sim.simulate(enable_UI=enable_UI)
+        sim.simulate()
         print("\n✅ Case 1 Finished Successfully.")
     except Exception as e:
         print(f"\n❌ Case 1 Failed: {e}")
 
-def test_run_case_2(enable_UI: bool = False):
+def test_run_case_2():
     """
     [Case 2] v2 통합 컨트롤러 연동 테스트 (Corner 2-3-5)
     - 이제 get_default_config()에 최적화된 값이 기본으로 포함되어 있어 코드가 간소화됨
@@ -149,12 +149,12 @@ def test_run_case_2(enable_UI: bool = False):
     sim = DropSimulator(config=cfg)
     try:
         sim.log(">> [Case Manager] Case 2 (V2 UI Mode) 시작...")
-        sim.simulate(enable_UI=enable_UI)
+        sim.simulate()
         print("\n✅ Case 2 Finished Successfully.")
     except Exception as e:
         print(f"\n❌ Case 2 Failed: {e}")
 
-def test_run_case_3(enable_UI: bool = False):
+def test_run_case_3():
     """[Case 3] 평평한 바닥면 낙하 (Face 3)"""
     print("\n" + "="*85)
     print("🚀 Running Case 3: Flat Face 3 (0.5m)")
@@ -172,13 +172,13 @@ def test_run_case_3(enable_UI: bool = False):
     })
     
     sim = DropSimulator(config=cfg)
-    sim.simulate(enable_UI=enable_UI)
+    sim.simulate()
 
 if __name__ == "__main__":
     # 1. 기존 UI (Tkinter) 실행 모드
-    test_run_case_1(enable_UI=False)
+    test_run_case_1()
     
     # 2. 신형 V2 UI (PySide6) 실행 모드
-    #test_run_case_2(enable_UI=False)
+    #test_run_case_2()
     
     # test_run_case_3()

@@ -79,7 +79,15 @@ def run_analysis_and_dashboard_by_measure(result_file_path: str):
             W_deriv = float(o_data[:, 0].max() - o_data[:, 0].min())
             H_deriv = float(o_data[:, 1].max() - o_data[:, 1].min())
             
-            analyzer = ShellDeformationAnalyzer(W=W_deriv, H=H_deriv, name=full_name)
+            # [WHTOOLS] 파트별 고유 물성치를 라이브러리에서 가져와 적용합니다.
+            p_cfg = PlateConfig.from_simulation_data(result, full_name)
+            analyzer = ShellDeformationAnalyzer(
+                W=W_deriv, H=H_deriv, 
+                thickness=p_cfg.thickness, 
+                E=p_cfg.youngs_modulus, 
+                nu=p_cfg.poisson_ratio, 
+                name=full_name
+            )
             # 데이터를 analyzer에 미리 저장하고 run_all에서 병렬 처리하도록 설정
             analyzer.m_data_hist = m_data
             analyzer.o_data_hint = o_data
@@ -155,7 +163,15 @@ def run_analysis_and_dashboard(result: Any):
             if H_plate == 0: H_plate = H_deriv
             
             # Analyzer 생성 (v2.1 규격: lx, ly, ... name)
-            analyzer = ShellDeformationAnalyzer(W=W_plate, H=H_plate, name=full_name)
+            # [WHTOOLS] [CRITICAL] 파트별 고유 물성치를 라이브러리에서 가져와 적용합니다.
+            p_cfg = PlateConfig.from_simulation_data(result, full_name)
+            analyzer = ShellDeformationAnalyzer(
+                W=W_plate, H=H_plate, 
+                thickness=p_cfg.thickness, 
+                E=p_cfg.youngs_modulus, 
+                nu=p_cfg.poisson_ratio, 
+                name=full_name
+            )
             
             # 시뮬레이션 모드에서도 강체 운동 제거 및 자율 분석을 위해 데이터 설정
             analyzer.m_data_hist = m_data
@@ -212,7 +228,7 @@ def run_digital_twin_pipeline(case_func):
     print("="*85)
     
     # 1. MuJoCo 시뮬레이션 실행
-    sim = case_func(enable_UI=False)
+    sim = case_func()
     if sim is None or sim.result is None:
         print("❌ Simulation failed or no results found.")
         return
@@ -220,7 +236,7 @@ def run_digital_twin_pipeline(case_func):
     # 사후 분석 및 대시보드 실행
     run_analysis_and_dashboard(sim.result)
 
-def test_case_1_setup(enable_UI: bool = False):
+def test_case_1_setup():
     """
     [V5.2.8.4] v4의 test_run_case_1 설정을 100% 계승하고 v5용 옵션을 추가함
     [Case 1] 표준 낙하 테스트 (Golden Case)
@@ -329,10 +345,10 @@ def test_case_1_setup(enable_UI: bool = False):
 
     # 4. 시뮬레이션 실행
     sim = DropSimulator(config=cfg)
-    sim.simulate(enable_UI=enable_UI)
+    sim.simulate()
     return sim
 
-def test_case_2_setup(enable_UI: bool = False):
+def test_case_2_setup():
     """
     [V5.2.8.4] v4의 test_run_case_1 설정을 100% 계승하고 v5용 옵션을 추가함
     [Case 1] 표준 낙하 테스트 (Golden Case)
@@ -435,7 +451,7 @@ def test_case_2_setup(enable_UI: bool = False):
 
     # 4. 시뮬레이션 실행
     sim = DropSimulator(config=cfg)
-    sim.simulate(enable_UI=enable_UI)
+    sim.simulate()
     return sim
 
 if __name__ == "__main__":
