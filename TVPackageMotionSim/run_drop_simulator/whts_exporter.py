@@ -86,14 +86,16 @@ class WHToolsExporter:
             grid.point_data['Von-Mises [MPa]'] = vm_stress.ravel()
             
             plotter = pv.Plotter(off_screen=True)
-            plotter.add_mesh(grid, scalars='Von-Mises [MPa]', cmap='jet', show_scalar_bar=True)
-            file_name = f"{analyzer.name}_Global_MaxStress.glb"
-            file_path = os.path.join(output_dir, file_name)
             try:
+                plotter.add_mesh(grid, scalars='Von-Mises [MPa]', cmap='jet', show_scalar_bar=True)
+                file_name = f"{analyzer.name}_Global_MaxStress.glb"
+                file_path = os.path.join(output_dir, file_name)
                 plotter.export_gltf(file_path)
                 print(f"  > Exported GLB: {file_name}")
             except Exception as e:
                 print(f"  > Failed GLB Export: {e}")
+            finally:
+                plotter.close()
 
     def export_to_pvd_series(self, output_dir: str, filename: str = "Result.pvd"):
         """
@@ -120,12 +122,12 @@ class WHToolsExporter:
 
         print(f"\n[WHTOOLS] Exporting PVD+VTU Series (v8.0 Stable) → {pvd_path}")
 
-        # 전체 어셈블리의 정적 셀 구조 사전 계산
-        cell_types_list, cell_points_list, part_ids_list = [], [], []
-        p_offset = 0
+        # 전체 어셈블리의 정적 셀 구조 사전 계산 (파트별 개별 저장 구조로 변경)
+        part_grids_info = []
 
         for p_idx, analyzer in enumerate(self.manager.analyzers):
             if analyzer.sol is None:
+                part_grids_info.append(None)
                 continue
             res = analyzer.sol.res
             num_pts = res * res
@@ -135,19 +137,25 @@ class WHToolsExporter:
                 for j in range(res - 1):
                     quads.append([i*res+j, i*res+j+1, (i+1)*res+j+1, (i+1)*res+j])
 
-            quads_arr = np.array(quads, dtype=np.int64) + p_offset
-            cell_types_list.append(np.full(len(quads), 9, dtype=np.uint8))  # VTK_QUAD
-            cell_points_list.append(quads_arr)
-            part_ids_list.extend([p_idx] * num_pts)
-            p_offset += num_pts
+            quads_arr = np.array(quads, dtype=np.int64)
+            n_cells = len(quads)
+            cells_flat = np.hstack([
+                np.column_stack([np.full(n_cells, 4, dtype=np.int64), quads_arr])
+            ]).ravel()
+            
+            cell_types = np.full(n_cells, 9, dtype=np.uint8)  # VTK_QUAD
+            
+            part_grids_info.append({
+                'cells_flat': cells_flat,
+                'cell_types': cell_types,
+                'n_pts': num_pts,
+                'name': analyzer.name,
+                'idx': p_idx
+            })
 
-        total_points = p_offset
-        all_cells = np.concatenate(cell_points_list)
-        all_cell_types = np.concatenate(cell_types_list)
-        part_ids = np.array(part_ids_list, dtype=np.int32)
-
-        print(f"  > Assembly: {total_points} pts / {len(all_cell_types)} cells / {self.n_frames} frames")
-        print(f"  > Writing VTU frames to: {vtu_dir}")
+        valid_parts = [p for p in part_grids_info if p is not None]
+        print(f"  > Assembly: {len(valid_parts)} valid parts / {self.n_frames} frames")
+        print(f"  > Writing individual VTU frames for each part to: {vtu_dir}")
 
         pvd_entries = []
         max_vm = 0.0
@@ -170,17 +178,10 @@ class WHToolsExporter:
 
         try:
             for t in range(self.n_frames):
-                frm_pts  = []
-                frm_fields: dict[str, list] = {}
-
-                for az in self.manager.analyzers:
-                    n_pts = az.sol.res**2 if az.sol else (total_points // max(len(self.manager.analyzers), 1))
-
-                    if az.sol is None or not az.results or 'R' not in az.results:
-                        frm_pts.append(np.zeros((n_pts, 3), dtype='f4'))
-                        # 필드는 0으로 채움
-                        for key in frm_fields:
-                            frm_fields[key].append(np.zeros(n_pts, dtype='f4'))
+                for p_idx, az in enumerate(self.manager.analyzers):
+                    p_info = part_grids_info[p_idx]
+                    
+                    if p_info is None or az.sol is None or not az.results or 'R' not in az.results:
                         continue
 
                     t_safe = min(t, len(az.results['R']) - 1)
@@ -198,44 +199,29 @@ class WHToolsExporter:
                     p_global = self._transform_to_global(p_local, rb, rc, cP0, R_t, cQ_t)
                     p_ref    = np.column_stack([X.ravel(), Y.ravel(), np.zeros(X.size)]) @ rb.T + rc
 
-                    frm_pts.append(p_global.astype('f4'))
+                    pts_arr = p_global.astype('f4')
                     max_vm = max(max_vm, float(np.nanmax(vm)))
+
+                    grid = pv.UnstructuredGrid(p_info['cells_flat'], p_info['cell_types'], pts_arr)
+                    grid.point_data['PartID'] = np.full(p_info['n_pts'], p_info['idx'], dtype=np.int32)
 
                     # displacement_vec (특별 처리: 3D 벡터)
                     dsp_vec = (p_global - p_ref).astype('f4')
-                    if 'displacement_vec' not in frm_fields:
-                        frm_fields['displacement_vec'] = []
-                    frm_fields['displacement_vec'].append(dsp_vec)
+                    grid.point_data['displacement_vec'] = dsp_vec
 
                     # 키르히호프 공간 필드 자동 탐지 및 추가
                     for key, arr in az.results.items():
                         if not _is_spatial_field(key, arr):
                             continue
                         val = np.nan_to_num(arr[t_safe], nan=0.0).ravel().astype('f4')
-                        if key not in frm_fields:
-                            frm_fields[key] = []
-                        frm_fields[key].append(val)
+                        grid.point_data[key] = val
 
-                # UnstructuredGrid 빌드
-                pts_arr    = np.concatenate(frm_pts)
-                n_cells    = len(all_cell_types)
-                cells_flat = np.hstack([
-                    np.column_stack([np.full(n_cells, 4, dtype=np.int64), all_cells])
-                ]).ravel()
+                    # 파트별 개별 VTU 저장
+                    vtu_name = f"{p_info['name']}_frame_{t:04d}.vtu"
+                    vtu_path = os.path.join(vtu_dir, vtu_name)
+                    grid.save(vtu_path)
 
-                grid = pv.UnstructuredGrid(cells_flat, all_cell_types, pts_arr)
-                grid.point_data['PartID'] = part_ids
-
-                # 모든 필드 추가
-                for field_key, chunks in frm_fields.items():
-                    concat = np.concatenate(chunks)
-                    grid.point_data[field_key] = concat
-
-                vtu_name = f"frame_{t:04d}.vtu"
-                vtu_path = os.path.join(vtu_dir, vtu_name)
-                grid.save(vtu_path)
-
-                pvd_entries.append((float(self.times[t]), f"vtu/{vtu_name}"))
+                    pvd_entries.append((float(self.times[t]), p_info['idx'], f"vtu/{vtu_name}"))
 
                 if t % 100 == 0:
                     print(f"    Frame {t:4d}/{self.n_frames} written.")
@@ -249,8 +235,8 @@ class WHToolsExporter:
         pvd_xml = ['<?xml version="1.0"?>\n',
                    '<VTKFile type="Collection" version="0.1">\n',
                    '  <Collection>\n']
-        for time_val, rel_path in pvd_entries:
-            pvd_xml.append(f'    <DataSet timestep="{time_val:.6f}" group="" part="0" file="{rel_path}"/>\n')
+        for time_val, part_idx, rel_path in pvd_entries:
+            pvd_xml.append(f'    <DataSet timestep="{time_val:.6f}" group="" part="{part_idx}" file="{rel_path}"/>\n')
         pvd_xml.extend(['  </Collection>\n', '</VTKFile>\n'])
 
         with open(pvd_path, 'w', encoding='utf-8') as f:
@@ -258,7 +244,31 @@ class WHToolsExporter:
 
         print(f"\n  ✅ PVD Collection written: {pvd_path}")
         print(f"  ✅ {len(pvd_entries)} VTU frames / Max VM: {max_vm:.2f} MPa")
-        return pvd_path
+        
+        # [WHTOOLS] ZIP 폴더 관리: ParaView는 ZIP 아카이브를 네이티브로 지원함
+        import zipfile
+        import shutil
+        zip_path = os.path.join(output_dir, "Result.zip")
+        print(f"  > 🗜️ Compressing into {os.path.basename(zip_path)} to save space and prevent clutter...")
+        
+        try:
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # 1. PVD 마스터 파일 압축
+                zf.write(pvd_path, os.path.basename(pvd_path))
+                # 2. 하위 VTU 조각들 압축
+                for time_val, part_idx, rel_path in pvd_entries:
+                    full_vtu_path = os.path.join(output_dir, rel_path)
+                    if os.path.exists(full_vtu_path):
+                        zf.write(full_vtu_path, rel_path)
+            
+            # 3. 원본 찌꺼기 파일 정리 (클린업)
+            shutil.rmtree(vtu_dir)
+            os.remove(pvd_path)
+            print(f"  ✅ Cleanup complete. Ready: {zip_path}")
+            return zip_path
+        except Exception as e:
+            print(f"⚠️ ZIP Compression failed: {e}. Keeping raw files.")
+            return pvd_path
 
     # 하위 호환성: 기존 VTKHDF 호출 코드가 있을 경우 PVD로 라우팅
     def export_to_vtkhdf(self, output_dir: str, filename: str = "Result.vtkhdf"):

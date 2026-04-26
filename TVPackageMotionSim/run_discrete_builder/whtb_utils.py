@@ -90,3 +90,188 @@ def parse_drop_target(mode_str: str, direction_str: str, box_w: float, box_h: fl
         target_pt = np.array([0, -box_h/2, 0]) # Defacto Bottom
         
     return target_pt
+
+def get_rgba_by_name(color_name: str, alpha: float = 1.0) -> str:
+    """
+    [WHTOOLS] 영문 색상명과 투명도(alpha)를 입력받아 MuJoCo용 RGBA 문자열을 반환합니다.
+    
+    Args:
+        color_name (str): 색상 명칭 (예: 'white', 'red', 'gray', 'paper', 'black' 등)
+        alpha (float): 투명도 (0.0 ~ 1.0)
+        
+    Returns:
+        str: "R G B A" 형식의 문자열 (예: "1.0 0.0 0.0 0.5")
+    """
+    colors = {
+        "white":   [1.0, 1.0, 1.0],
+        "gray":    [0.5, 0.5, 0.5],
+        "black":   [0.1, 0.1, 0.1],
+        "red":     [1.0, 0.0, 0.0],
+        "green":   [0.0, 1.0, 0.0],
+        "blue":    [0.0, 0.0, 1.0],
+        "yellow":  [1.0, 1.0, 0.0],
+        "cyan":    [0.0, 1.0, 1.0],
+        "magenta": [1.0, 0.0, 1.0],
+        "orange":  [1.0, 0.5, 0.0],
+        "purple":  [0.5, 0.0, 0.5],
+        "brown":   [0.5, 0.3, 0.2],
+        "paper":   [0.5, 0.3, 0.2],
+        "cushion": [0.9, 0.9, 0.9],
+        "metal":   [0.7, 0.7, 0.7],
+        "glass":   [0.1, 0.1, 0.1], # Dark black for open cell
+    }
+    
+    name = color_name.lower().strip()
+    rgb = colors.get(name, [0.8, 0.8, 0.8]) # Default Light Gray
+    
+    return f"{rgb[0]} {rgb[1]} {rgb[2]} {alpha}"
+
+def calculate_plate_twist_weld_params(mass: float, width: float, height: float, thickness: float, 
+                                     div: Tuple[int, int],
+                                     E_real: float = None, real_thickness: float = None,
+                                     nu: float = 0.22, zeta: float = 0.05,
+                                     target_freq_hz: float = None,
+                                     base_freq_hz: float = None,
+                                     verbose: bool = True):
+    """
+    [WHTOOLS] 판재의 1차 트위스트 고유진동수를 기반으로 MuJoCo solref 및 torquescale을 산출합니다.
+    """
+    Nx, Ny = div[0], div[1]
+    L, W, h_mj = max(width, height), min(width, height), thickness
+    
+    # 1. 베이스 진동수 (Axial) 결정
+    method_base = "Manual"
+    if E_real is not None and real_thickness is not None:
+        # 물리적 인장 강성 기반: K = E * (W * h_real) / L
+        k_axial = E_real * (W * real_thickness) / L
+        f_base_global = (1.0 / (2.0 * np.pi)) * np.sqrt(k_axial / mass)
+        method_base = f"Physical (E={E_real/1e9:.1f}GPa, h={real_thickness*1000:.2f}mm)"
+    elif base_freq_hz is not None:
+        f_base_global = base_freq_hz
+        method_base = "Direct Input"
+    else:
+        f_base_global = target_freq_hz if target_freq_hz is not None else 10.0
+        method_base = "Fallback to Target"
+
+    # 2. 목표 진동수 (Bending) 결정
+    method_target = "Experimental"
+    if target_freq_hz is not None:
+        f_target_global = target_freq_hz
+    else:
+        # 이론치 계산 (트위스트 모드)
+        rho = mass / (width * height * h_mj)
+        E_for_twist = E_real if E_real is not None else 7e10
+        h_for_twist = real_thickness if real_thickness is not None else h_mj
+        f_target_global = (1.0 / (2.0 * np.pi)) * (12.43 * h_for_twist / (L * W)) * np.sqrt(E_for_twist / (rho * (1 - nu**2)))
+        method_target = "Theoretical (Twist)"
+
+    # 3. 격자 분할 보정 (Local Equivalent)
+    S = np.sqrt(Nx**2 + Ny**2)
+    f_target_local = f_target_global * S
+    f_base_local = f_base_global * S
+
+    # [WHTOOLS] 수치적 안정성 캡 (Simulation Stability Cap)
+    # 일반적인 dt=0.001s 환경에서 200Hz 이상의 국부 강성은 폭발을 유발함
+    max_f_safe = 200.0 
+    is_capped = False
+    if f_base_local > max_f_safe:
+        f_base_local = max_f_safe
+        is_capped = True
+    
+    # Target(Bending)은 Base(Axial)보다 클 수 없음
+    f_target_local = min(f_target_local, f_base_local)
+
+    # 4. 파라미터 계산 (Base Local 기준)
+    omega_base = 2 * np.pi * f_base_local
+    solref_k = -(omega_base ** 2)
+    solref_d = -(2 * zeta * omega_base)
+    
+    # 5. 토크 스케일 계산 (Bending 강성비)
+    torquescale = (f_target_local / f_base_local)**2 if f_base_local > 0 else 1.0
+    
+    if verbose:
+        print(f"\n{'='*50}")
+        print(f"📐 [WHTOOLS] Stiffness Calculation Report")
+        if is_capped:
+            print(f"⚠️  [WARNING] Frequency capped at {max_f_safe}Hz for stability!")
+        print(f"{'='*50}")
+        print(f"🔹 Global Targets:")
+        print(f"   - Axial Freq (Base)   : {f_base_global:6.2f} Hz  [{method_base}]")
+        print(f"   - Bending Freq (Target): {f_target_global:6.2f} Hz  [{method_target}]")
+        print(f"🔹 Discretization (div={div}):")
+        print(f"   - Scaling Factor (S)  : {S:6.2f}x")
+        print(f"   - Local Axial Freq    : {f_base_local:6.2f} Hz")
+        print(f"   - Local Bending Freq  : {f_target_local:6.2f} Hz")
+        print(f"🔹 MuJoCo Parameters:")
+        print(f"   - solref (K, D)       : [{solref_k:8.1f}, {solref_d:8.1f}]")
+        print(f"   - torquescale         : {torquescale:10.6f} (Bending Ratio)")
+        print(f"{'='*50}\n")
+    
+    return solref_k, solref_d, torquescale
+
+
+def mat2axisangle(R: np.ndarray) -> np.ndarray:
+    """Rotation Matrix -> Axis-Angle (x, y, z, deg)"""
+    angle = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
+    if angle < 1e-9:
+        return np.array([1.0, 0.0, 0.0, 0.0])
+    axis = np.array([R[2, 1] - R[1, 2],
+                     R[0, 2] - R[2, 0],
+                     R[1, 0] - R[0, 1]])
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm < 1e-9:
+        # 180 degree rotation case
+        # Find the largest diagonal element
+        idx = np.argmax(np.diag(R))
+        axis = np.zeros(3)
+        axis[idx] = 1.0
+        # In a real 180 case, axis = sqrt((diag+1)/2) etc. but for MuJoCo simple is ok if trace is handled.
+        # Actually MuJoCo handles small angles but 180 is special.
+        # This is a simplified fallback.
+    else:
+        axis /= axis_norm
+    return np.concatenate([axis, [np.degrees(angle)]])
+
+def get_drop_orientation_matrix(target_pt: np.ndarray, ref_vec: np.ndarray, global_ref_target: np.ndarray = np.array([0, -1, 0])) -> np.ndarray:
+    """
+    [WHTOOLS] 낙하 자세 정렬을 위한 회전 행렬을 생성합니다.
+    1. target_pt가 글로벌 -Z 방향(바닥)을 향하도록 1차 회전 (Shortest Rotation)
+    2. 글로벌 Z축을 기준으로 회전하여 ref_vec의 수평 투영 성분이 global_ref_target을 향하도록 2차 회전
+    """
+    # 1. Primary Alignment: target_pt -> [0, 0, -1]
+    t = target_pt / (np.linalg.norm(target_pt) + 1e-12)
+    k = np.array([0, 0, -1])
+    
+    axis = np.cross(t, k)
+    axis_norm = np.linalg.norm(axis)
+    
+    if axis_norm < 1e-9:
+        if t[2] < 0: R1 = np.eye(3)
+        else: R1 = np.diag([1, -1, -1]) # 180 deg around X
+    else:
+        axis /= axis_norm
+        angle = np.arccos(np.clip(np.dot(t, k), -1, 1))
+        K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+        R1 = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
+        
+    # 2. Secondary Alignment: Rotate around global Z
+    v1 = R1 @ ref_vec
+    v1_proj = np.array([v1[0], v1[1], 0])
+    v1_proj_norm = np.linalg.norm(v1_proj)
+    
+    if v1_proj_norm < 1e-6:
+        return R1 # Projection is too small, skip secondary rotation
+        
+    v1_proj /= v1_proj_norm
+    tar = global_ref_target / (np.linalg.norm(global_ref_target) + 1e-12)
+    
+    # R_psi @ v1_proj = tar
+    # psi = atan2(v1_proj x tar . z, v1_proj . tar)
+    cos_psi = np.dot(v1_proj, tar)
+    sin_psi = v1_proj[0] * tar[1] - v1_proj[1] * tar[0]
+    
+    R_psi = np.array([[cos_psi, -sin_psi, 0],
+                      [sin_psi,  cos_psi, 0],
+                      [0,        0,       1]])
+    
+    return R_psi @ R1

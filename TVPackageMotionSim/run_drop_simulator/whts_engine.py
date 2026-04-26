@@ -8,6 +8,7 @@ MuJoCo 시뮬레이션 메인 루프, 정밀 물리(소성/공기저항) 및 실
 import os
 import sys
 import time
+import signal
 import json
 import pickle
 import logging
@@ -17,6 +18,38 @@ import mujoco.viewer
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable
+
+# [WHTOOLS] 최적화 모듈 (Numba JIT)
+try:
+    from numba import njit
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+    def njit(*args, **kwargs):
+        def decorator(func): return func
+        return decorator
+
+@njit(cache=True, fastmath=True)
+def _numba_calc_aero(v_linear, z_gap, rho, cd_q, total_area, mu, cd_v, h_max, h_min, k_sq, enable_drag, enable_sq):
+    v_abs = 0.0
+    for i in range(3): v_abs += v_linear[i]**2
+    v_abs = v_abs**0.5
+    
+    f_drag = 0.0
+    f_visc = 0.0
+    f_sq = 0.0
+    
+    if enable_drag:
+        sign_z = 1.0 if v_linear[2] > 0 else (-1.0 if v_linear[2] < 0 else 0.0)
+        f_drag = -0.5 * rho * cd_q * total_area * (v_abs**2) * sign_z
+        f_visc = -1.0 * mu * v_linear[2] * cd_v * total_area
+        
+    if enable_sq and (h_min < z_gap < h_max) and v_linear[2] < 0:
+        f_sq = (k_sq * mu * (total_area**2) * (-v_linear[2])) / (z_gap**3)
+        if f_sq > 2000.0:
+            f_sq = 2000.0
+            
+    return f_drag, f_visc, f_sq
 
 # [WHTOOLS] 시각화 및 로깅 라이브러리
 from rich.console import Console
@@ -46,6 +79,15 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(rich_tracebacks=True, markup=True)]
 )
+# [WHTOOLS] UTF-8 인코딩 강제 설정 (Rich/Console 호환성)
+if sys.stdout.encoding != 'utf-8':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except (AttributeError, io.UnsupportedOperation):
+        pass
+
 logger = logging.getLogger("WHTS_Engine")
 console = Console()
 
@@ -74,7 +116,8 @@ class DropSimulator:
         
         # 경로 관리 (Pathlib 사용)
         default_dir = f"rds-{self.timestamp}"
-        base_dir = self.config.get("output_dir", Path("results") / default_dir)
+        result_base = self.config.get("result_base_dir", "results")
+        base_dir = self.config.get("output_dir", Path(result_base) / default_dir)
         self.output_dir = Path(base_dir)
         
         self.model: Optional[mujoco.MjModel] = None
@@ -103,7 +146,6 @@ class DropSimulator:
         # UI 관련
         self.config_editor = None
         self.result = None
-        self._tk_root = None 
 
         # 자동 밸런싱 적용
         if self.config.get("enable_target_balancing", False) or "components_balance" in self.config:
@@ -192,9 +234,13 @@ class DropSimulator:
 
     def setup(self) -> None:
         """
-        시뮬레이션 환경을 설정합니다. 모델 XML 생성, MuJoCo 객체 초기화, 
+        시뮬레이션 환경을 설정합니다. 모델 XML 생성, MuJoCo 객체 초기화,
         컴포넌트 식별 및 물리 콜백 등록을 포함합니다.
         """
+        # 이전 실행이 등록한 stale 콜백 해제 (프로세스 전역 싱글톤)
+        # 해제하지 않으면 GC된 DropSimulator 인스턴스를 참조해 "Python exception raised" 발생
+        mujoco.set_mjcb_control(None)
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         xml_path = self.output_dir / "simulation_model.xml"
         
@@ -322,7 +368,8 @@ class DropSimulator:
                     'is_plastic': True,
                     'yield_st': self.config.get('cush_yield_strain', 0.05),
                     'base_rgba': self.model.geom_rgba[gi].copy(),
-                    'plastic_rgba': [1.0, 1.0, 0.0, 1.0] # 소성 강조색: Yellow
+                    'plastic_rgba': [1.0, 1.0, 0.0, 1.0], # 소성 강조색: Yellow
+                    'target_size': self.original_geom_size[gi].copy() # [WHTOOLS] 최종 도달 목표 크기
                 }
                 # 초기 시각적 강조 적용
                 self.model.geom_rgba[gi] = [1.0, 1.0, 0.0, 1.0]
@@ -331,8 +378,8 @@ class DropSimulator:
         """MuJoCo 제어 루프에서 매 스텝 호출되는 물리 콜백 함수입니다."""
         self._apply_aerodynamics(model, data)
 
-    def _apply_aerodynamics(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
-        """공기 저항(Drag) 및 압착 효과(Squeeze Film)를 계산하여 외력으로 적용합니다."""
+    def _apply_aerodynamics_backup(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
+        """[BACKUP] 기존 순수 파이썬 로직 기반 공기역학 (구버전)"""
         if self.root_id == -1: return
         cfg = self.config
         if not cfg.get('enable_air_drag', True) and not cfg.get('enable_air_squeeze', False): 
@@ -373,61 +420,152 @@ class DropSimulator:
         # 합산된 공기역학적 힘 적용 (Z축)
         data.xfrc_applied[self.root_id][2] = f_drag + f_visc + f_sq
 
-    def _apply_plasticity_v2(self) -> None:
-        """
-        접촉 압력을 기반으로 한 정밀 소성 변형 로직입니다.
-        항복 응력 초과 시 영구적인 치수 감소를 적용합니다.
-        """
+    def _apply_aerodynamics(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
+        """[OPTIMIZED] Numba JIT 기반 공기역학 가속 (파이썬 루프 최소화)"""
+        if self.root_id == -1: return
+        cfg = self.config
+        en_drag = cfg.get('enable_air_drag', True)
+        en_sq = cfg.get('enable_air_squeeze', False)
+        if not en_drag and not en_sq: return
+        
+        v_linear = data.cvel[self.root_id][3:6]
+        bw, bh, bd = cfg.get('box_w', 2.0), cfg.get('box_h', 1.4), cfg.get('box_d', 0.25)
+        total_area = 2 * (bw * bh + bh * bd + bd * bw)
+        z_gap = data.xpos[self.root_id][2] - (bd / 2.0)
+        
+        f_drag, f_visc, f_sq = _numba_calc_aero(
+            v_linear, z_gap,
+            cfg.get('air_density', 1.225), cfg.get('air_drag_coeff', 1.05), total_area,
+            cfg.get('air_viscosity', 1.8e-5), cfg.get('air_cd_viscous', 0.0),
+            cfg.get('air_squeeze_hmax', 0.1), cfg.get('air_squeeze_hmin', 0.001),
+            cfg.get('air_coef_squeeze', 1.0),
+            en_drag, en_sq
+        )
+        
+        self._last_f_drag = f_drag
+        self._last_f_visc = f_visc
+        self._last_f_sq = f_sq
+        data.xfrc_applied[self.root_id][2] = f_drag + f_visc + f_sq
+
+    def _apply_plasticity_v2_backup(self) -> None:
+        """[BACKUP] 접촉 압력을 기반으로 한 정밀 소성 변형 로직입니다 (기존 순수 파이썬 루프)."""
         if not self.config.get("enable_plasticity", False): return
         d, m = self.data, self.model
         p_ratio = self.config.get("plasticity_ratio", 0.5)
         
+        active_geoms = set()
         for c_idx in range(d.ncon):
             contact = d.contact[c_idx]
             for g_id in [contact.geom1, contact.geom2]:
                 if g_id in self.geom_state_tracker:
-                    # 현재 변형률 계산
-                    strains = [
-                        max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) 
-                        for ax in range(3)
-                    ]
+                    active_geoms.add(g_id)
+                    state = self.geom_state_tracker[g_id]
+                    
+                    strains = [max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) for ax in range(3)]
                     equiv_strain = np.linalg.norm(strains)
                     
-                    # 동적 접촉 면적 산출 (법선 벡터 기반)
                     lx = d.geom_xmat[g_id].reshape(3,3).T @ contact.frame[:3]
                     ax = int(np.argmax(np.abs(lx)))
                     other_axes = [i for i in range(3) if i != ax]
                     area = m.geom_size[g_id][other_axes[0]] * m.geom_size[g_id][other_axes[1]] * 4.0
                     
-                    # 항복 압력 (경화 효과 포함)
                     yield_pr = self.config.get("cush_yield_pressure", 1000.0) + \
-                               (self.config.get("plastic_hardening_modulus", 0.0) * equiv_strain)
+                                (self.config.get("plastic_hardening_modulus", 0.0) * equiv_strain)
                     
                     force = np.zeros(6)
                     mujoco.mj_contactForce(m, d, c_idx, force)
                     pressure = abs(force[0]) / (area + 1e-9)
                     
                     if pressure > yield_pr:
-                        # 소성 유동 수식: 변형 속도 ~ 초과 압력
                         excess_mpa = (pressure - yield_pr) / 1e6
-                        reduction = excess_mpa * p_ratio * m.opt.timestep * 2.0 
-                        
-                        m.geom_size[g_id][ax] = max(
-                            self.original_geom_size[g_id][ax] * (1.0 - self.config.get("plastic_max_strain", 0.5)), 
-                            m.geom_size[g_id][ax] - reduction
-                        )
+                        flow_rate = excess_mpa * 15.0 * m.opt.timestep * self.original_geom_size[g_id][ax]
+                        min_allowed = self.original_geom_size[g_id][ax] * (1.0 - self.config.get("plastic_max_strain", 0.5))
+                        state['target_size'][ax] = max(min_allowed, state['target_size'][ax] - flow_rate)
                     
-                    # 통계 업데이트
                     self.max_applied_pressure_pa = max(self.max_applied_pressure_pa, pressure)
                     self.max_plastic_strain = max(self.max_plastic_strain, equiv_strain)
                     self.max_equiv_strain = max(self.max_equiv_strain, equiv_strain)
-                    for i in range(3):
-                        def_mm = (self.original_geom_size[g_id][i] - m.geom_size[g_id][i]) * 1000.0
-                        self.max_deformation_mm = max(self.max_deformation_mm, def_mm)
-                    
-                    # 시각적 피드백: Strain-based Color Mapping (Blue -> Red)
-                    sn = np.clip(equiv_strain / self.config.get("plastic_color_limit", 0.1), 0.0, 1.0)
-                    m.geom_rgba[g_id] = [sn, 0.4, 1.0 - sn, 1.0]
+
+        for g_id, state in self.geom_state_tracker.items():
+            for ax in range(3):
+                if m.geom_size[g_id][ax] > state['target_size'][ax]:
+                    diff = m.geom_size[g_id][ax] - state['target_size'][ax]
+                    k = p_ratio * 50.0
+                    reduction_step = diff * k * m.opt.timestep
+                    m.geom_size[g_id][ax] -= min(diff, reduction_step)
+            
+            for i in range(3):
+                def_mm = (self.original_geom_size[g_id][i] - m.geom_size[g_id][i]) * 1000.0
+                self.max_deformation_mm = max(self.max_deformation_mm, def_mm)
+            
+            strains = [max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) for ax in range(3)]
+            equiv_strain = np.linalg.norm(strains)
+            sn = np.clip(equiv_strain / self.config.get("plastic_color_limit", 0.1), 0.0, 1.0)
+            m.geom_rgba[g_id] = [sn, 0.4, 1.0 - sn, 1.0]
+
+    def _apply_plasticity_v2(self) -> None:
+        """[OPTIMIZED] Numpy 벡터화 기반 소성 변형 가속 (파이썬 루프 제거)"""
+        if not self.config.get("enable_plasticity", False): return
+        d, m = self.data, self.model
+        p_ratio = self.config.get("plasticity_ratio", 0.5)
+        
+        tracked_gids = np.array(list(self.geom_state_tracker.keys()), dtype=np.int32)
+        if len(tracked_gids) == 0: return
+        
+        if d.ncon > 0:
+            contacts = d.contact.geom[:d.ncon] # (ncon, 2)
+            valid_c_idx = np.where(np.isin(contacts[:, 0], tracked_gids) | np.isin(contacts[:, 1], tracked_gids))[0]
+            
+            for c_idx in valid_c_idx:
+                c_geom = d.contact.geom[c_idx]
+                for g_id in c_geom:
+                    if g_id in self.geom_state_tracker:
+                        state = self.geom_state_tracker[g_id]
+                        sizes = m.geom_size[g_id]
+                        orig_sizes = self.original_geom_size[g_id]
+                        
+                        strains = np.maximum(0.0, (orig_sizes - sizes) / orig_sizes)
+                        equiv_strain = np.linalg.norm(strains)
+                        
+                        lx = d.geom_xmat[g_id].reshape(3,3).T @ d.contact.frame[c_idx, :3]
+                        ax = int(np.argmax(np.abs(lx)))
+                        
+                        area = sizes[(ax+1)%3] * sizes[(ax+2)%3] * 4.0
+                        
+                        yield_pr = self.config.get("cush_yield_pressure", 1000.0) + \
+                                    (self.config.get("plastic_hardening_modulus", 0.0) * equiv_strain)
+                        
+                        force = np.zeros(6)
+                        mujoco.mj_contactForce(m, d, c_idx, force)
+                        pressure = abs(force[0]) / (area + 1e-9)
+                        
+                        if pressure > yield_pr:
+                            excess_mpa = (pressure - yield_pr) / 1e6
+                            flow_rate = excess_mpa * 15.0 * m.opt.timestep * orig_sizes[ax]
+                            min_allowed = orig_sizes[ax] * (1.0 - self.config.get("plastic_max_strain", 0.5))
+                            state['target_size'][ax] = max(min_allowed, state['target_size'][ax] - flow_rate)
+                        
+                        self.max_applied_pressure_pa = max(self.max_applied_pressure_pa, float(pressure))
+                        self.max_plastic_strain = max(self.max_plastic_strain, float(equiv_strain))
+                        self.max_equiv_strain = max(self.max_equiv_strain, float(equiv_strain))
+
+        # 브로드캐스팅 수렴 및 통계
+        for g_id, state in self.geom_state_tracker.items():
+            for ax in range(3):
+                if m.geom_size[g_id][ax] > state['target_size'][ax]:
+                    diff = m.geom_size[g_id][ax] - state['target_size'][ax]
+                    k = p_ratio * 50.0
+                    reduction_step = diff * k * m.opt.timestep
+                    m.geom_size[g_id][ax] -= min(diff, reduction_step)
+            
+            for i in range(3):
+                def_mm = (self.original_geom_size[g_id][i] - m.geom_size[g_id][i]) * 1000.0
+                self.max_deformation_mm = max(self.max_deformation_mm, def_mm)
+            
+            strains = [max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) for ax in range(3)]
+            equiv_strain = np.linalg.norm(strains)
+            sn = np.clip(equiv_strain / self.config.get("plastic_color_limit", 0.1), 0.0, 1.0)
+            m.geom_rgba[g_id] = [sn, 0.4, 1.0 - sn, 1.0]
 
     def _collect_history(self) -> None:
         """현재 타임스텝의 데이터를 히스토리에 기록합니다."""
@@ -495,13 +633,13 @@ class DropSimulator:
         self.trans_vel_res_hist.append(np.linalg.norm(v_trans))
 
     @property
-    def tk_root(self):
-        """Tkinter 루트 윈도우를 Lazy-Loading 방식으로 생성합니다."""
-        if self._tk_root is None:
-            import tkinter as tk
-            self._tk_root = tk.Tk()
-            self._tk_root.withdraw()
-        return self._tk_root
+    def app_instance(self):
+        """PySide6 QApplication 인스턴스를 반환합니다."""
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if not app:
+            app = QApplication([])
+        return app
 
     def simulate(self) -> None:
         """
@@ -534,6 +672,11 @@ class DropSimulator:
         """PySide6 컨트롤 패널과 함께 시뮬레이션을 스레드로 실행합니다."""
         from .whts_control_panel import launch_control_panel
         from PySide6.QtCore import QThread
+        import signal
+
+        # 1. 초기 셋업 (모델 및 데이터 준비)
+        self.setup()
+        self.ctrl_paused = True
 
         class SimThread(QThread):
             def __init__(self, outer):
@@ -542,47 +685,55 @@ class DropSimulator:
             def run(self):
                 try:
                     while not self.outer.ctrl_quit_request:
-                        self.outer.setup()
+                        # 엔진 실행 (이미 셋업된 상태)
                         self.outer._run_engine()
                         if not self.outer.ctrl_reload_request: break
+                        
+                        # 리로드 요청 시 재셋업
+                        self.outer.setup()
                         self.outer.ctrl_reload_request = False
                 finally:
                     self.outer._wrap_up()
 
-        # UI 실행 (Main Thread)
+        # UI 생성
         self.app, self.panel = launch_control_panel(self)
-        
-        # 시뮬레이션 실행 (Sub Thread)
+
+        # Ctrl+C 핸들러
+        def handle_sigint(sig, frame):
+            self.log("\n🛑 External Interrupt Received (Ctrl+C). Shutting down...", level="warning")
+            self.ctrl_quit_request = True
+            if hasattr(self, 'app'): self.app.quit()
+            sys.exit(0)
+        signal.signal(signal.SIGINT, handle_sigint)
+
         self.sim_thread = SimThread(self)
-        self.sim_thread.start()
-        
-        # UI 루프 진입 (Blocking)
-        self.app.exec()
-        
-        # UI 종료 시 시뮬레이션 종료 유도
-        self.ctrl_quit_request = True
-        self.sim_thread.wait()
+
+        # [CRITICAL] 뷰어를 메인 스레드에서 실행
+        with mujoco.viewer.launch_passive(
+            self.model, self.data, 
+            key_callback=self._on_key,
+            show_left_ui=False, show_right_ui=False
+        ) as viewer:
+            self.viewer = viewer
+            # 초기 카메라 설정
+            viewer.cam.lookat[:] = [-0.0295, -0.3909, 0.8668]
+            viewer.cam.distance = 5.8341
+            viewer.cam.elevation = -9.88
+            viewer.cam.azimuth = 136.50
+            
+            # 시뮬레이션 스레드 시작
+            self.sim_thread.start()
+            
+            # UI 루프 (메인 스레드 점유)
+            self.app.exec()
+            
+            # 종료 처리
+            self.ctrl_quit_request = True
+            self.sim_thread.wait()
 
     def _run_engine(self) -> None:
-        """MuJoCo 뷰어 런칭 및 메인 루프 실행을 관리합니다."""
-        if self.config.get("use_viewer", True):
-            with mujoco.viewer.launch_passive(
-                self.model, self.data, 
-                key_callback=self._on_key,
-                show_left_ui=False, 
-                show_right_ui=False
-            ) as viewer:
-                self.viewer = viewer
-                
-                # [WHTOOLS] 초기 카메라 시점 설정 (사용자 요청 뷰)
-                viewer.cam.lookat[:] = [-0.0295, -0.3909, 0.8668]
-                viewer.cam.distance = 5.8341
-                viewer.cam.elevation = -9.88
-                viewer.cam.azimuth = 136.50
-                
-                self._main_loop()
-        else:
-            self._main_loop()
+        """시뮬레이션 루프를 실행합니다. 뷰어는 이미 메인 스레드에서 실행 중입니다."""
+        self._main_loop()
 
     def _main_loop(self) -> None:
         """실제 시뮬레이션 타임스텝을 진행하는 핵심 루프입니다."""
@@ -603,8 +754,6 @@ class DropSimulator:
             if self.viewer and not self.viewer.is_running():
                 break
                 
-            if self._tk_root: self._tk_root.update()
-            
             # [WHTOOLS] UI 요청 처리 (Step, Reset, Jump 등)
             self._handle_ui_requests()
 
@@ -632,13 +781,20 @@ class DropSimulator:
                 
                 # 타겟 도달 시 자동 일시 정지 및 알림 (한 번만)
                 if self.step_idx == total_steps:
-                    self.ctrl_paused = True
-                    self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Paused for review.", level="info")
-                    self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
-                    self.log("💡 [Tip] Simulation paused. Press 'Play' to continue in interactive mode or 'L' to record more data.", level="debug")
+                    if self.config.get("use_viewer", False):
+                        self.ctrl_paused = True
+                        self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Paused for review.", level="info")
+                        self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
+                        self.log("💡 [Tip] Simulation paused. Press 'Play' to continue in interactive mode or 'L' to record more data.", level="debug")
+                    else:
+                        self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Finishing simulation.", level="info")
+                        self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
+                        self.ctrl_quit_request = True # Headless 모드일 경우 즉시 종료 플래그 활성화
                 
                 self.step_idx += 1
-                if self.viewer: self.viewer.sync()
+                # [WHTOOLS] 뷰어 동기화 (매 스텝 동기화하여 부드러운 애니메이션 복구)
+                if self.viewer: 
+                    self.viewer.sync()
                 
                 # 속도 제어 (Speed Multiplier 및 Slow Motion 적용)
                 effective_multiplier = self.ctrl_speed_multiplier
@@ -694,7 +850,6 @@ class DropSimulator:
         """
         현재 MuJoCo 뷰어의 카메라 파라미터(lookat, distance, elevation, azimuth)를 
         XML 포맷으로 추출하여 콘솔에 출력하고 파일로 저장합니다.
-        추후 모델 XML에 해당 카메라 설정을 복사하여 동일한 뷰를 재현할 수 있습니다.
         """
         if not self.viewer:
             self.log("⚠️ Viewer is not active. Cannot export camera.", level="warning")
@@ -706,8 +861,6 @@ class DropSimulator:
         elev = cam.elevation
         azim = cam.azimuth
         
-        # [WHTOOLS] 이 값들은 XML <camera> 태그의 속성이 아니라, 
-        # whts_engine.py의 viewer.cam 속성에 직접 할당해야 하는 값들입니다.
         msg = (f"\n📸 [Camera Export]\n"
                f"- LookAt: {pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f}\n"
                f"- Distance: {dist:.4f}\n"
@@ -729,15 +882,12 @@ class DropSimulator:
     def reload_xml(self, xml_path: Optional[str] = None) -> None:
         """
         특정 XML 파일을 로드하여 시뮬레이션을 재시작합니다.
-        경로가 제공되지 않으면 파일 선택 창을 띄웁니다.
         """
         if xml_path is None:
-            from tkinter import filedialog
-            # Tkinter 루트를 통해 파일 선택 다이얼로그 실행
-            selected = filedialog.askopenfilename(
-                title="Select MuJoCo Simulation XML",
-                filetypes=[("MuJoCo XML", "*.xml"), ("All files", "*.*")],
-                initialdir=str(self.output_dir)
+            from PySide6.QtWidgets import QFileDialog
+            selected, _ = QFileDialog.getOpenFileName(
+                None, "Select MuJoCo Simulation XML",
+                str(self.output_dir), "MuJoCo XML (*.xml);;All files (*.*)"
             )
             if not selected:
                 self.log("🚫 Reload cancelled: No file selected.")
@@ -752,16 +902,7 @@ class DropSimulator:
             self.viewer.close()
 
     def _jump_to_snapshot(self, idx: int) -> None:
-        """
-        저장된 스냅샷 리스트에서 특정 인덱스의 상태로 시뮬레이션을 되돌립니다.
-        
-        Args:
-            idx (int): 이동할 스냅샷의 인덱스.
-        
-        Note:
-            선택된 스냅샷 이후의 모든 히스토리 데이터는 Truncate 되어 삭제됩니다.
-            이는 시뮬레이션의 인과관계를 유지하기 위함입니다.
-        """
+        """저장된 스냅샷 리스트에서 특정 인덱스의 상태로 시뮬레이션을 되돌립니다."""
         if 0 <= idx < len(self.snapshots):
             snapshot = self.snapshots[idx]
             mujoco.mj_setState(self.model, self.data, snapshot['state'], mujoco.mjtState.mjSTATE_PHYSICS)
@@ -774,6 +915,12 @@ class DropSimulator:
             if 'geom_rgba' in snapshot:
                 self.model.geom_rgba[:] = snapshot['geom_rgba']
             
+            # [WHTOOLS] 소성 목표치(target_size) 복구 - 리셋 후 즉시 재변형 방지
+            if 'plastic_targets' in snapshot:
+                for g_id, t_size in snapshot['plastic_targets'].items():
+                    if g_id in self.geom_state_tracker:
+                        self.geom_state_tracker[g_id]['target_size'] = t_size.copy()
+            
             # 3. 통계 데이터 초기화 (0번으로 돌아갈 때만 완전 초기화)
             if idx == 0:
                 self.max_equiv_strain = 0.0
@@ -781,10 +928,6 @@ class DropSimulator:
                 self.max_plastic_strain = 0.0
                 self.max_deformation_mm = 0.0
                 self._last_reported_interval = -1
-
-            # [WHTOOLS] 점프 시 즉시 Truncate 하지 않음 (비파괴적 탐색 지원)
-            # self._truncate_histories(snapshot['hist_len'])
-            # self.snapshots = self.snapshots[:idx+1]
             
             self.log(f"🚀 Jumped to Snapshot {idx} (Time: {snapshot['time']:.3f}s)")
             if self.viewer: self.viewer.sync()
@@ -829,19 +972,22 @@ class DropSimulator:
         self.trans_vel_hist = self.trans_vel_hist[:h_idx]
         self.trans_vel_res_hist = self.trans_vel_res_hist[:h_idx]
         
-        # 구조적 시계열 데이터 초기화 (필요 시 더 정밀하게 구현 가능)
+        # 구조적 시계열 데이터 초기화
         if hasattr(self, 'structural_time_series'):
             for k in ['rrg_max', 'mean_distortion']:
                 if k in self.structural_time_series:
                     self.structural_time_series[k] = self.structural_time_series[k][:h_idx]
 
     def _save_snapshot(self) -> None:
-        """
-        현재의 MuJoCo 물리 상태(mjSTATE_PHYSICS)와 히스토리 포인터를 스냅샷으로 저장합니다.
-        메모리 관리를 위해 최대 500개까지만 유지하며, 초과 시 가장 오래된 것부터 삭제합니다.
-        """
-        # 메모리 효율을 위해 최대 500개까지만 저장 (단, 0번 스냅샷은 리셋을 위해 절대 삭제하지 않음)
-        if len(self.snapshots) > 500:
+        """현재의 MuJoCo 물리 상태와 히스토리 포인터를 스냅샷으로 저장합니다."""
+        # 타겟 시뮬레이션 시간(sim_duration) 내의 모든 step을 커버할 수 있도록 동적 한도 설정 (20% 여유, 최소 1000개)
+        try:
+            target_steps = int((self.config.get("sim_duration", 1.0) / self.model.opt.timestep) * 1.2)
+        except Exception:
+            target_steps = 2000
+        snapshot_limit = max(1000, target_steps)
+        
+        if len(self.snapshots) > snapshot_limit:
             self.snapshots.pop(1) 
             
         state = np.zeros(mujoco.mj_stateSize(self.model, mujoco.mjtState.mjSTATE_PHYSICS))
@@ -853,39 +999,29 @@ class DropSimulator:
             'state': state,
             'geom_size': self.model.geom_size.copy(),
             'geom_rgba': self.model.geom_rgba.copy(),
+            'plastic_targets': {g_id: state['target_size'].copy() for g_id, state in self.geom_state_tracker.items()},
             'hist_len': len(self.time_history)
         })
 
     def _rewind_snapshot(self) -> None:
-        """
-        가장 최근의 스냅샷으로 시뮬레이션을 1단계 되돌립니다(Undo).
-        이 기능은 'Backspace' 키와 연동되어 인터랙티브한 분석을 지원합니다.
-        """
+        """가장 최근의 스냅샷으로 시뮬레이션을 1단계 되돌립니다(Undo)."""
         if len(self.snapshots) <= 1:
             self.log("⚠️ No snapshots available to rewind.", level="warning")
             return
             
-        # 1. 현재(가장 최신) 시점을 리스트에서 제거 (Moving backward)
         self.snapshots.pop()
-        
-        # 2. 새로운 '최신' 시점이 될 스냅샷 참조 (리스트에는 유지)
         snapshot = self.snapshots[-1]
         
-        # 3. MuJoCo 물리 상태 복구
         mujoco.mj_setState(self.model, self.data, snapshot['state'], mujoco.mjtState.mjSTATE_PHYSICS)
         mujoco.mj_forward(self.model, self.data)
         self.step_idx = snapshot['step_idx']
         
-        # 4. 모델 파라미터 (소성 변형) 복구
         if 'geom_size' in snapshot:
             self.model.geom_size[:] = snapshot['geom_size']
         if 'geom_rgba' in snapshot:
             self.model.geom_rgba[:] = snapshot['geom_rgba']
         
-        # 2. 히스토리 데이터 잘라내기 (Truncate)
         self._truncate_histories(snapshot['hist_len'])
-        
-        # 3. 리포트 인터벌 리셋
         self._last_reported_interval = int(self.data.time / 0.05) - 1
         
         self.log(f"⏪ Rewound to Time: {self.data.time:.3f}s (Step: {self.step_idx})")
@@ -928,9 +1064,14 @@ class DropSimulator:
 
     def _wrap_up(self) -> None:
         """시뮬레이션 종료 후 데이터를 정리하고 결과를 저장하며 UI를 호출합니다."""
+        # 콜백 해제 — 이 인스턴스가 GC 된 후에도 전역 콜백이 남지 않도록 정리
+        mujoco.set_mjcb_control(None)
+
+        if self.data is None:
+            self.log("⚠️ _wrap_up skipped: model/data not initialized (setup failed)", level="warning")
+            return
         self.log("🏁 Simulation Finished. Wrapping up data...", level="info")
-        
-        # 데이터 수집 완결성 체크
+
         target_time = self.config.get("sim_duration", 1.0)
         curr_time = self.data.time
         is_complete = curr_time >= (target_time - 1e-5)
@@ -975,24 +1116,16 @@ class DropSimulator:
             self.result.save(str(result_path))
             self.log(f"💾 Results saved to: {result_path}")
 
-            # 후처리 UI 자동 실행
-            self._launch_postprocess()
-            
         except Exception as e:
             self.log(f"Error during wrap-up: {e}", level="error")
+        finally:
+            if hasattr(self, 'panel') and self.panel:
+                try: self.panel.close()
+                except: pass
 
     def _launch_postprocess(self) -> None:
-        """설정에 따라 적절한 후처리 UI를 실행합니다."""
-        if self.config.get("use_postprocess_v2", False):
-            self.log(">> [Integrated UI] Launching V2 Control Center...")
-            launch_v2_subprocess(self)
-        elif self.ctrl_open_ui or self.config.get("use_postprocess_ui", True):
-            self.log(">> [Legacy UI] Launching Tkinter Post-Processing...")
-            from .whts_postprocess_ui import PostProcessingUI
-            ui = PostProcessingUI(self, master=self.tk_root)
-            ui.on_simulation_complete()
-            self.tk_root.mainloop()
-
+        pass
+    
     def apply_balancing(self) -> None:
         """타겟 질량 및 관성을 맞추기 위한 보조 질량을 계산하여 설정에 적용합니다."""
         self.config["chassis_aux_masses"] = calculate_required_aux_masses(
@@ -1008,9 +1141,9 @@ class DropSimulator:
             self.ctrl_paused = not self.ctrl_paused
             state = "Paused" if self.ctrl_paused else "Resumed"
             self.log(f"⏸️ Simulation {state}")
-        elif keycode == 8 or keycode == 259: # Backspace: Reset to Start (Native MuJoCo behavior)
+        elif keycode == 8 or keycode == 259: # Backspace: Reset to Start
             self.ctrl_reset_request = True
-        elif keycode == 263: # Left Arrow: Step Backward (Rewind)
+        elif keycode == 263: # Left Arrow: Step Backward
             self.ctrl_step_backward_request = True
         elif keycode == 82: # 'R': Reset to Start
             self.ctrl_jump_snapshot_idx = 0
@@ -1039,21 +1172,13 @@ class DropSimulator:
             self.log("⚠️ No snapshots to reset.", level="warning")
             return
         
-        # 1. 첫 번째 스냅샷으로 점프 (물리 상태 복구)
         self._jump_to_snapshot(0)
-        
-        # 2. [WHTOOLS] 히스토리 및 스냅샷 전체 초기화
         self._init_histories()
-        self.snapshots = self.snapshots[:1] # 첫 스냅샷만 유지
+        self.snapshots = self.snapshots[:1]
         self.step_idx = 0
-        
-        # 3. 초기 프레임 데이터 기록 (Frame 0)
         self._collect_history()
-        
-        # 4. 리포트 상태 초기화
         self._last_reported_interval = -1
         self._report_count = 0
-        
         self.log("♻️ Simulation Reset to Initial State. History cleared.")
 
 def launch_v2_subprocess(sim: DropSimulator) -> None:
@@ -1074,6 +1199,5 @@ def launch_v2_subprocess(sim: DropSimulator) -> None:
         logger.error(f"Failed to launch V2 UI subprocess: {e}")
 
 if __name__ == "__main__":
-    # 간단한 테스트 실행 예시
     simulator = DropSimulator()
     simulator.simulate()

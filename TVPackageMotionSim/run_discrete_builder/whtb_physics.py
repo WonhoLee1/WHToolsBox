@@ -17,6 +17,7 @@ from .whtb_base import BaseDiscreteBody
 from .whtb_models import (
     BPaperBox, BCushion, BOpenCellCohesive, BOpenCell, BChassis, BAuxBoxMass
 )
+from run_drop_simulator.whts_utils import calculate_required_aux_masses
 
 def analyze_and_balance_components(config: Dict[str, Any], verbose: bool = True) -> Dict[str, Any]:
     """
@@ -24,80 +25,35 @@ def analyze_and_balance_components(config: Dict[str, Any], verbose: bool = True)
     """
     console = Console()
     
-    # 1. 기저 모델(Base Model)의 관성 데이터 확보를 위한 임시 빌드
-    # [WHTOOLS] 실제 XML을 쓰지 않고 메모리 상에서만 격자를 생성하여 inertia를 계산합니다.
-    base_info = _get_assembly_inertia_base(config)
-    m_base, c_base, i_base, details = base_info
+    # 1. 순수 기저 모델(Pure Base)의 관성 데이터 확보 (보조 질량 제외)
+    temp_cfg = config.copy()
+    temp_cfg["component_aux"] = {}
+    temp_cfg["chassis_aux_masses"] = []
+    
+    base_info = _get_assembly_inertia_base(temp_cfg)
+    m_base, c_base, i_base, _ = base_info
     
     # 2. 목표치(Target) 및 보정 파라미터 추출
     balance_cfg = config.get("components_balance", {})
     t_mass = balance_cfg.get("target_mass", config.get("target_mass", m_base))
     t_cog  = np.array(balance_cfg.get("target_cog", config.get("target_cog", c_base)))
     t_moi  = np.array(balance_cfg.get("target_inertia", config.get("target_moi", i_base)))
-    num_masses = balance_cfg.get("count", config.get("num_balancing_masses", 8))
 
-    # 3. 보정 질량(Aux Masses) 계산
-    # 추가 필요 질량
-    m_needed = t_mass - m_base
-    aux_masses_data = []
+    # 3. 보정 질량(Aux Masses) 계산 (whts_utils의 정밀 엔진 사용)
+    # 현재 config 기반으로 필요한 보조 질량 산출
+    aux_masses_data = calculate_required_aux_masses(temp_cfg, t_mass, t_cog, t_moi, base_mci=(m_base, c_base, i_base))
 
-    if m_needed > 0:
-        # 보정 질량계의 평균 중심 좌표 (M_total * C_total = M_base * C_base + M_aux * C_aux)
-        pos_aux_center = (t_cog * t_mass - m_base * c_base) / m_needed
-        
-        # 박스 바운딩 상한 제한 (내부 안착 유도, 90% 마진)
-        bw, bh, bd = config["box_w"], config["box_h"], config["box_d"]
-        lim_x, lim_y, lim_z = bw/2 * 0.9, bh/2 * 0.9, bd/2 * 0.9
-        
-        def clip_p(p):
-            return [float(np.clip(p[0], -lim_x, lim_x)), float(np.clip(p[1], -lim_y, lim_y)), float(np.clip(p[2], -lim_z, lim_z))]
-
-        # 배치 로직 (num_masses 기반 분산)
-        if num_masses <= 1:
-            aux_masses_data.append({"name": "AutoBalance_Main", "pos": clip_p(pos_aux_center), "mass": m_needed, "size": [0.05, 0.05, 0.05]})
-        else:
-            # MoI 보정을 위한 오프셋 계산 (평행축 정리 역산)
-            # 부족한 관성량
-            i_needed = t_moi - i_base
-            # [WHTOOLS] 단순화된 분산 배치 알고리즘 (Axis-symmetric)
-            m_each = m_needed / num_masses
-            
-            # 각 축 방향으로의 분산 거리 (d = sqrt(I / M))
-            # d_x = sqrt(delta_Ixx / (n * m)) 등..
-            def get_dist(delta_i):
-                return math.sqrt(max(0.001, delta_i / (num_masses * m_each)))
-            
-            dist_x = get_dist(i_needed[2] + i_needed[1] - i_needed[0]) # Approximate
-            dist_y = get_dist(i_needed[2] + i_needed[0] - i_needed[1])
-            dist_z = get_dist(i_needed[0] + i_needed[1] - i_needed[2])
-            
-            # 8개 꼭짓점 방향으로 분산 (또는 요청된 count에 맞춰)
-            steps = [(-1, -1, -1), (1, -1, -1), (-1, 1, -1), (1, 1, -1), 
-                     (-1, -1, 1), (1, -1, 1), (-1, 1, 1), (1, 1, 1)]
-            
-            for s_idx in range(min(num_masses, 8)):
-                sx, sy, sz = steps[s_idx]
-                p = [pos_aux_center[0] + sx * dist_x, pos_aux_center[1] + sy * dist_y, pos_aux_center[2] + sz * dist_z]
-                aux_masses_data.append({
-                    "name": f"AutoBalance_{s_idx+1}",
-                    "pos": clip_p(p),
-                    "mass": m_each,
-                    "size": [0.02, 0.02, 0.02]
-                })
-
-    # 4. Config 업데이트 (Builder가 읽을 수 있도록 component_aux 및 chassis_aux_masses에 등록)
-    if "component_aux" not in config: config["component_aux"] = {}
-    if "chassis_aux_masses" not in config: config["chassis_aux_masses"] = []
+    # 4. Config 업데이트 (Builder가 읽을 수 있도록 등록)
+    config["component_aux"] = {}
+    config["chassis_aux_masses"] = []
     
     for aux in aux_masses_data:
-        # (A) New Component System
         config["component_aux"][aux["name"]] = {"pos": aux["pos"], "mass": aux["mass"], "size": aux["size"]}
-        # (B) Legacy Management System Sync
         config["chassis_aux_masses"].append({"name": aux["name"], "pos": aux["pos"], "mass": aux["mass"], "size": aux["size"]})
 
-    # 5. 결과 검증 (Balanced Inertia 측정)
+    # 5. 결과 검증 및 상세 데이터 확보 (최종 상태 측정)
     final_info = _get_assembly_inertia_base(config)
-    m_final, c_final, i_final, _ = final_info
+    m_final, c_final, i_final, details = final_info
 
     # 6. 프리미엄 리포트 출력
     if verbose:
@@ -171,11 +127,17 @@ def _print_physics_report(console, details, m0, c0, i0, tm, tc, ti, mf, cf, ifi)
     table.add_column("🌀 Inertia (Ixx, Iyy, Izz)", justify="center", width=28)
     
     for d in details:
+        name = d["name"].replace("B", "")
+        # 관성이 0인 경우 (AutoBalance 등) 사용자 오해 방지를 위해 별도 표시
+        moi_str = f"({d['moi'][0]:.3f}, {d['moi'][1]:.3f}, {d['moi'][2]:.3f})"
+        if np.linalg.norm(d['moi']) < 1e-6:
+            moi_str = "[dim](PointContribution)[/dim]"
+            
         table.add_row(
-            d["name"].replace("B", ""), 
+            name, 
             f"{d['mass']:.3f}", 
             f"({d['cog'][0]:.3f}, {d['cog'][1]:.3f}, {d['cog'][2]:.3f})", 
-            f"({d['moi'][0]:.3f}, {d['moi'][1]:.3f}, {d['moi'][2]:.3f})"
+            moi_str
         )
     console.print(table)
     

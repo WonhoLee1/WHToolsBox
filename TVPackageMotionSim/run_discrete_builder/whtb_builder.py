@@ -2,7 +2,7 @@ import os
 import io
 import numpy as np
 from typing import Optional, Dict, Any, Tuple, List, Callable, Union
-from .whtb_utils import get_local_pose, parse_drop_target
+from .whtb_utils import get_local_pose, parse_drop_target, get_drop_orientation_matrix, mat2axisangle
 from .whtb_config import get_default_config
 from .whtb_base import BaseDiscreteBody
 from .whtb_models import (
@@ -291,32 +291,73 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
             body2_name = f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}" if b_chassis.use_internal_weld else b_chassis.name
             
             # [V5.11.2] 인터페이스 용접 전용 클래스 적용 (솔레프/솔임프 속성 제거)
-            inter_weld_xml.append(f'        <weld class="weld_bauxboxmass" body1="{body1_name}" body2="{body2_name}"/>')
+            w_prop = config["welds"].get("bauxboxmass", {"torquescale": 1.0})
+            ts = w_prop.get("torquescale", 1.0)
+            inter_weld_xml.append(f'        <weld class="weld_bauxboxmass" body1="{body1_name}" body2="{body2_name}" torquescale="{ts}"/>')
 
     # 6. 낙하 자세 제어
     drop_direction = config.get("drop_direction", "front")
-    target_pt = parse_drop_target(drop_mode, drop_direction, box_w, box_h, box_d); target_dist = np.linalg.norm(target_pt)
-    rot_axis = np.cross(target_pt, [0, 0, -target_dist])
+    target_pt = parse_drop_target(drop_mode, drop_direction, box_w, box_h, box_d)
+    target_dist = np.linalg.norm(target_pt)
     
-    if np.linalg.norm(rot_axis) < 1e-6:
-        rot_axis = np.array([1.0, 0.0, 0.0])
-        angle_rad = 0.0 if target_pt[2] < 0 else np.pi
-    else:
-        rot_axis /= np.linalg.norm(rot_axis)
-        dot_val = np.clip(np.dot(target_pt, [0, 0, -target_dist]) / (target_dist**2), -1, 1)
-        angle_rad = np.arccos(dot_val)
+    if drop_mode == "LTL" and target_dist > 1e-6:
+        # [WHTOOLS] LTL 모드 특수 정렬: 두께 방향(Z) 엣지를 글로벌 Y축에 정렬
+        ref_vec = np.array([0.0, 0.0, 1.0]) if target_pt[2] < 0 else np.array([0.0, 0.0, -1.0])
+        R_final = get_drop_orientation_matrix(target_pt, ref_vec, global_ref_target=np.array([0, -1, 0]))
+        
+        # [WHTOOLS] 사용자 정의 틸트 적용 (config: initial_tilt_deg, initial_tilt_azimuth_deg)
+        tilt_deg = config.get("initial_tilt_deg", 0.0)
+        if abs(tilt_deg) > 1e-6:
+            tilt_az = np.radians(config.get("initial_tilt_azimuth_deg", 0.0))
+            tilt_angle = np.radians(tilt_deg)
+            # 틸트 방향 벡터: [cos(az), sin(az), 0]
+            # 수직축([0,0,1])을 이 방향으로 기울이기 위한 회전축: [-sin(az), cos(az), 0]
+            tilt_axis = np.array([-np.sin(tilt_az), np.cos(tilt_az), 0.0])
+            
+            K = np.array([[0, -tilt_axis[2], tilt_axis[1]], 
+                          [tilt_axis[2], 0, -tilt_axis[0]], 
+                          [-tilt_axis[1], tilt_axis[0], 0]])
+            R_tilt = np.eye(3) + np.sin(tilt_angle) * K + (1 - np.cos(tilt_angle)) * (K @ K)
+            R_final = R_tilt @ R_final
 
-    wx, wy, wz = get_local_pose([0,0,0], drop_height, rot_axis, angle_rad, target_dist)
+        aa = mat2axisangle(R_final)
+        rot_axis = aa[:3]
+        angle_rad = np.radians(aa[3])
+    else:
+        # 기존 최단 회전 로직 (PARCEL 또는 평면 낙하)
+        rot_axis = np.cross(target_pt, [0, 0, -target_dist])
+        if np.linalg.norm(rot_axis) < 1e-6:
+            rot_axis = np.array([1.0, 0.0, 0.0])
+            angle_rad = 0.0 if target_pt[2] < 0 else np.pi
+        else:
+            rot_axis /= np.linalg.norm(rot_axis)
+            dot_val = np.clip(np.dot(target_pt, [0, 0, -target_dist]) / (target_dist**2), -1, 1)
+            angle_rad = np.arccos(dot_val)
+
+    # 최종 위치 계산: 회전된 target_pt가 [0, 0, drop_height]에 위치하도록 함
+    if drop_mode == "LTL" and target_dist > 1e-6:
+        # R_final을 직접 사용하여 정확한 위치 계산
+        target_pt_global = R_final @ target_pt
+        wx, wy, wz = np.array([0, 0, drop_height]) - target_pt_global
+    else:
+        wx, wy, wz = get_local_pose([0,0,0], drop_height, rot_axis, angle_rad, target_dist)
+    
     rot_str = f"{rot_axis[0]:.4f} {rot_axis[1]:.4f} {rot_axis[2]:.4f} {np.degrees(angle_rad):.4f}"
     
     # 7. XML 파일 작성
     xml_str_io = io.StringIO()
     xml_str_io.write('<mujoco model="discrete_custom_box">\n  <size memory="512M"/>\n')
     xml_str_io.write(f'  <option integrator="{config["sim_integrator"]}" timestep="{config["sim_timestep"]}" iterations="{config["sim_iterations"]}" noslip_iterations="{config["sim_noslip_iterations"]}" tolerance="{config["sim_tolerance"]}" impratio="{config["sim_impratio"]}" gravity="{config["sim_gravity"][0]} {config["sim_gravity"][1]} {config["sim_gravity"][2]}" density="{config.get("air_density", 1.225)}" viscosity="{config.get("air_viscosity", 1.81e-5)}">\n    <flag contact="enable"/>\n  </option>\n')
+    # [WHTOOLS] 시각적 설정 일반화 (Fog & Skybox)
+    visual_cfg = config.get("visual", {})
+    fog_start = visual_cfg.get("fogstart", 3.0)
+    fog_end = visual_cfg.get("fogend", 10.0)
+    sky_rgba = visual_cfg.get("skybox_rgba", "0.1 0.1 0.1")
+    
     xml_str_io.write('  <visual>\n    <quality shadowsize="0"/>\n    <global offwidth="0" offheight="0"/>\n')
-    xml_str_io.write(f'    <headlight active="1" ambient="{config.get("light_head_ambient")}" diffuse="{config.get("light_head_diffuse")}" specular="0.07 0.07 0.07"/>\n    <map znear="0.01" fogstart="2" fogend="10"/>\n  </visual>\n')
-    xml_str_io.write('  <asset>\n    <texture type="skybox" builtin="gradient" rgb1="0.1 0.1 0.1" rgb2="0.3 0.3 0.3" width="1024" height="1024"/>\n')
-    xml_str_io.write('    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.85 0.85 0.85" rgb2="0.75 0.75 0.75" markrgb="0.8 0.8 0.8" width="300" height="300"/>\n')
+    xml_str_io.write(f'    <headlight active="1" ambient="{config.get("light_head_ambient")}" diffuse="{config.get("light_head_diffuse")}" specular="0.07 0.07 0.07"/>\n    <map znear="0.01" fogstart="{fog_start}" fogend="{fog_end}"/>\n  </visual>\n')
+    xml_str_io.write(f'  <asset>\n    <texture type="skybox" builtin="gradient" rgb1="{sky_rgba}" rgb2="{sky_rgba}" width="1024" height="1024"/>\n')
+    xml_str_io.write(f'    <texture type="2d" name="ground_tex" builtin="checker" mark="edge" rgb1="0.85 0.85 0.85" rgb2="0.75 0.75 0.75" markrgb="0.8 0.8 0.8" width="300" height="300"/>\n')
     xml_str_io.write('    <material name="ground_mat" texture="ground_tex" texrepeat="5 5" texuniform="true" reflectance="0.0"/>\n')
     xml_str_io.write('  </asset>\n')
     xml_str_io.write('  <default>\n    <joint armature="0.05" damping="1.0"/>\n    <geom/>\n')
@@ -340,7 +381,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         if "paperbox" in w_name: w_name = "paper"
         if "opencellcohesive" in w_name: w_name = "opencellcoh" # Standardize to config key
         
-        w_prop = config["welds"].get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2]})
+        w_prop = config["welds"].get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2], "torquescale": 1.0})
         sr_w = " ".join(map(str, w_prop["solref"]))
         si_w = " ".join(map(str, w_prop["solimp"]))
         # [V5.11.1] MuJoCo: <weld>가 <default> 직접 자식 불가. <equality> 속성으로 정의하여 상속 유도.
@@ -420,7 +461,32 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     xml_str_io.write('  <worldbody>\n')
     xml_str_io.write(f'    <light pos="0 0 6" dir="0 0 -1" directional="false" diffuse="{config.get("light_main_diffuse")}" ambient="{config.get("light_main_ambient")}" castshadow="false"/>\n')
     xml_str_io.write(f'    <light pos="3 3 5" dir="-1 -1 -1" directional="false" diffuse="{config.get("light_sub_diffuse")}" castshadow="false"/>\n')
-    xml_str_io.write(f'    <geom name="ground" type="plane" size="2.5 2.5 0.1" class="ground"/>\n')
+    xml_str_io.write(f'    <geom name="ground" type="plane" size="50 50 0.1" class="ground"/>\n')
+    
+    # [WHTOOLS] 낙하 자세 시각화 가이드 추가 (Visual Only)
+    t_deg = config.get("initial_tilt_deg", 0.0)
+    t_az  = config.get("initial_tilt_azimuth_deg", 0.0)
+    t_az_rad = np.radians(t_az)
+    t_deg_rad = np.radians(t_deg)
+    
+    # 1. 수직 기준선 (White)
+    xml_str_io.write(f'    <geom name="v_guide_vertical" type="cylinder" fromto="0 0 0 0 0 {drop_height+0.2}" size="0.002" rgba="1 1 1 0.3" contype="0" conaffinity="0" group="1"/>\n')
+    
+    # 2. 틸트축 가이드 (Yellow) - 실제 코너-투-코너 라인이 지향할 방향
+    if abs(t_deg) > 1e-6:
+        tx = (drop_height+0.2) * np.sin(t_deg_rad) * np.cos(t_az_rad)
+        ty = (drop_height+0.2) * np.sin(t_deg_rad) * np.sin(t_az_rad)
+        tz = (drop_height+0.2) * np.cos(t_deg_rad)
+        xml_str_io.write(f'    <geom name="v_guide_tilted" type="cylinder" fromto="0 0 0 {tx:.4f} {ty:.4f} {tz:.4f}" size="0.003" rgba="1 1 0 0.5" contype="0" conaffinity="0" group="1"/>\n')
+        
+    # 3. 방위각 가이드 (Ground Lines)
+    # Azimuth 0 (Standard X+)
+    xml_str_io.write(f'    <geom name="v_guide_az_zero" type="cylinder" fromto="0 0 0.001 0.5 0 0.001" size="0.002" rgba="1 0 0 0.2" contype="0" conaffinity="0" group="1"/>\n')
+    # Applied Azimuth (Target Direction)
+    if abs(t_az) > 1e-6:
+        ax = 0.5 * np.cos(t_az_rad); ay = 0.5 * np.sin(t_az_rad)
+        xml_str_io.write(f'    <geom name="v_guide_az_target" type="cylinder" fromto="0 0 0.001 {ax:.4f} {ay:.4f} 0.001" size="0.003" rgba="0 1 0 0.4" contype="0" conaffinity="0" group="1"/>\n')
+
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n      <freejoint/>\n      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0"/>\n')
     for line in root_container.get_worldbody_xml_strings(indent_level=3): xml_str_io.write(line + "\n")
     xml_str_io.write('    </body>\n  </worldbody>\n')

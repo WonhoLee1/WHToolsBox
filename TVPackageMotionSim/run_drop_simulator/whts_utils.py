@@ -61,27 +61,23 @@ def calculate_required_aux_masses(
     target_mass: float, 
     target_cog: Optional[Union[List[float], np.ndarray]] = None, 
     target_moi: Optional[Union[List[float], np.ndarray]] = None, 
-    num_masses: int = 8
+    num_masses: int = 8,
+    base_mci: Optional[Tuple[float, np.ndarray, np.ndarray]] = None
 ) -> List[Dict[str, Any]]:
     """
     설계 목표치(Target Mass, CoG, MoI)를 달성하기 위해 필요한 추가 보정 질량(Aux Masses)의 
     최적 위치와 크기를 역산합니다.
-    
-    Args:
-        config (Dict): 현재 시뮬레이션 설정 (박스 크기 등 참조용)
-        target_mass (float): 목표로 하는 총 질량 (kg)
-        target_cog (List[float], optional): 목표 질량 중심 좌표 (m)
-        target_moi (List[float], optional): 목표 관성 모멘트 (Ixx, Iyy, Izz, kg*m^2)
-        num_masses (int): 배치할 보정 질량체의 개수 (지원: 1, 2, 4, 8)
-    
-    Returns:
-        List[Dict]: 보정 질량체 리스트 [{'name': str, 'pos': [x,y,z], 'mass': float, 'size': [w,h,d]}]
     """
-    # [1] 기저 모델(보정 전)의 관성 데이터 확보
-    temp_cfg = config.copy()
-    temp_cfg["chassis_aux_masses"] = []
-    # Builder를 이용해 임시 모델의 질량/관성 측정
-    _, m_base, c_base, i_base, _ = create_model("temp_inertia_balancer.xml", config=temp_cfg, logger=lambda x: None)
+    # [WHTOOLS] 재귀 방지: 외부에서 base 정보를 주거나, 직접 계산(재귀 없는 버전) 수행
+    if base_mci is not None:
+        m_base, c_base, i_base = base_mci
+    else:
+        # [WHTOOLS] Circular Import 방지를 위해 로컬 임포트 사용
+        from run_discrete_builder.whtb_physics import _get_assembly_inertia_base
+        temp_cfg = config.copy()
+        temp_cfg["chassis_aux_masses"] = []
+        temp_cfg["component_aux"] = {}
+        m_base, c_base, i_base, _ = _get_assembly_inertia_base(temp_cfg)
     
     m_base = float(m_base)
     c_base = np.array(c_base)
@@ -116,7 +112,7 @@ def calculate_required_aux_masses(
     # 배치 로직: 보충 질량 개수에 따라 기하학적으로 배분
     if num_masses <= 1 or t_moi is None:
         aux_masses.append({
-            "name" : "InertiaAux_Single",
+            "name" : "AutoBalance_Single",
             "pos"  : clip_pos(pos_aux),
             "mass" : float(m_aux),
             "size" : [0.01, 0.01, 0.01]
@@ -127,7 +123,7 @@ def calculate_required_aux_masses(
         dx = math.sqrt(max(0.005, i_needed / (2.0 * m_each)))
         for sx in [-1, 1]:
             p = [pos_aux[0] + sx * dx, pos_aux[1], pos_aux[2]]
-            aux_masses.append({"name": f"InertiaAux_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
+            aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
             
     elif num_masses == 4:
         m_each = m_aux / 4.0
@@ -137,24 +133,47 @@ def calculate_required_aux_masses(
         for sx in [-1, 1]:
             for sy in [-1, 1]:
                 p = [pos_aux[0] + sx * dx, pos_aux[1] + sy * dy, pos_aux[2]]
-                aux_masses.append({"name": f"InertiaAux_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
+                aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
                 
     else: # Default 8 masses
         m_each = m_aux / 8.0
-        # 평행축 정리를 이용한 정밀 배분 (Axis-symmetric)
-        def get_shift(m, i_target, i_base, c_target, c_base):
-            d = c_target - c_base
-            i_at_t = i_base + m_base * np.array([d[1]**2 + d[2]**2, d[0]**2 + d[2]**2, d[0]**2 + d[1]**2])
-            res = (i_target - i_at_t) / (m_aux if m_aux > 0 else 1)
-            return np.sqrt(np.maximum(0.001, res))
-
-        shifts = get_shift(m_base, t_moi, i_base, t_cog, c_base) if t_moi is not None else np.array([0.05, 0.05, 0.05])
-        dx, dy, dz = shifts[0], shifts[1], shifts[2]
+        
+        # [WHTOOLS] 8개 질량 분산 배치를 위한 연립 방정식 해결
+        # I_xx_contribution = M_aux * (dy^2 + dz^2)
+        # I_yy_contribution = M_aux * (dx^2 + dz^2)
+        # I_zz_contribution = M_aux * (dx^2 + dy^2)
+        
+        # 1. 기저 모델을 타겟 CoG로 이동시켰을 때의 관성 (평행축 정리)
+        d = t_cog - c_base
+        i_at_t = i_base + m_base * np.array([d[1]**2 + d[2]**2, d[0]**2 + d[2]**2, d[0]**2 + d[1]**2])
+        
+        # 2. 보조 질량계가 담당해야 할 추가 관성량
+        di = t_moi - i_at_t
+        
+        # 3. 연립 방정식 해결: A=dy^2+dz^2, B=dx^2+dz^2, C=dx^2+dy^2
+        A, B, C = di / (m_aux if m_aux > 0 else 1.0)
+        
+        # dx^2 = (B + C - A) / 2
+        # dy^2 = (A + C - B) / 2
+        # dz^2 = (A + B - C) / 2
+        dx2 = (B + C - A) / 2.0
+        dy2 = (A + C - B) / 2.0
+        dz2 = (A + B - C) / 2.0
+        
+        # 물리적 한계 체크 (관성이 너무 낮으면 COG에 밀착)
+        dx = math.sqrt(max(1e-6, dx2))
+        dy = math.sqrt(max(1e-6, dy2))
+        dz = math.sqrt(max(1e-6, dz2))
         
         for sx in [-1, 1]:
             for sy in [-1, 1]:
                 for sz in [-1, 1]:
                     p = [pos_aux[0] + sx * dx, pos_aux[1] + sy * dy, pos_aux[2] + sz * dz]
-                    aux_masses.append({"name": f"InertiaAux_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
+                    aux_masses.append({
+                        "name": f"AutoBalance_{len(aux_masses)+1}", 
+                        "pos": clip_pos(p), 
+                        "mass": m_each, 
+                        "size": [0.01, 0.01, 0.01]
+                    })
                     
     return aux_masses

@@ -12,11 +12,25 @@ import numpy as np
 from typing import Any, Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 from functools import partial
+import logging
+from rich.console import Console
 
 import jax
 import jax.numpy as jnp
 from jax import vmap, jit
 from jax.numpy.linalg import solve
+
+# [WHTOOLS] UTF-8 인코딩 강제 설정 (Rich/Console 호환성)
+if sys.stdout.encoding != 'utf-8':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except (AttributeError, io.UnsupportedOperation):
+        pass
+
+logger = logging.getLogger("WHTS_MPP_Engine")
+console = Console()
 
 # JAX 64비트 정밀도 활성화
 jax.config.update("jax_enable_x64", True)
@@ -24,26 +38,77 @@ jax.config.update("jax_enable_x64", True)
 def scale_result_to_mm(result: Any):
     """
     [WHTOOLS] 시뮬레이션 결과 데이터(m)를 해석 규격(mm)으로 일괄 변환합니다.
+    객체 속성뿐만 아니라 딕셔너리(v6 형태) 데이터도 지원합니다.
     """
     fields_to_scale = [
         'pos_hist', 'cog_pos_hist', 'geo_center_pos_hist', 
         'corner_pos_hist', 'z_hist', 'vel_hist', 
         'cog_vel_hist', 'geo_center_vel_hist',
-        'marker_pos_history', 'marker_vel_history'
+        'marker_pos_history', 'marker_vel_history', 'pos_ref'
     ]
     
+    # Case 1: Dictionary (v6 Lightweight or nested results)
+    if isinstance(result, dict):
+        for f in fields_to_scale:
+            if f in result and result[f] is not None:
+                val = np.array(result[f])
+                if val.size > 0:
+                    # 이미 mm 단위인지 대략적 확인 (v_max < 5.0m 기준)
+                    v_max = np.abs(val).max()
+                    if v_max < 5.0:
+                        result[f] = val * 1000.0
+        
+        # 물리적 치수 보정
+        for dim in ['W', 'H']:
+            if dim in result and result[dim] is not None:
+                if result[dim] < 5.0:
+                    result[dim] *= 1000.0
+                
+        # 중첩된 analyzers 처리 (재귀)
+        if 'analyzers' in result:
+            for res_dict in result['analyzers'].values():
+                scale_result_to_mm(res_dict)
+                
+        # v5 스타일의 analyzer_results 처리
+        if 'analyzer_results' in result:
+            for res_dict in result['analyzer_results'].values():
+                scale_result_to_mm(res_dict)
+                
+        # 마커 데이터 딕셔너리 처리
+        if 'marker_data' in result:
+            for m_name, m_val in result['marker_data'].items():
+                val = np.array(m_val)
+                if val.size > 0 and np.abs(val).max() < 5.0:
+                    result['marker_data'][m_name] = val * 1000.0
+                    
+        return result
+
+    # Case 2: Object (v5 Raw Simulation result)
+    # [WHTOOLS] 객체 내의 analyzer_results도 탐색
+    if hasattr(result, 'analyzer_results'):
+        for res_dict in result.analyzer_results.values():
+            scale_result_to_mm(res_dict)
+            
     for field_name in fields_to_scale:
         if hasattr(result, field_name) and getattr(result, field_name) is not None:
-            scaled_data = np.array(getattr(result, field_name)) * 1000.0
-            setattr(result, field_name, scaled_data)
+            val = np.array(getattr(result, field_name))
+            if val.size > 0:
+                v_max = np.abs(val).max()
+                if v_max < 5.0:
+                    scaled_data = val * 1000.0
+                    setattr(result, field_name, scaled_data)
             
     if hasattr(result, 'block_half_extents'):
         for bid in result.block_half_extents:
-            result.block_half_extents[bid] = [v * 1000.0 for v in result.block_half_extents[bid]]
+            vals = np.array(result.block_half_extents[bid])
+            if vals.size > 0 and vals.max() < 5.0:
+                result.block_half_extents[bid] = (vals * 1000.0).tolist()
             
     if hasattr(result, 'nominal_local_pos'):
         for bid in result.nominal_local_pos:
-            result.nominal_local_pos[bid] = [v * 1000.0 for v in result.nominal_local_pos[bid]]
+            vals = np.array(result.nominal_local_pos[bid])
+            if vals.size > 0 and np.abs(vals).max() < 5.0:
+                result.nominal_local_pos[bid] = (vals * 1000.0).tolist()
             
     return result
 
@@ -98,8 +163,11 @@ class PlateConfig:
             matched_key = 'default'
 
         # 2. Simulation Config 매핑 (m -> mm)
-        if hasattr(simulation_data, 'config'):
-            sim_cfg = simulation_data.config
+        sim_cfg = getattr(simulation_data, 'config', None)
+        if sim_cfg is None and isinstance(simulation_data, dict):
+            sim_cfg = simulation_data.get('config')
+            
+        if sim_cfg is not None:
             part_key = p_name_lower.split('_')[0].replace('b', '')
             
             # [두께 결정] 파트 전용 키가 최우선

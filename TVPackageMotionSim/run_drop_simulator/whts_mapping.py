@@ -36,15 +36,19 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     """
     comp_name = part_name.lower()
     
-    # [WHTOOLS] Flexible Name Mapping (Substring support)
-    # If exact match fails, look for a key that is a substring of comp_name or vice-versa
+    # [WHTOOLS] Flexible Name Mapping (Attribute & Dictionary support)
+    # result가 객체일 수도, 딕셔너리일 수도 있으므로 둘 다 대응합니다.
+    components = getattr(result, 'components', None)
+    if components is None and isinstance(result, dict):
+        components = result.get('components')
+    
     found_key = None
-    if hasattr(result, 'components'):
-        if comp_name in result.components:
+    if components is not None:
+        if comp_name in components:
             found_key = comp_name
         else:
             # Try to find a partial match (e.g., 'cushion' inside 'bcushion')
-            for key in result.components.keys():
+            for key in components.keys():
                 if key in comp_name or comp_name in key:
                     found_key = key
                     break
@@ -52,7 +56,7 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     if found_key is None:
         return {}, {}
 
-    body_map = result.components[found_key]
+    body_map = components[found_key]
     indices = body_map.keys()
     if not indices: return {}, {}
 
@@ -68,8 +72,19 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     face_markers = {face: {} for face in face_prefix}
     face_offsets = {face: {} for face in face_prefix}
     
-    pos_hist = np.array(result.pos_hist)
-    quat_hist = np.array(result.quat_hist)
+    pos_hist = getattr(result, 'pos_hist', None)
+    if pos_hist is None and isinstance(result, dict):
+        pos_hist = result.get('pos_hist')
+    pos_hist = np.array(pos_hist) if pos_hist is not None else None
+
+    quat_hist = getattr(result, 'quat_hist', None)
+    if quat_hist is None and isinstance(result, dict):
+        quat_hist = result.get('quat_hist')
+    quat_hist = np.array(quat_hist) if quat_hist is not None else None
+    
+    if pos_hist is None or quat_hist is None:
+        return {}, {}
+
     n_frames = pos_hist.shape[0]
 
     for face_name in face_prefix:
@@ -86,7 +101,11 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
                          (target_axis == "k" and k == target_idx)
             if not is_on_face: continue
             
-            dx, dy, dz = result.block_half_extents[body_id]
+            extents_map = getattr(result, 'block_half_extents', None)
+            if extents_map is None and isinstance(result, dict):
+                extents_map = result.get('block_half_extents', {})
+            
+            dx, dy, dz = extents_map.get(body_id, [1.0, 1.0, 1.0])
             norm_vec = np.array(face_logic["normal"])
             p_axes = face_logic["plane"]
             d_val = {"i": dx, "j": dy, "k": dz}
@@ -205,8 +224,12 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
 
 def get_assembly_data_from_sim(result: DropSimResult, target_parts: List[str], mode: str = 'statistical', use_virtual_markers: bool = False) -> Tuple[Dict, Dict]:
     total_markers, total_offsets = {}, {}
+    config = getattr(result, 'config', {})
+    if config is None and isinstance(result, dict):
+        config = result.get('config', {})
+        
     for part in target_parts:
-        p_c = result.config.get(part, {})
+        p_c = config.get(part, {})
         p_size = (p_c.get("box_w", 1.0), p_c.get("box_h", 1.0), p_c.get("box_d", 1.0))
         m, o = extract_face_markers(result, part, p_size, mode=mode, use_virtual_markers=use_virtual_markers)
         total_markers[part], total_offsets[part] = m, o

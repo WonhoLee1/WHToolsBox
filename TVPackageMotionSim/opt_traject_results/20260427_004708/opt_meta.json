@@ -1,0 +1,184 @@
+{
+  "param_defs": [
+    [
+      "friction_gnd_cush",
+      0.7,
+      0.1,
+      2.0,
+      false
+    ],
+    [
+      "cush_solref_0",
+      -10000.0,
+      -100000.0,
+      -100.0,
+      true
+    ],
+    [
+      "cush_solref_1",
+      -100.0,
+      -10000.0,
+      -10.0,
+      true
+    ],
+    [
+      "p_solref_0",
+      -10000.0,
+      -100000.0,
+      -100.0,
+      true
+    ],
+    [
+      "p_solref_1",
+      -100.0,
+      -10000.0,
+      -10.0,
+      true
+    ],
+    [
+      "cush_solimp_0",
+      0.1,
+      0.01,
+      0.5,
+      false
+    ],
+    [
+      "cush_solimp_1",
+      0.95,
+      0.7,
+      0.999,
+      false
+    ],
+    [
+      "cush_solimp_2",
+      0.02,
+      0.001,
+      2.0,
+      true
+    ],
+    [
+      "cog_x",
+      0.0,
+      -0.01,
+      0.01,
+      false
+    ],
+    [
+      "cog_y",
+      0.0,
+      -0.01,
+      0.01,
+      false
+    ],
+    [
+      "cog_z",
+      0.0,
+      -0.01,
+      0.01,
+      false
+    ],
+    [
+      "plasticity_ratio",
+      0.3,
+      0.01,
+      0.8,
+      false
+    ],
+    [
+      "cush_yield_pressure",
+      1500.0,
+      100.0,
+      15000.0,
+      true
+    ],
+    [
+      "plastic_hardening_modulus",
+      30000.0,
+      100.0,
+      300000.0,
+      true
+    ],
+    [
+      "initial_tilt_deg",
+      0.0,
+      -1.0,
+      1.0,
+      false
+    ],
+    [
+      "initial_tilt_azimuth_deg",
+      0.0,
+      -1.0,
+      1.0,
+      false
+    ]
+  ],
+  "param_names": [
+    "friction_gnd_cush",
+    "cush_solref_0",
+    "cush_solref_1",
+    "p_solref_0",
+    "p_solref_1",
+    "cush_solimp_0",
+    "cush_solimp_1",
+    "cush_solimp_2",
+    "cog_x",
+    "cog_y",
+    "cog_z",
+    "plasticity_ratio",
+    "cush_yield_pressure",
+    "plastic_hardening_modulus",
+    "initial_tilt_deg",
+    "initial_tilt_azimuth_deg"
+  ],
+  "selected_corners": [
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8"
+  ],
+  "response_weights": {
+    "C1": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C2": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C3": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C4": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C5": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C6": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C7": {
+      "disp": 1.0,
+      "vel": 1.0
+    },
+    "C8": {
+      "disp": 1.0,
+      "vel": 1.0
+    }
+  },
+  "popsize": 10,
+  "max_evals": 500,
+  "w_disp": 0.5,
+  "w_vel": 0.5,
+  "result_dir": "c:\\Users\\GOODMAN\\WHToolsBox\\TVPackageMotionSim\\opt_traject_results\\20260427_004708",
+  "started_at": "2026-04-27T00:47:08.973824"
+}

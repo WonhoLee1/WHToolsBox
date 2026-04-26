@@ -22,6 +22,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, QThread, Signal, Slot, QObject
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QTextCursor
 
+# [WHTOOLS] 상위 디렉토리(프로젝트 루트)를 경로에 추가
+curr_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(curr_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
 # [WHTOOLS] 엔진 및 유틸리티 연동
 from whts_postprocess_engine_v2 import SimulationControlEngine
 from run_discrete_builder import get_default_config

@@ -13,7 +13,7 @@ import jax.numpy as jnp
 from datetime import datetime
 from typing import Any
 
-# [WHTOOLS] UTF-8 인코딩 강제 설정
+# [WHTOOLS] UTF-8 인코딩 강제 설정 (표준 출력/에러)
 if sys.stdout.encoding != 'utf-8':
     try:
         import io
@@ -27,7 +27,7 @@ curr_dir = os.path.dirname(os.path.abspath(__file__))
 if curr_dir not in sys.path: sys.path.append(curr_dir)
 
 from run_drop_simulator import DropSimulator
-from run_discrete_builder import get_default_config
+from run_discrete_builder import get_default_config, get_rgba_by_name, calculate_plate_twist_weld_params
 from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
 from run_drop_simulator.whts_multipostprocessor_engine import (
     ShellDeformationAnalyzer, 
@@ -178,69 +178,108 @@ def test_case_1_setup():
     
     cfg = get_default_config()
     cfg["use_viewer"] = True  # 인터랙티브 모드 활성화 (컨트롤 패널 표시)
-
+    
     # [1. GEOMETRY OPTIONS] : 외관 및 어셈블리 형상 정의
-    cfg["box_w"] = 1.841          # 박스 외곽 가로 치수 [m]
-    cfg["box_h"] = 1.103          # 박스 외곽 세로 치수 [m]
-    cfg["box_d"] = 0.170          # 박스 외곽 깊이 치수 [m]
+    cfg["box_w"] = 2.056          # 박스 외곽 가로 치수 [m]
+    cfg["box_h"] = 1.200          # 박스 외곽 세로 치수 [m]
+    cfg["box_d"] = 0.178          # 박스 외곽 깊이 치수 [m]
     cfg["box_thick"] = 0.008      # 박스 골판지(더블 월 등) 두께 [m]
-    cfg["assy_w"] = 1.570         # 제품(TV) 어셈블리 가로 [m]
-    cfg["assy_h"] = 0.860         # 제품(TV) 어셈블리 세로 [m]
-    cfg["cush_gap"] = 0.005       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
-    cfg["occ_ithick"] = 0.100      # Cohesive의 테두리 폭 (30-->100mm)
+    cfg["assy_w"] = 1.892         # 제품(TV) 어셈블리 가로 [m]
+    cfg["assy_h"] = 1.082         # 제품(TV) 어셈블리 세로 [m]
+    cfg["cush_gap"] = 0.001       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
+    # [Geometry]
+    cfg["opencell_d"] = 0.012        # Open Cell의 두께 (기본값: 12mm)
+    cfg["opencellcoh_d"] = 0.002     # Open Cell Cohesion(Tape 등)의 두께
+    cfg["chassis_d"] = 0.035         # Chassis의 두께
+    cfg["occ_ithick"] = 0.030        # 인터페이스 두께 관련 변수로 추정
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
-    cfg["drop_height"] = 0.5      # 자유 낙하 높이 [m]
+    cfg["drop_height"] = 0.3      # 자유 낙하 높이 [m]
     cfg["use_postprocess_ui"] = False  # 엔진 내부의 구버전 UI 실행 여부
     cfg["use_viewer"] = True          # MuJoCo Viewer(GUI) 실행 여부
+    
+    # [v6.1] Posture Tilt 옵션 테스트 (LTL 코너 낙하 시 유효)
+    cfg["initial_tilt_deg"] = 0.0           # 수직에서 5도 기울임
+    cfg["initial_tilt_azimuth_deg"] = 0.0 # 45도 방향으로 기울임
+
+    # [WHTOOLS] PREMIUM VISUALS: Fog & Infinite Ground Effect
+    cfg["visual"] = {
+        "fogstart": 3.0,              # 3m 지점부터 안개 시작
+        "fogend": 10.0,               # 10m 지점에서 완전 안개 (지면 경계 삭제)
+        "skybox_rgba": "0.6 0.6 0.6", # 밝은 그레이 배경 (기존보다 밝게)
+    }
 
     # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
     cfg["components"] = {
-        "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0},
-        "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 2.0},
-        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0},
-        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1},
-        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0},
+        "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
+        "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
+        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0)},
+        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4)},
+        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
     }
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.7, 0.7]
-    p_solref = [-15000.0,-500.0]
-    p_solimp = [0.10, 0.95, 0.01, 0.5, 2]
+    p_solref = [-55000.0,-800.0]
+    p_solimp = [0.10, 0.95, 0.02, 0.5, 2]
     cfg["contacts"] = {
-        ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
-        ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
-        ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
+        ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
+        ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
         ("cushion", "opencell")     : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
         ("cushion", "chassis")      : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},        
-        ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.05, 0.5, 2]},
+        ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
     }
+    
+    # [WHTOOLS] 실제 물성(E, h_real) 기반 인장 강성 산출 + 실험치(f_target) 기반 벤딩 튜닝
+    # Chassis: 0.6t, E=170GPa / OpenCell: 1.0t, E=70GPa
+    k_oc, d_oc, ts_oc = calculate_plate_twist_weld_params(
+        mass=cfg["components"]["opencell"]["mass"],
+        width=cfg["assy_w"],
+        height=cfg["assy_h"],
+        thickness=cfg["opencell_d"],
+        div=cfg["components"]["opencell"]["div"],
+        E_real=70e9,          # 실제 유리 탄성계수
+        real_thickness=0.001, # 실제 유리 두께 (1mm)
+        target_freq_hz=1.0,   # 판 전체 목표 벤딩 진동수 (1Hz)
+        zeta=0.05
+    )
+    k_chas, d_chas, ts_chas = calculate_plate_twist_weld_params(
+        mass=cfg["components"]["chassis"]["mass"],
+        width=cfg["assy_w"],
+        height=cfg["assy_h"],
+        thickness=cfg["chassis_d"],
+        div=cfg["components"]["chassis"]["div"],
+        E_real=170e9,         # 실제 Chassis 탄성계수 (Steel계열)
+        real_thickness=0.0006, # 실제 Chassis 두께 (0.6mm)
+        target_freq_hz=4.0,   # 판 전체 목표 벤딩 진동수 (4Hz)
+        zeta=0.05
+    )
 
-    # [4-1. WELD & STIFFNESS PARAMETERS] : 파트 내부 결속 설정 (NEW)
     cfg["welds"] = {
         "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "cushion"        : {"solref": p_solref, "solimp": p_solimp},
         "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
-        "opencell"       : {"solref": [-40000000, -400.0], "solimp": [0.10, 0.95, 0.1, 0.5, 2]},
+        "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
         "opencellcoh"    : {"solref": [-15000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "chassis"        : {"solref": [-40000000, -200.0], "solimp": [0.10, 0.99, 0.1, 0.5, 2]},
+        "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},
     }
     
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
-    cfg["plasticity_ratio"]     = 0.8
-    cfg["cush_yield_pressure"]  = 1000.0
-    cfg["plastic_hardening_modulus"] = 1000.0
+    cfg["plasticity_ratio"]     = 0.3
+    cfg["cush_yield_pressure"]  = 1500.0
+    cfg["plastic_hardening_modulus"] = 30000.0
     
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     # [6. MASS TOTALS & AUTO BALANCING]
     cfg["components_balance"] = {
-        "target_mass": 30.0,
-        #"target_inertia": [2.0, 6.0, 14.0],
-        #"target_cog": [0.1, 0, 0],  # 10cm 편심 배치 시도
-        "count": 1
+        "target_mass": 42.2,
+        "target_inertia": [3.0, 8.0, 14.0],
+        "target_cog": [0.001, 0.007, 0.010],  # 10cm 편심 배치 시도
+        "count": 8
     }
     # analyze_and_balance_components가 실행되면, 위 설정을 바탕으로 aux 질량이 생성되어 component_aux에 추가됩니다.
 

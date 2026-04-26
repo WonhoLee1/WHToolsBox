@@ -52,15 +52,25 @@ class MonitorConfigDialog(QDialog):
 
         corner_grid = QVBoxLayout()
         self.corner_checks = []
-        corner_names = [
-            "Front-Bottom-Left", "Front-Bottom-Right", "Front-Top-Left", "Front-Top-Right",
-            "Rear-Bottom-Left", "Rear-Bottom-Right", "Rear-Top-Left", "Rear-Top-Right"
+        
+        self.corner_info = [
+            {"id": "C1", "name": "Front-Top-Right", "idx": 3},
+            {"id": "C2", "name": "Front-Bottom-Right", "idx": 1},
+            {"id": "C3", "name": "Front-Bottom-Left", "idx": 0},
+            {"id": "C4", "name": "Front-Top-Left", "idx": 2},
+            {"id": "C5", "name": "Rear-Top-Right", "idx": 7},
+            {"id": "C6", "name": "Rear-Bottom-Right", "idx": 5},
+            {"id": "C7", "name": "Rear-Bottom-Left", "idx": 4},
+            {"id": "C8", "name": "Rear-Top-Left", "idx": 6},
         ]
-        for i, name in enumerate(corner_names):
-            cb = QCheckBox(f"P{i}: {name}")
-            if i == 0: cb.setChecked(True)
+        
+        for info in self.corner_info:
+            cb = QCheckBox(f"{info['id']}: {info['name']}")
+            if info['id'] == "C1": cb.setChecked(True)
+            cb.setProperty("info", info)
             self.corner_checks.append(cb)
             corner_grid.addWidget(cb)
+            
         kin_layout.addLayout(corner_grid)
         
         kin_layout.addWidget(self._create_separator())
@@ -211,7 +221,7 @@ class MonitorConfigDialog(QDialog):
         elif self.radio_acc.isChecked(): dtype = "acc"
         
         return {
-            "selected_corners": [i for i, cb in enumerate(self.corner_checks) if cb.isChecked()],
+            "selected_corners": [cb.property("info") for cb in self.corner_checks if cb.isChecked()],
             "data_type": dtype,
             "axes": [ax for ax, cb in [('X', self.check_x), ('Y', self.check_y), ('Z', self.check_z), ('Res', self.check_res)] if cb.isChecked()],
             "physics": {
@@ -239,7 +249,8 @@ class RealTimeMonitorWindow(QWidget):
         
         self._init_ui()
         
-        # 타이머 설정 (UI 업데이트)
+        # [WHTOOLS] 초기 데이터 플로팅 및 타이머 설정
+        self._update_plot() # 창이 열리는 즉시 기존 데이터 반영
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._update_plot)
         self.timer.start(50) # 20 FPS
@@ -274,10 +285,11 @@ class RealTimeMonitorWindow(QWidget):
         self.act_to_clipboard.setChecked(True)
         
         # Group targets to make them exclusive
-        self.target_group = QButtonGroup(self) 
-        # Note: QAction is not a QAbstractButton, so we handle exclusivity manually
-        self.act_to_clipboard.triggered.connect(lambda: self._set_target_exclusive(True))
-        self.act_to_file.triggered.connect(lambda: self._set_target_exclusive(False))
+        from PySide6.QtGui import QActionGroup
+        self.target_group = QActionGroup(self) 
+        self.target_group.addAction(self.act_to_clipboard)
+        self.target_group.addAction(self.act_to_file)
+        self.target_group.setExclusive(True)
         
         self.tool_menu.addAction(self.act_save_csv)
         self.tool_menu.addAction(self.act_save_tab)
@@ -286,9 +298,9 @@ class RealTimeMonitorWindow(QWidget):
         self.tool_menu.addAction(self.act_to_clipboard)
         self.tool_menu.addAction(self.act_to_file)
         
-        self.act_save_csv.triggered.connect(lambda: self._export_data("csv"))
-        self.act_save_tab.triggered.connect(lambda: self._export_data("tab"))
-        self.act_save_md.triggered.connect(lambda: self._export_data("md"))
+        self.act_save_csv.triggered.connect(lambda checked=False, m="csv": self._export_data(m))
+        self.act_save_tab.triggered.connect(lambda checked=False, m="tab": self._export_data(m))
+        self.act_save_md.triggered.connect(lambda checked=False, m="md": self._export_data(m))
         
         # 2. View Menu (Matplotlib Navigation)
         self.view_menu = self.menu_bar.addMenu("🔍 View")
@@ -364,9 +376,10 @@ class RealTimeMonitorWindow(QWidget):
             
             lines = {}
             if plot_info['type'] in ["kin", "impact"]:
-                for c_idx in self.config['selected_corners']:
-                    line, = ax.plot([], [], label=f"P{c_idx}", linewidth=1.2)
-                    lines[c_idx] = line
+                for c_info in self.config['selected_corners']:
+                    c_id = c_info['id']
+                    line, = ax.plot([], [], label=c_id, linewidth=1.2)
+                    lines[c_id] = line
                 if i == 0:
                     ax.legend(loc='upper right', fontsize=6, facecolor='#121212', labelcolor='white')
             elif plot_info['type'] == "rot_axis":
@@ -387,7 +400,7 @@ class RealTimeMonitorWindow(QWidget):
                 lines["total"] = line
             
             # [WHTOOLS] 현재 시점을 표시하는 수직선 추가
-            marker = ax.axvline(x=0, color='red', linestyle='--', linewidth=1, alpha=0.7)
+            marker = ax.axvline(x=0, color='red', linestyle='--', linewidth=1.5, alpha=0.8, zorder=100)
             
             plot_info['ax'] = ax
             plot_info['lines'] = lines
@@ -415,6 +428,30 @@ class RealTimeMonitorWindow(QWidget):
         if not data_source:
             return
             
+        # 좀 더 범용적인 방식: 사용 중인 모든 히스토리의 최소 길이
+        history_lens = [len(times)]
+        if self.config['physics']['impact']: history_lens.append(len(self.sim.corner_impact_hist))
+        if self.config['physics']['drag']: history_lens.append(len(self.sim.air_drag_hist))
+        if self.config['physics']['squeeze']: history_lens.append(len(self.sim.air_squeeze_hist))
+        if self.config['physics']['rot_axis']: history_lens.append(len(self.sim.rot_axis_hist))
+        if self.config['physics']['rot_speed']: history_lens.append(len(self.sim.rot_speed_hist))
+        if self.config['physics']['trans_vel_xyz']: history_lens.append(len(self.sim.trans_vel_hist))
+        if self.config['physics']['trans_vel_res']: history_lens.append(len(self.sim.trans_vel_res_hist))
+        
+        # Kinematics buffers
+        if self.config['data_type'] == "pos":
+            history_lens.append(len(self.sim.corner_pos_hist))
+            history_lens.append(len(self.sim.corner_pos_res_hist))
+        elif self.config['data_type'] == "vel":
+            history_lens.append(len(self.sim.corner_vel_hist))
+            history_lens.append(len(self.sim.corner_vel_res_hist))
+        else:
+            history_lens.append(len(self.sim.corner_acc_hist))
+            history_lens.append(len(self.sim.corner_acc_res_hist))
+            
+        min_len = min(history_lens)
+        if min_len == 0: return
+
         try:
             times_np = np.array(times[:min_len])
             
@@ -431,14 +468,18 @@ class RealTimeMonitorWindow(QWidget):
                         ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
                     
                     data_arr = np.array(ds[:min_len])
-                    for c_idx, line in lines.items():
+                    for c_info in self.config['selected_corners']:
+                        c_id = c_info['id']
+                        c_idx = c_info['idx']
                         y_data = data_arr[:, c_idx, plot_info['axis_idx']] if plot_info['axis_idx'] < 3 else data_arr[:, c_idx]
-                        line.set_data(times_np, y_data)
+                        lines[c_id].set_data(times_np, y_data)
                         
                 elif plot_info['type'] == "impact":
                     data_arr = np.array(self.sim.corner_impact_hist[:min_len])
-                    for c_idx, line in lines.items():
-                        line.set_data(times_np, data_arr[:, c_idx])
+                    for c_info in self.config['selected_corners']:
+                        c_id = c_info['id']
+                        c_idx = c_info['idx']
+                        lines[c_id].set_data(times_np, data_arr[:, c_idx])
                         
                 elif plot_info['type'] == "drag":
                     line = lines["total"]
@@ -462,6 +503,7 @@ class RealTimeMonitorWindow(QWidget):
                     
                 elif plot_info['type'] == "trans_vel_xyz":
                     data_arr = np.array(self.sim.trans_vel_hist[:min_len])
+                    # X/Y/Z 데이터 추출 (min_len까지)
                     lines["x"].set_data(times_np, data_arr[:, 0])
                     lines["y"].set_data(times_np, data_arr[:, 1])
                     lines["z"].set_data(times_np, data_arr[:, 2])
@@ -471,7 +513,7 @@ class RealTimeMonitorWindow(QWidget):
                     line.set_data(times_np, np.array(self.sim.trans_vel_res_hist[:min_len]))
 
                 # 현재 시점 마커 업데이트 (슬라이더 이동 시 동기화)
-                plot_info['marker'].set_xdata([self.sim.data.time])
+                plot_info['marker'].set_xdata([self.sim.data.time, self.sim.data.time])
 
                 # Y축 범위 자동 조절
                 plot_info['ax'].relim()
@@ -479,11 +521,10 @@ class RealTimeMonitorWindow(QWidget):
         except Exception:
             return
             
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def _set_target_exclusive(self, to_clipboard: bool):
-        self.act_to_clipboard.setChecked(to_clipboard)
-        self.act_to_file.setChecked(not to_clipboard)
+        pass # Now handled by QActionGroup
 
     def _export_data(self, mode: str):
         """현재까지 수집된 데이터를 익스포트합니다."""
@@ -496,11 +537,11 @@ class RealTimeMonitorWindow(QWidget):
         
         for plot_info in self.axes_plots:
             if plot_info['type'] == "kin":
-                for c_idx in corners:
-                    header.append(f"P{c_idx}_{self.config['data_type']}_{plot_info['label']}")
+                for c_info in corners:
+                    header.append(f"{c_info['id']}_{self.config['data_type']}_{plot_info['label']}")
             elif plot_info['type'] == "impact":
-                for c_idx in corners:
-                    header.append(f"P{c_idx}_ImpactForce")
+                for c_info in corners:
+                    header.append(f"{c_info['id']}_ImpactForce")
             elif plot_info['type'] == "rot_axis":
                 header.append("RotAxis_Azimuth")
                 header.append("RotAxis_Elevation")
@@ -526,14 +567,14 @@ class RealTimeMonitorWindow(QWidget):
                         ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
                     
                     data_pt = ds[i]
-                    for c_idx in corners:
-                        val = data_pt[c_idx, plot_info['axis_idx']] if plot_info['axis_idx'] < 3 else data_pt[c_idx]
+                    for c_info in corners:
+                        val = data_pt[c_info['idx']][plot_info['axis_idx']] if plot_info['axis_idx'] < 3 else data_pt[c_info['idx']]
                         row.append(f"{val:.6f}")
                 
                 elif plot_info['type'] == "impact":
                     data_pt = self.sim.corner_impact_hist[i]
-                    for c_idx in corners:
-                        row.append(f"{data_pt[c_idx]:.6f}")
+                    for c_info in corners:
+                        row.append(f"{data_pt[c_info['idx']]:.6f}")
                 
                 elif plot_info['type'] == "drag":
                     row.append(f"{self.sim.air_drag_hist[i]:.6f}")

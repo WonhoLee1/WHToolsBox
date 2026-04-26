@@ -15,6 +15,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 
+# [WHTOOLS] UTF-8 인코딩 강제 설정 (이모지 및 한글 깨짐 방지)
+if sys.stdout.encoding != 'utf-8':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except (AttributeError, io.UnsupportedOperation):
+        pass
+
 class ControlPanel(QMainWindow):
     """
     MuJoCo 시뮬레이션을 실시간으로 제어하기 위한 PySide6 메인 윈도우입니다.
@@ -216,54 +225,66 @@ class ControlPanel(QMainWindow):
 
     def _update_status(self):
         """시뮬레이터의 현재 상태를 UI에 반영합니다."""
-        if self.sim.data is None:
-            return
+        try:
+            if self.sim is None or self.sim.data is None:
+                return
+                
+            # 시간 및 스텝 정보 업데이트
+            curr_time = self.sim.data.time
+            target_time = self.sim.config.get("sim_duration", 1.0)
             
-        # 시간 및 스텝 정보 업데이트
-        curr_time = self.sim.data.time
-        target_time = self.sim.config.get("sim_duration", 1.0)
-        
-        self.lbl_time.setText(f"Time: {curr_time:.3f} / {target_time:.3f} s")
-        self.lbl_step.setText(f"Step: {self.sim.step_idx}")
-        snap_count = len(self.sim.snapshots)
-        self.lbl_snapshots.setText(f"Snapshots: {snap_count}")
+            self.lbl_time.setText(f"Time: {curr_time:.3f} / {target_time:.3f} s")
+            self.lbl_step.setText(f"Step: {self.sim.step_idx}")
+            snap_count = len(self.sim.snapshots)
+            self.lbl_snapshots.setText(f"Snapshots: {snap_count}")
 
-        # 데이터 수집 상태 판정
-        if curr_time >= target_time:
-            self.lbl_status.setText("Status: Collection Complete ✅")
-            self.lbl_status.setStyleSheet("color: #2ecc71; font-weight: bold;") # Green
-        elif self.sim.ctrl_paused:
-            self.lbl_status.setText("Status: Paused ⏸️")
-            self.lbl_status.setStyleSheet("color: #f1c40f;") # Yellow
-        else:
-            self.lbl_status.setText("Status: Data Collecting... ⏳")
-            self.lbl_status.setStyleSheet("color: #3498db;") # Blue
-        
-        # 슬라이더 범위 업데이트 및 재생 중 최신 위치 추적
-        if snap_count > 0:
-            self.slider.setRange(0, snap_count - 1)
+            # 데이터 수집 상태 판정
+            if curr_time >= target_time:
+                self.lbl_status.setText("Status: Collection Complete ✅")
+                self.lbl_status.setStyleSheet("color: #2ecc71; font-weight: bold;") # Green
+            elif self.sim.ctrl_paused:
+                self.lbl_status.setText("Status: Paused ⏸️")
+                self.lbl_status.setStyleSheet("color: #f1c40f;") # Yellow
+            else:
+                self.lbl_status.setText("Status: Data Collecting... ⏳")
+                self.lbl_status.setStyleSheet("color: #3498db;") # Blue
             
-            # [WHTOOLS] 재생 중에는 슬라이더 핸들을 자동으로 맨 뒤로 이동
-            if not self.sim.ctrl_paused:
-                self.slider.blockSignals(True)
-                self.slider.setValue(snap_count - 1)
-                self.slider.blockSignals(False)
-            # 현재 시점이 스냅샷 중 어디인지 대략적으로 표시 (선택 사항)
-            # self.slider.setValue(snap_count - 1) 
+            # 슬라이더 범위 업데이트 및 재생 중 최신 위치 추적
+            if snap_count > 0:
+                self.slider.setRange(0, snap_count - 1)
+                
+                # [WHTOOLS] 재생 중에는 슬라이더 핸들을 자동으로 맨 뒤로 이동
+                if not self.sim.ctrl_paused:
+                    self.slider.blockSignals(True)
+                    self.slider.setValue(snap_count - 1)
+                    self.slider.blockSignals(False)
 
-        # 재생 버튼 텍스트 업데이트
-        self.btn_play.setText("▶️ Play" if self.sim.ctrl_paused else "⏸️ Pause")
-        
-        # 타임라인 정보 업데이트
-        current_snap = self.slider.value()
-        self.lbl_frame_info.setText(f"Frame: {current_snap} / {max(0, snap_count - 1)}")
-        
-        # 효과 버튼 상태 동기화 (시뮬레이터 내부 상태 -> UI)
-        self.btn_slow.setChecked(self.sim.ctrl_slow_motion)
-        self.btn_slow.setStyleSheet("background-color: #554400;" if self.sim.ctrl_slow_motion else "")
-        
-        self.btn_rec.setChecked(self.sim.is_recording)
-        self.btn_rec.setStyleSheet("background-color: #550000; color: #ff0000; font-weight: bold;" if self.sim.is_recording else "")
+            # 재생 버튼 텍스트 업데이트
+            self.btn_play.setText("▶️ Play" if self.sim.ctrl_paused else "⏸️ Pause")
+            
+            # 타임라인 정보 업데이트
+            current_snap = self.slider.value()
+            self.lbl_frame_info.setText(f"Frame: {current_snap} / {max(0, snap_count - 1)}")
+            
+            # 효과 버튼 상태 동기화 (시뮬레이터 내부 상태 -> UI)
+            self.btn_slow.setChecked(self.sim.ctrl_slow_motion)
+            self.btn_slow.setStyleSheet("background-color: #554400;" if self.sim.ctrl_slow_motion else "")
+            
+            self.btn_rec.setChecked(self.sim.is_recording)
+            self.btn_rec.setStyleSheet("background-color: #550000; color: #ff0000; font-weight: bold;" if self.sim.is_recording else "")
+        except (AttributeError, RuntimeError, KeyboardInterrupt):
+            pass
+
+    def closeEvent(self, event):
+        """창이 닫힐 때 하위 모니터 창들도 모두 닫습니다."""
+        if hasattr(self, 'monitor_windows'):
+            for win in self.monitor_windows:
+                try:
+                    win.close()
+                except:
+                    pass
+        self.timer.stop()
+        event.accept()
 
     def _on_play_pause(self):
         self.sim.ctrl_paused = not self.sim.ctrl_paused
@@ -280,6 +301,11 @@ class ControlPanel(QMainWindow):
 
     def _on_slider_moved(self, value):
         self.sim.ctrl_jump_snapshot_idx = value
+        # [WHTOOLS] 슬라이더 이동 시 즉시 모니터 창들의 마커를 업데이트하여 반응성 향상
+        if hasattr(self, 'monitor_windows'):
+            for win in self.monitor_windows:
+                if win.isVisible():
+                    win._update_plot()
 
     def _on_speed_changed(self, value):
         self.sim.ctrl_speed_multiplier = value
@@ -304,7 +330,6 @@ class ControlPanel(QMainWindow):
         tvel = self.sim.trans_vel_hist[-1]
         tvel_res = self.sim.trans_vel_res_hist[-1]
         
-        # 각도로 변환된 회전축 방향
         import numpy as np
         azi = np.degrees(np.arctan2(axis[1], axis[0]))
         ele = np.degrees(np.arcsin(np.clip(axis[2], -1, 1)))
@@ -334,13 +359,13 @@ class ControlPanel(QMainWindow):
             win.show()
 
     def _on_open_config(self):
-        """설정 편집기(ConfigEditor)를 메인 스레드에서 직접 실행합니다."""
-        from .whts_gui import ConfigEditor
-        if not hasattr(self, 'config_editor') or self.config_editor is None:
-            self.config_editor = ConfigEditor(self.sim)
-        self.config_editor.show()
-        self.config_editor.raise_()
-        self.config_editor.activateWindow()
+        """설정 편집기 안내 메시지를 표시합니다."""
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, "Notice", 
+            "Tkinter 기반의 ConfigEditor는 제거되었습니다.\n"
+            "추후 PySide6 기반으로 통합될 예정입니다."
+        )
 
     def _on_reload_xml(self):
         from PySide6.QtWidgets import QFileDialog
@@ -352,9 +377,7 @@ class ControlPanel(QMainWindow):
             self.sim.reload_xml(file_path)
 
 def launch_control_panel(simulator):
-    """
-    외부에서 컨트롤 패널을 실행하기 위한 진입점입니다.
-    """
+    """외부에서 컨트롤 패널을 실행하기 위한 진입점입니다."""
     app = QApplication.instance()
     if not app:
         app = QApplication(sys.argv)
@@ -364,7 +387,6 @@ def launch_control_panel(simulator):
     return app, panel
 
 if __name__ == "__main__":
-    # 테스트용 가상 시뮬레이터 객체 (실제 실행 시에는 DropSimulator 인스턴스가 전달됨)
     class MockSim:
         def __init__(self):
             self.data = type('obj', (object,), {'time': 0.0})
@@ -375,6 +397,8 @@ if __name__ == "__main__":
             self.ctrl_step_backward_request = False
             self.ctrl_jump_snapshot_idx = -1
             self.ctrl_speed_multiplier = 1.0
+            def log(self, t, level="info"): print(f"[{level}] {t}")
+            self.log = log
             
     app, panel = launch_control_panel(MockSim())
     sys.exit(app.exec())

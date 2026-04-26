@@ -1,0 +1,18 @@
+# WHTOOLS Exclusion List
+results/
+scratch/
+__pycache__/
+*.pkl
+*.pyc
+*.pyo
+*.log
+MUJOCO_LOG.TXT
+legacy_temp.xml
+v2_temp.xml
+temp_twist.xml
+*.png
+!TVPackageMotionSim/*.png
+!TVPackageMotionSim/resources/*.png
+!TVPackageMotionSim/run_drop_simulator/resources/*.png
+!sidebar_logo.png
+!ui_banner.png

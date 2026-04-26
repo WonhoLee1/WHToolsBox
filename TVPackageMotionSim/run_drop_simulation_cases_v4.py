@@ -142,7 +142,6 @@ def test_run_case_2():
     # V2 UI 연동을 위한 전용 설정만 유지
     cfg.update({
         "use_postprocess_ui": False, # 구버전 UI 끔
-        "use_postprocess_v2": True,  # 신형 V2 UI 켬
         "use_viewer": True
     })
 

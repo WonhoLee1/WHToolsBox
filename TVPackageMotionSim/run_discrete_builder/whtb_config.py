@@ -47,15 +47,17 @@ def sync_phys_config(config: Dict[str, Any]):
     config["paper_weld_solref"] = f"{config['paper_solref_timec']} {config['paper_solref_damprr']}"
     
     # 3. Material Maps (Builder 호환용)
+    comp = config.get("components", {})
+    
     config["mat_paper"] = {
-        "rgba": "0.5 0.3 0.2 1",
+        "rgba": comp.get("paper", {}).get("rgba", "0.5 0.3 0.2 1"),
         "friction": f"{config['paper_friction']}",
         "solref": f"{config['paper_weld_solref']}",
         "solimp": f"{config['paper_weld_solimp']}"
     }
 
     config["mat_cush"] = {
-        "rgba": "0.9 0.9 0.9 0.5",
+        "rgba": comp.get("cushion", {}).get("rgba", "0.9 0.9 0.9 0.5"),
         "friction": f"{config['cush_friction']}",
         "solref": f"{config['cush_contact_solref']}",
         "solimp": f"{config['cush_contact_solimp']}",
@@ -64,21 +66,21 @@ def sync_phys_config(config: Dict[str, Any]):
     }
 
     config["mat_cell"] = {
-        "rgba": "0.1 0.1 0.1 1.0",
+        "rgba": comp.get("opencell", {}).get("rgba", "0.1 0.1 0.1 1.0"),
         "friction": "0.5",
         "solref": f"{config['opencell_weld_solref']}",
         "solimp": f"{config['opencell_weld_solimp']}"
     }
 
     config["mat_tape"] = {
-        "rgba": "1 0.1 0.1 0.4",
+        "rgba": comp.get("opencellcoh", {}).get("rgba", "1 0.1 0.1 0.4"),
         "friction": "0.8",
         "weld_solref": f"{config['opencell_weld_solref']}",
         "weld_solimp": f"{config['opencell_weld_solimp']}"
     }
 
     config["mat_tv"] = {
-        "rgba": "0.5 0.5 0.5 1.0",
+        "rgba": comp.get("chassis", {}).get("rgba", "0.5 0.5 0.5 1.0"),
         "friction": "0.5",
         "weld_solref": f"{config['chassis_weld_solref']}",
         "weld_solimp": f"{config['chassis_weld_solimp']}"
@@ -133,6 +135,7 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         "drop_mode": "LTL", "drop_direction": "Corner 2-3-5", "drop_height": 0.5,
         "sim_duration": 2.0, "include_paperbox": False, "include_cushion": True,
         "use_postprocess_ui": True, "use_postprocess_v2": False, "use_viewer": True,
+        "initial_tilt_deg": 0.0, "initial_tilt_azimuth_deg": 0.0, # 낙하 자세 미세 틸트 (deg)
 
         # [Meshing]
         "chassis_div": [5, 5, 1], "chassis_use_weld": True,
