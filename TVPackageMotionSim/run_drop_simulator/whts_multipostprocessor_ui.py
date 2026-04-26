@@ -46,6 +46,9 @@ from run_drop_simulator.whts_multipostprocessor_engine import (
 )
 from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
 
+# [WHTOOLS] 공통 UI 컴포넌트 라이브러리 임포트
+from run_drop_simulator.wht_ui_components import WHTRangeControlGroup, WHTRangeDialog
+
 @dataclass
 class PlotSlotConfig:
     """[WHTOOLS] 2D 그래프 슬롯별 시각화 구성 설정 데이터 본체"""
@@ -72,15 +75,15 @@ class DashboardConfig:
 # --- [Section 2] Helper Windows & Dialogs ---
 # ==============================================================================
 
-class VisibilityToolWindow(QtWidgets.QWidget):
+class PartManagerWindow(QtWidgets.QWidget):
     """
-    [WHTOOLS] 가시성 관리자 (Visibility Manager)
-    트리 구조를 이용한 파트별 메쉬/마커 가시성 및 실시간 해석 정보(Min/Max) 모니터링 창
+    [WHTOOLS] 파트 관리자 (Part Manager)
+    트리 구조를 이용한 파트별 가시성, 렌더 모드 제어 및 실시간 해석 정보(Min/Max) 모니터링 창
     """
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.Window | QtCore.Qt.WindowStaysOnTopHint)
-        self.setWindowTitle("Visibility Manager")
-        self.resize(400, 600)
+        self.setWindowTitle("Part Manager")
+        self.resize(500, 650)
         self.parent = parent
         
         layout = QtWidgets.QVBoxLayout(self)
@@ -224,11 +227,16 @@ class VisibilityToolWindow(QtWidgets.QWidget):
 
     def update_info(self):
         """현재 선택된 필드 데이터의 Min/Max 정보를 트리 행에 업데이트"""
-        if not self.parent or not hasattr(self.parent, 'cmb_3d'):
+        # [WHT-DEBUG] cmb_comp 존재 여부 및 유효성 체크
+        if not self.parent or not hasattr(self.parent, 'cmb_comp') or self.parent.cmb_comp is None:
             return
         
-        f_idx = self.parent.current_frame
-        fk = self.parent.cmb_3d.currentText()
+        try:
+            f_idx = getattr(self.parent, 'current_frame', 0)
+            # cmb_comp의 currentData() 또는 currentText() 사용
+            fk = self.parent.cmb_comp.currentText()
+        except (RuntimeError, AttributeError):
+            return
         
         self.tree.blockSignals(True)
         for i, item in self.id_to_item.items():
@@ -240,6 +248,28 @@ class VisibilityToolWindow(QtWidgets.QWidget):
                 item.setText(4, "-")
         self.tree.blockSignals(False)
 
+    def _on_focus(self):
+        """[WHTOOLS] 선택한 파트들의 바운딩 박스를 계산하여 카메라 초점을 맞춥니다."""
+        selected_items = self.tree.selectedItems()
+        if not selected_items: return
+        
+        bounds = []
+        for item in selected_items:
+            i = item.data(0, QtCore.Qt.UserRole)
+            if i is not None and i in self.parent.part_actors:
+                bounds.append(self.parent.part_actors[i]['poly'].bounds)
+                
+        if not bounds: return
+        
+        # 합집합 바운딩 박스 계산
+        bounds = np.array(bounds)
+        xmin, xmax = bounds[:, 0].min(), bounds[:, 1].max()
+        ymin, ymax = bounds[:, 2].min(), bounds[:, 3].max()
+        zmin, zmax = bounds[:, 4].min(), bounds[:, 5].max()
+        
+        self.parent.v_int.view_vector((1, 1, 1)) # Perspective view
+        self.parent.v_int.reset_camera(bounds=[xmin, xmax, ymin, ymax, zmin, zmax])
+
     def _apply(self):
         """변경된 가시성 설정을 메인 렌더러에 즉각 반영"""
         for i, item in self.id_to_item.items():
@@ -247,6 +277,9 @@ class VisibilityToolWindow(QtWidgets.QWidget):
                 self.parent.part_actors[i]['visible'] = (item.checkState(1) == QtCore.Qt.Checked)
                 self.parent.part_actors[i]['visible_markers'] = (item.checkState(2) == QtCore.Qt.Checked)
         self.parent.update_frame(self.parent.current_frame)
+
+
+
 
 
 class AddPlotDialog(QtWidgets.QDialog):
@@ -492,19 +525,18 @@ class OpenSettingsDialog(QtWidgets.QDialog):
         # 4. 데이터 해석 모드 선택 (v5 vs v6 스타일 결정)
         mode_group = QtWidgets.QGroupBox("Data Interpretation Mode")
         mode_layout = QtWidgets.QVBoxLayout(mode_group)
-        self.rb_v5 = QtWidgets.QRadioButton("마커 재구성 모드 (경계 근사형) - Marker Reconstruction (Approx. Boundary)")
-        self.rb_v6 = QtWidgets.QRadioButton("정밀 형상 모드 (경계 확정형) - Verified Geometry (Exact Boundary)")
+        self.rb_v5 = QtWidgets.QRadioButton("마커 재구성 모드 (경계 근사형) - Marker Reconstruction")
+        self.rb_v6 = QtWidgets.QRadioButton("정밀 형상 모드 (경계 확정형) - Verified Geometry (Exact)")
         
-        # [WHTOOLS] 데이터 구조 기반 자동 추천
-        if hasattr(self.result_data, 'time_history'):
-            self.rb_v5.setChecked(True)
-        else:
-            self.rb_v6.setChecked(True)
+        # [WHT] 기능 설명을 툴팁으로 전환하여 UI를 깔끔하게 유지
+        self.rb_v5.setToolTip("마커 위치를 추적하여 형상을 유추합니다.\n정확한 외곽 치수(박스 크기) 보장이 어려울 수 있습니다.")
+        self.rb_v6.setToolTip("코너 및 정밀 메쉬 정보를 직접 사용하여\n실제 설계 치수와 완벽히 일치하는 결과를 보장합니다.")
+        
+        # [WHT] 사용자의 요청에 따라 '정밀 형상 모드'를 기본값으로 설정
+        self.rb_v6.setChecked(True)
             
         mode_layout.addWidget(self.rb_v5)
-        mode_layout.addWidget(QtWidgets.QLabel("  <i style='color:gray; font-size:9pt;'>- 마커 위치를 추적하여 형상을 유추합니다. 정확한 외곽 치수(박스 크기) 보장이 어려울 수 있습니다.</i>"))
         mode_layout.addWidget(self.rb_v6)
-        mode_layout.addWidget(QtWidgets.QLabel("  <i style='color:gray; font-size:9pt;'>- 코너 및 정밀 메쉬 정보를 직접 사용하여 실제 설계 치수와 완벽히 일치하는 결과를 보장합니다.</i>"))
         layout.addWidget(mode_group)
 
         bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
@@ -520,15 +552,26 @@ class OpenSettingsDialog(QtWidgets.QDialog):
         mode = self.cmb_mode.currentText()
         
         try:
-            # metadata 위주로 빠르게 스캔 (실제 함수 재사용)
+            # 1. 일차적으로 입력된 접두사들을 기준으로 스캔 시도
             markers, _ = get_assembly_data_from_sim(self.result_data, target_prefixes, mode=mode)
             
+            # [WHT-SMART] 만약 검색된 파트가 없다면, 데이터 내의 모든 컴포넌트를 자동으로 탐색
+            # [WHT-FIX] any() 대신 명시적인 존재 여부 체크로 Ambiguous Truth Value 에러 방지
+            has_data = any(len(faces) > 0 for faces in markers.values())
+            if not has_data:
+                print("[WHTOOLS-SCAN] Default prefixes failed. Attempting smart auto-scan of all components...")
+                if hasattr(self.result_data, 'components'):
+                    all_keys = list(self.result_data.components.keys())
+                    markers, _ = get_assembly_data_from_sim(self.result_data, all_keys, mode=mode)
+                    # UI에도 감지된 접두사들을 업데이트하여 사용자에게 알림
+                    self.le_parts.setText(", ".join(all_keys))
+
             self.table.setRowCount(0)
             self.part_configs = []
             
             for p_name, faces in markers.items():
                 for f_name, m_data in faces.items():
-                    if not m_data: continue
+                    if m_data is None or len(m_data) == 0: continue
                     row = self.table.rowCount()
                     self.table.insertRow(row)
                     
@@ -690,7 +733,8 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.statusBar().showMessage("WHTOOLS Ready")
         
         # 메인 시퀀스 실행
-        self.visibility_tool = VisibilityToolWindow(self)
+        self.visibility_tool = PartManagerWindow(self)
+        self._is_first_2d_update = True  # tight_layout 트리거용
         self._init_ui()
         self._init_3d_view()
         self._init_2d_plots()
@@ -700,6 +744,8 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             # [WHTOOLS] Ensure initial font settings are applied
             self._update_vtk_font(self.v_font_size)
             self.update_frame(0)
+            # [WHT] 기본 배경 스타일 설정 (Light Grey Grad.)
+            QtCore.QTimer.singleShot(100, lambda: self._on_bg_changed("Light Grey Grad."))
 
     def _bind_manager_data(self):
         """[WHTOOLS] 매니저 데이터에서 필드 키 및 통계 키 추출"""
@@ -729,6 +775,9 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             k for k in p0.results 
             if k not in self.field_keys and p0.results[k].ndim < 3
         ] + ['Marker Local Disp. [mm]', 'Marker Global Disp. [mm]']
+        
+        # [WHTOOLS] Populate Field Combos
+        self._populate_category_combos()
 
     # --------------------------------------------------------------------------
     # --- UI Layout & Component Setup ---
@@ -962,6 +1011,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 
             self.last_path = path
             self.load_new_manager(new_mgr)
+            self.setWindowTitle(f"✨ WHTOOLS Multi-PostProcessor [V2] - {os.path.basename(path)}")
             self.statusBar().showMessage(f"✅ Successfully loaded: {os.path.basename(path)}")
             
         except Exception as e:
@@ -976,23 +1026,22 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         """[WHTOOLS] 새로운 매니저로 대시보드 데이터 및 뷰 갱신"""
         self.mgr = manager
         
-        # Part Manager 동기화
-        was_visible = False
-        if hasattr(self, 'visibility_tool') and self.visibility_tool is not None:
-            was_visible = self.visibility_tool.isVisible()
-            self.visibility_tool.close()
-            self.visibility_tool.deleteLater()
-            
-        self.visibility_tool = VisibilityToolWindow(self)
-        if was_visible:
-            self.visibility_tool.show()
-            
+        # 1. 3D 뷰 및 액터 초기화
+        self.v_int.clear()
+        self.part_actors = {}
+        self._init_3d_view()
+        
+        # 2. UI 상태 및 필드 선택 목록(cmb_3d) 먼저 초기화
         self.current_frame = 0
         self.is_playing = False
-        if hasattr(self, 'timer'):
-            self.timer.stop()
-            try: self.timer.deleteLater()
+        
+        if hasattr(self, 'timer') and self.timer is not None:
+            try:
+                self.timer.stop()
+                self.timer.timeout.disconnect()
             except: pass
+            self.timer.deleteLater()
+            self.timer = None
         if hasattr(self, 'bp'): self.bp.setText("▶️")
         
         valid_analyzers = [a for a in manager.analyzers if a.results]
@@ -1003,15 +1052,100 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         else:
             self.field_keys = []; self.stat_keys = []
             
-        if hasattr(self, 'cmb_3d'):
-            self.cmb_3d.blockSignals(True)
-            self.cmb_3d.clear()
-            self.cmb_3d.addItems(["Body Color", "Face Color"] + self.field_keys)
-            self.cmb_3d.blockSignals(False)
+        if hasattr(self, 'cmb_cat'):
+            self.cmb_cat.blockSignals(True)
+            self.cmb_cat.clear()
             
-        self.v_int.clear()
-        self.part_actors = {}
-        self._init_3d_view()
+            # [WHT] 카테고리 맵 구축: {Category: [(Display Name, Full Key), ...]}
+            self._categories = {"Basic": [("Body Color", "Body Color"), ("Face Color", "Face Color")]}
+            
+            for k in self.field_keys:
+                # 필드 이름의 첫 단어를 카테고리로 사용 (예: "Stress XX" -> "Stress")
+                parts = k.split(' ')
+                cat = parts[0] if len(parts) > 1 else "Other"
+                comp = " ".join(parts[1:]) if len(parts) > 1 else k
+                
+                if cat not in self._categories:
+                    self._categories[cat] = []
+                self._categories[cat].append((comp, k))
+            
+            self.cmb_cat.addItems(sorted(list(self._categories.keys())))
+            self.cmb_cat.blockSignals(False)
+            
+            # 4. 카테고리별 첫 항목 자동 선택 및 화면 갱신
+            if self._categories and len(self._categories) > 0:
+                first_cat = list(self._categories.keys())[0]
+                idx = self.cmb_cat.findText(first_cat)
+                if idx >= 0: self.cmb_cat.setCurrentIndex(idx)
+        
+        # [WHT] 2D 관련 위젯 동기화 (cmb_p2d, cmb_f2d)
+        if hasattr(self, 'cmb_p2d'):
+            self.cmb_p2d.blockSignals(True)
+            self.cmb_p2d.clear()
+            self.cmb_p2d.addItems(["[All Parts]"] + [a.name for a in self.mgr.analyzers])
+            self.cmb_p2d.blockSignals(False)
+            
+        if hasattr(self, 'cmb_f2d'):
+            self.cmb_f2d.blockSignals(True)
+            self.cmb_f2d.clear()
+            # 2D는 보통 Scalar 값 위주이므로 field_keys 전체를 표시
+            self.cmb_f2d.addItems(self.field_keys)
+            self.cmb_f2d.blockSignals(False)
+
+        # [WHT-INITIAL] 4. 초기 플롯 구성을 위한 자동 설정
+        self.plot_slots = [None] * 6
+        
+        # (1) 2D Grid Setup
+        if hasattr(self, 'cmb_lay'):
+            self._on_grid_layout_changed(self.cmb_lay.currentText())
+
+        # (2) Slot 1: Contour (Principal Strain)
+        target_contour_key = next((k for k in self.field_keys if "Prin.Strain" in k or "Principal" in k), None)
+        if not target_contour_key and self.field_keys: target_contour_key = self.field_keys[0]
+        
+        if target_contour_key:
+            self.plot_slots[0] = PlotSlotConfig(
+                part_indices=[-1], # All Parts
+                plot_type="contour",
+                data_key=target_contour_key
+            )
+            
+        # (3) Slot 2: Curve (Max.Curvature Mean)
+        target_curve_key = "Max.Curvature Mean"
+        # 만약 해당 키가 없으면 field_keys에서 유도 (Max- 가상키 처리 로직이 있으므로 문자열로 설정)
+        if target_curve_key:
+            self.plot_slots[1] = PlotSlotConfig(
+                part_indices=[-2], # All Main Parts
+                plot_type="curve",
+                data_key=target_curve_key
+            )
+        
+        # (4) 3D Force Refresh (Colormap & Initial Frame)
+        self._on_cmap_changed()
+        self.update_frame(0)
+        if hasattr(self, 'fig'):
+            self.fig.tight_layout()
+            self.can.draw_idle()
+        
+        # 3. 모든 데이터가 준비된 후 파트 매니저 동기화
+        was_visible = False
+        if hasattr(self, 'visibility_tool') and self.visibility_tool is not None:
+            try:
+                was_visible = self.visibility_tool.isVisible()
+                self.visibility_tool.close()
+                self.visibility_tool.deleteLater()
+            except RuntimeError:
+                pass
+            self.visibility_tool = None
+            
+        self.visibility_tool = PartManagerWindow(self)
+        if was_visible:
+            self.visibility_tool.show()
+        
+        # [WHT] 파트 매니저가 열려 있다면 즉시 정보 갱신
+        if hasattr(self, 'visibility_tool') and self.visibility_tool is not None:
+            try: self.visibility_tool.update_info()
+            except: pass
         
         if hasattr(self, 'sld'):
             n_frames = len(self.mgr.times) if self.mgr.times is not None else 1
@@ -1071,7 +1205,8 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             self.cmb_font_2d.setCurrentText(str(v))
             self.cmb_font_2d.blockSignals(False)
         # 4. Immediate Refresh
-        if hasattr(self, 'sb'):
+        if hasattr(self, 'sb') and self.sb is not None:
+            self.sb.unconstrained_font_size = True
             self.sb.label_font_size = v
             self.sb.title_font_size = v
         self.update_frame(self.current_frame)
@@ -1085,163 +1220,204 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         except: pass
 
     def _apply_initial_preset(self):
+        """[WHTOOLS] 파일 로딩 직후 최적의 시각화 상태(프리셋)를 자동으로 설정합니다."""
         target_name = "opencell_front"; target_idx = -1
         for i, ana in enumerate(self.mgr.analyzers):
             if target_name in ana.name.lower(): target_idx = i; break
-        if target_idx == -1: return
-        self.cmb_3d.setCurrentText("Curvature Mean [1/mm]")
-        self.cmb_lay.setCurrentText("2x1")
-        self.plot_slots[0] = PlotSlotConfig(part_indices=[target_idx], plot_type="contour", data_key="Curvature Mean [1/mm]")
-        self.plot_slots[1] = PlotSlotConfig(part_indices=[-2], plot_type="curve", data_key="Max-Curvature Mean [1/mm]")
+        
+        # [WHT] 데이터 카테고리에 따른 지능형 프리셋
+        if hasattr(self, 'cmb_cat') and hasattr(self, '_categories'):
+            if "Curvature" in self._categories:
+                self.cmb_cat.setCurrentText("Curvature")
+                self._on_category_changed("Curvature")
+                self.cmb_comp.setCurrentText("Curvature Mean [1/mm]")
+            elif self.cmb_cat.count() > 1:
+                # "Basic" 이외의 첫 번째 실제 데이터 카테고리 선택
+                self.cmb_cat.setCurrentIndex(1)
+            elif self.cmb_cat.count() > 0:
+                self.cmb_cat.setCurrentIndex(0)
+                
+        if hasattr(self, 'cmb_lay'):
+            self.cmb_lay.setCurrentText("2x1")
+            
+        if target_idx != -1:
+            # Opencell이 있으면 해당 파트를 1번 슬롯(Contour)에 자동 할당
+            self.plot_slots[0] = PlotSlotConfig(part_indices=[target_idx], plot_type="contour", data_key=self.cmb_comp.currentText())
+            self.plot_slots[1] = PlotSlotConfig(part_indices=[-2], plot_type="curve", data_key="Max-" + self.cmb_comp.currentText())
 
     def _update_step(self, v):
         self.anim_step = v
         if hasattr(self, 'sp_step_ui'):
             self.sp_step_ui.blockSignals(True); self.sp_step_ui.setValue(v); self.sp_step_ui.blockSignals(False)
 
-    def _init_3d_controls(self, p):
-        """
-        [WHTOOLS] 3D 뷰어 제어 패널을 구성합니다. (Ribbon Style)
-        사용자 요청에 따라 2행 레이아웃으로 구성하였습니다.
-        Row 1: Part Manager, View Mode, Scale, Environment, Field Selection
-        Row 2: Range, Min, Max, Fit 버튼
-        """
-        main_layout = QtWidgets.QVBoxLayout(p)
-        main_layout.setContentsMargins(15, 2, 15, 2)
-        main_layout.setSpacing(5)
+    def _init_3d_controls(self, tab):
+        """[WHTOOLS] 3D Field Control Panel - Professional Ribbon Style (WHT Inspector ported)"""
+        layout = QtWidgets.QHBoxLayout(tab)
+        layout.setContentsMargins(10, 2, 10, 2); layout.setSpacing(8)
+
+        # [Group 1] Part & Deform
+        g_part = QtWidgets.QGroupBox("Structure & Deform")
+        l_part_main = QtWidgets.QVBoxLayout(g_part); l_part_main.setContentsMargins(5, 5, 5, 5); l_part_main.setSpacing(2)
+        row_p1 = QtWidgets.QHBoxLayout(); row_p2 = QtWidgets.QHBoxLayout()
         
-        row1 = QtWidgets.QHBoxLayout()
-        row2 = QtWidgets.QHBoxLayout()
-        main_layout.addLayout(row1)
-        main_layout.addLayout(row2)
+        self.btn_mgr = QtWidgets.QPushButton("🏢 Part Manager")
+        self.btn_mgr.setStyleSheet("background-color: #666; color: white; font-weight: bold; min-width: 100px;")
+        self.btn_mgr.clicked.connect(lambda: self.visibility_tool.show())
         
-        # --- Row 1: 기본 관리 및 필드 선택 ---
-        f_pm = QtWidgets.QFrame(); l_pm = QtWidgets.QHBoxLayout(f_pm); l_pm.setContentsMargins(0, 0, 0, 0)
-        self.btn_pm = QtWidgets.QPushButton("🧱 Part Manager 👁️")
-        self.btn_pm.setMinimumHeight(32)
-        self.btn_pm.clicked.connect(lambda: self.visibility_tool.show() if self.visibility_tool else None)
-        l_pm.addWidget(self.btn_pm)
-        row1.addWidget(f_pm); row1.addWidget(self._create_v_line())
+        self.chk_warp = QtWidgets.QCheckBox("Use Deform")
+        self.chk_warp.setChecked(True); self.chk_warp.toggled.connect(lambda: self.update_frame(self.current_frame))
         
-        f_vm = QtWidgets.QFrame(); l_vm = QtWidgets.QHBoxLayout(f_vm); l_vm.setContentsMargins(0, 0, 0, 0)
-        l_vm.addWidget(QtWidgets.QLabel("View:")); self.cmb_v = QtWidgets.QComboBox(); self.cmb_v.addItems(["Global", "Local"])
-        self.cmb_v.currentTextChanged.connect(lambda: self.update_frame(self.current_frame)); l_vm.addWidget(self.cmb_v)
-        l_vm.addWidget(QtWidgets.QLabel("Scale:")); self.sp_sc = QtWidgets.QDoubleSpinBox(); self.sp_sc.setRange(1.0, 1000.0); self.sp_sc.setValue(1.0)
-        self.sp_sc.valueChanged.connect(lambda: self.update_frame(self.current_frame)); l_vm.addWidget(self.sp_sc)
-        row1.addWidget(f_vm); row1.addWidget(self._create_v_line())
+        row_p1.addWidget(self.btn_mgr); row_p1.addWidget(self.chk_warp); row_p1.addStretch(1)
         
-        f_env = QtWidgets.QFrame(); l_env = QtWidgets.QHBoxLayout(f_env); l_env.setContentsMargins(0, 0, 0, 0)
-        v_col = QtWidgets.QVBoxLayout(); v_col.setSpacing(2)
-        self.ch_per = QtWidgets.QCheckBox("Persp."); self.ch_per.setChecked(True); self.ch_per.toggled.connect(self._on_persp_toggled)
-        v_col.addWidget(self.ch_per)
-        self.btn_fv = QtWidgets.QPushButton("📐"); self.btn_fv.setToolTip("Fit View")
-        self.btn_fv.setMinimumHeight(24); self.btn_fv.clicked.connect(lambda: self.v_int.reset_camera())
-        v_col.addWidget(self.btn_fv)
-        l_env.addLayout(v_col)
-        l_env.addWidget(QtWidgets.QLabel("BG:")); self.cmb_bg = QtWidgets.QComboBox(); self.cmb_bg.addItems(["Grey Grad.", "Sky Grad.", "White", "Black"])
-        self.cmb_bg.setCurrentText("Grey Grad."); self.cmb_bg.currentTextChanged.connect(self._on_bg_changed); l_env.addWidget(self.cmb_bg)
-        row1.addWidget(f_env); row1.addWidget(self._create_v_line())
+        self.sp_sc = QtWidgets.QDoubleSpinBox(); self.sp_sc.setRange(-1000, 1000); self.sp_sc.setValue(1.0); self.sp_sc.setSingleStep(0.1)
+        self.sp_sc.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+        row_p2.addWidget(QtWidgets.QLabel("  Scale:")); row_p2.addWidget(self.sp_sc); row_p2.addStretch(1)
         
-        f_fld = QtWidgets.QFrame(); l_fld = QtWidgets.QHBoxLayout(f_fld); l_fld.setContentsMargins(0, 0, 0, 0)
-        l_fld.addWidget(QtWidgets.QLabel("Field:")); self.cmb_3d = QtWidgets.QComboBox(); self.cmb_3d.addItems(["Body Color", "Face Color"])
-        self.cmb_3d.setFixedWidth(300); l_fld.addWidget(self.cmb_3d)
-        row1.addWidget(f_fld)
-        row1.addStretch(1)
+        l_part_main.addLayout(row_p1); l_part_main.addLayout(row_p2)
+        layout.addWidget(g_part)
+
+        # [Group 2] Fields (Dual Combo System) - Ported from WHT Inspector for Professional Layout
+        g_field = QtWidgets.QGroupBox("Fields")
+        l_field = QtWidgets.QGridLayout(g_field)
+        l_field.setSpacing(5)
         
-        # --- Row 2: 범례 및 수치 제어 ---
-        f_leg = QtWidgets.QFrame(); l_leg = QtWidgets.QHBoxLayout(f_leg); l_leg.setContentsMargins(0, 0, 0, 0)
-        l_leg.addWidget(QtWidgets.QLabel("Range:")); self.cmb_l = QtWidgets.QComboBox(); self.cmb_l.addItems(["Dynamic", "Static"]); l_leg.addWidget(self.cmb_l)
-        l_leg.addWidget(QtWidgets.QLabel("Min:")); self.sp_min = QtWidgets.QDoubleSpinBox(); self.sp_min.setRange(-1e9, 1e9); self.sp_min.setDecimals(4)
-        self.sp_min.setFixedWidth(90); self.sp_min.setEnabled(False); l_leg.addWidget(self.sp_min)
-        l_leg.addWidget(QtWidgets.QLabel("Max:")); self.sp_max = QtWidgets.QDoubleSpinBox(); self.sp_max.setRange(-1e9, 1e9); self.sp_max.setDecimals(4)
-        self.sp_max.setFixedWidth(90); self.sp_max.setEnabled(False); l_leg.addWidget(self.sp_max)
-        self.btn_fit = QtWidgets.QPushButton("🔄 Fit")
-        self.btn_fit.setFixedWidth(50); self.btn_fit.setEnabled(False)
-        self.btn_fit.clicked.connect(self._on_fit_range)
-        l_leg.addWidget(self.btn_fit)
-        row2.addWidget(f_leg)
-        row2.addStretch(1)
+        self.cmb_cat = QtWidgets.QComboBox(); self.cmb_cat.setFixedWidth(150)
+        self.cmb_comp = QtWidgets.QComboBox(); self.cmb_comp.setFixedWidth(130)
+        self.cmb_cat.currentTextChanged.connect(self._on_category_changed)
+        self.cmb_comp.currentTextChanged.connect(self._on_component_changed)
         
-        # Signals 연결
-        self.cmb_3d.currentTextChanged.connect(self._on_field_changed)
-        self.cmb_l.currentTextChanged.connect(self._on_legend_mode_changed)
-        self.sp_min.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        self.sp_max.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+        # [WHTOOLS] Unified Range Control Group
+        self.rng_3d = WHTRangeControlGroup(show_robust=True)
+        self.rng_3d.modeChanged.connect(lambda: self.update_frame(self.current_frame))
+        self.rng_3d.rangeChanged.connect(lambda: self.update_frame(self.current_frame))
+        self.rng_3d.fitRequested.connect(self._on_fit_range) # Use signal instead of direct click
+        self.rng_3d.btn_adj.clicked.connect(self._show_range_dialog)
+
+        # Row 1: Field Selection
+        l_field.addWidget(QtWidgets.QLabel("Category:"), 0, 0)
+        l_field.addWidget(self.cmb_cat, 0, 1)
+        l_field.addWidget(QtWidgets.QLabel(" Comp:"), 0, 2)
+        l_field.addWidget(self.cmb_comp, 0, 3)
+        l_field.setColumnStretch(1, 0); l_field.setColumnStretch(3, 0); l_field.setColumnStretch(4, 1) 
+        
+        # Row 2: Range & Robustness
+        l_field.addWidget(QtWidgets.QLabel("Range:"), 1, 0)
+        l_field.addWidget(self.rng_3d, 1, 1, 1, 4) # Span to include the stretch column for symmetry if needed, or keep to 3
+        
+        layout.addWidget(g_field)
+
+        # [Group 3] Display
+        g_disp = QtWidgets.QGroupBox("Display Style")
+        l_disp_main = QtWidgets.QVBoxLayout(g_disp); l_disp_main.setContentsMargins(5, 5, 5, 5); l_disp_main.setSpacing(2)
+        row_disp1 = QtWidgets.QHBoxLayout(); row_disp2 = QtWidgets.QHBoxLayout()
+        
+        self.cmb_cb_type = QtWidgets.QComboBox(); self.cmb_cb_type.addItems(["Continuous", "Discrete"])
+        self.cmb_cb_lv = QtWidgets.QComboBox(); self.cmb_cb_lv.addItems([str(x) for x in [8, 10, 12, 16, 20, 24, 32, 64]]); self.cmb_cb_lv.setCurrentText("12")
+        self.sp_cb_dec = QtWidgets.QSpinBox(); self.sp_cb_dec.setRange(0, 5); self.sp_cb_dec.setValue(3)
+        for w in [self.cmb_cb_type, self.cmb_cb_lv, self.sp_cb_dec]:
+            if isinstance(w, QtWidgets.QComboBox): w.currentTextChanged.connect(lambda: self.update_frame(self.current_frame))
+            else: w.valueChanged.connect(lambda: self.update_frame(self.current_frame))
+            
+        row_disp1.addWidget(self.cmb_cb_type); row_disp1.addStretch(1)
+        row_disp2.addWidget(QtWidgets.QLabel("Lv:")); row_disp2.addWidget(self.cmb_cb_lv)
+        row_disp2.addWidget(QtWidgets.QLabel("Dec:")); row_disp2.addWidget(self.sp_cb_dec)
+        
+        l_disp_main.addLayout(row_disp1); l_disp_main.addLayout(row_disp2)
+        layout.addWidget(g_disp)
+
+        # [Group 4] Environment
+        g_env = QtWidgets.QGroupBox("Environment")
+        l_env_main = QtWidgets.QVBoxLayout(g_env); l_env_main.setContentsMargins(5, 5, 5, 5); l_env_main.setSpacing(2)
+        row_env1 = QtWidgets.QHBoxLayout(); row_env2 = QtWidgets.QHBoxLayout()
+        
+        self.cmb_cmap = QtWidgets.QComboBox(); self.cmb_cmap.addItems(["jet", "viridis", "inferno", "plasma", "magma", "coolwarm", "bone", "gray"])
+        self.ch_cmap_r = QtWidgets.QCheckBox("Rev"); self.ch_cmap_r.toggled.connect(self._on_cmap_changed)
+        self.cmb_cmap.currentTextChanged.connect(self._on_cmap_changed)
+        
+        row_env1.addWidget(self.cmb_cmap); row_env1.addWidget(self.ch_cmap_r); row_env1.addStretch(1)
+        
+        # [WHT] BG 버튼을 QToolButton으로 변경하여 메뉴(Black/White/Grad) 지원
+        self.btn_bg = QtWidgets.QToolButton()
+        self.btn_bg.setText("🌓 BG")
+        self.btn_bg.setFixedWidth(60)
+        self.btn_bg.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
+        self.btn_bg.clicked.connect(self._toggle_bg)
+        
+        bg_menu = QtWidgets.QMenu(self)
+        bg_list = ["Black", "White", "Dark Grey", "Light Grey", "Grey Grad.", "Light Grey Grad.", "Light Sky Grad."]
+        for bg_name in bg_list:
+            action = bg_menu.addAction(bg_name)
+            action.triggered.connect(partial(self._on_bg_changed, bg_name))
+        self.btn_bg.setMenu(bg_menu)
+        
+        self.ch_per = QtWidgets.QCheckBox("Persp")
+        self.ch_per.setChecked(True)
+        self.ch_per.toggled.connect(self._on_persp_toggled)
+        
+        row_env2.addWidget(self.btn_bg); row_env2.addWidget(self.ch_per); row_env2.addWidget(btn_fit); row_env2.addStretch(1)
+        
+        l_env_main.addLayout(row_env1); l_env_main.addLayout(row_env2)
+        layout.addWidget(g_env)
+        layout.addStretch(1)
+
+        # Hidden Spinboxes for range state management
+        self.sp_min = QtWidgets.QDoubleSpinBox(); self.sp_max = QtWidgets.QDoubleSpinBox()
+        self.sp_min.setRange(-1e15, 1e15); self.sp_max.setRange(-1e15, 1e15)
+        self.sp_min.setValue(0.0); self.sp_max.setValue(1.0)
 
     def _init_2d_controls(self, p):
-        """
-        [WHTOOLS] 2D 그래프 세션 제어 패널을 구성합니다. (Ribbon Style)
-        화면을 N x M 그리드로 분할하여 여러 그래프를 동시에 비교 분석할 수 있는 UI를 제공하며,
-        각 그래프의 범위(Range), 테마, 폰트 크기 등을 조절하는 옵션을 포함합니다.
-        """
-        layout = QtWidgets.QHBoxLayout(p)
-        layout.setContentsMargins(15, 2, 15, 2); layout.setSpacing(10)
+        """[WHTOOLS] 2D Graph Control Panel - Reorganized 2-row layout"""
+        main_layout = QtWidgets.QVBoxLayout(p)
+        main_layout.setContentsMargins(10, 2, 10, 2); main_layout.setSpacing(4)
         
-        # 1. Grid Layout & Plot Manager (그리드 분할 및 플롯 관리)
+        row1 = QtWidgets.QHBoxLayout(); row2 = QtWidgets.QHBoxLayout()
+        main_layout.addLayout(row1); main_layout.addLayout(row2)
+        
+        # --- Row 1: Plot Management & Grid Settings ---
         f_lay = QtWidgets.QFrame(); l_lay = QtWidgets.QHBoxLayout(f_lay); l_lay.setContentsMargins(0, 0, 0, 0)
         l_lay.addWidget(QtWidgets.QLabel("Grid:")); self.cmb_lay = QtWidgets.QComboBox(); self.cmb_lay.addItems(["2x1", "1x1", "1x2", "2x2", "3x2"])
+        self.cmb_lay.currentTextChanged.connect(self._on_grid_layout_changed); self.cmb_lay.setCurrentText("2x1")
         
-        # [WHTOOLS] 활성 슬롯(Active Slot) 명시적 선택 위젯 추가
-        l_lay.addWidget(QtWidgets.QLabel("Slot:")); self.cmb_slot = QtWidgets.QComboBox()
-        self.cmb_slot.setFixedWidth(70)
+        l_lay.addWidget(QtWidgets.QLabel("Slot:")); self.cmb_slot = QtWidgets.QComboBox(); self.cmb_slot.setFixedWidth(70)
         self.cmb_slot.currentIndexChanged.connect(self._on_slot_changed)
-        l_lay.addWidget(self.cmb_slot)
         
-        # 시그널 연결 후 초기값 설정 (초기 슬롯 목록 생성 트리거)
-        self.cmb_lay.currentTextChanged.connect(self._on_grid_layout_changed)
-        self.cmb_lay.setCurrentText("2x1")
-        l_lay.addWidget(self.cmb_lay)
+        bt_add = QtWidgets.QPushButton("➕ Add Plot"); bt_add.clicked.connect(self._show_add_plot_dialog)
+        bt_clr = QtWidgets.QPushButton("🗑️ Clear Plots"); bt_clr.clicked.connect(self._on_clear_2d_plots)
         
-        # 활성화된 슬롯에 새로운 데이터 플롯을 추가하는 버튼
-        bt_add = QtWidgets.QPushButton("➕ Add Plot"); bt_add.clicked.connect(self._show_add_plot_dialog); l_lay.addWidget(bt_add)
+        l_lay.addWidget(self.cmb_lay); l_lay.addWidget(self.cmb_slot); l_lay.addWidget(bt_add); l_lay.addWidget(bt_clr)
+        row1.addWidget(f_lay); row1.addWidget(self._create_v_line())
         
-        # 현재 화면에 생성된 모든 2D 그래프를 일괄 삭제하는 버튼
-        self.btn_clear_2d = QtWidgets.QPushButton("🗑️ Clear Plots")
-        self.btn_clear_2d.clicked.connect(self._on_clear_2d_plots)
-        l_lay.addWidget(self.btn_clear_2d)
+        f_app = QtWidgets.QFrame(); l_app = QtWidgets.QHBoxLayout(f_app); l_app.setContentsMargins(0, 0, 0, 0)
+        l_app.addWidget(QtWidgets.QLabel("Theme:")); self.cmb_theme = QtWidgets.QComboBox(); self.cmb_theme.addItems(['default', 'ggplot', 'bmh', 'dark_background'])
+        self.cmb_theme.currentTextChanged.connect(lambda: self.update_frame(self.current_frame))
+        l_app.addWidget(QtWidgets.QLabel("Font:")); self.cmb_font_2d = QtWidgets.QComboBox(); self.cmb_font_2d.addItems([str(i) for i in range(6, 31)]); self.cmb_font_2d.setCurrentText("9")
+        self.cmb_font_2d.currentTextChanged.connect(lambda v: self.sp_vtk_font.setValue(int(v)))
         
-        layout.addWidget(f_lay); layout.addWidget(self._create_v_line())
-        
-        # 2. 2D Data Range Control (2D 전용 범위 제어 세트)
+        l_app.addWidget(self.cmb_theme); l_app.addWidget(self.cmb_font_2d)
+        row1.addWidget(f_app); row1.addStretch(1)
+
+        # --- Row 2: Data Range & Options ---
         f_rng = QtWidgets.QFrame(); l_rng = QtWidgets.QHBoxLayout(f_rng); l_rng.setContentsMargins(0, 0, 0, 0)
-        l_rng.addWidget(QtWidgets.QLabel("Range:")); self.cmb_range_2d = QtWidgets.QComboBox()
-        self.cmb_range_2d.addItems(["Dynamic", "Static"]); l_rng.addWidget(self.cmb_range_2d)
+        # [WHTOOLS] Unified Range Control Group for 2D Plots
+        self.rng_2d = WHTRangeControlGroup(show_robust=True)
+        self.rng_2d.modeChanged.connect(lambda: self.update_frame(self.current_frame))
+        self.rng_2d.rangeChanged.connect(lambda: self.update_frame(self.current_frame))
+        self.rng_2d.fitRequested.connect(self._on_fit_range_2d) # Use signal
+        self.rng_2d.btn_adj.clicked.connect(self._show_range_dialog_2d) # Enable common dialog for 2D
+
+        l_rng.addWidget(self.rng_2d)
+        row2.addWidget(f_rng); row2.addWidget(self._create_v_line())
         
-        l_rng.addWidget(QtWidgets.QLabel("Min:")); self.sp_min_2d = QtWidgets.QDoubleSpinBox(); self.sp_min_2d.setRange(-1e9, 1e9); self.sp_min_2d.setDecimals(4)
-        self.sp_min_2d.setFixedWidth(80); self.sp_min_2d.setEnabled(False); l_rng.addWidget(self.sp_min_2d)
-        
-        l_rng.addWidget(QtWidgets.QLabel("Max:")); self.sp_max_2d = QtWidgets.QDoubleSpinBox(); self.sp_max_2d.setRange(-1e9, 1e9); self.sp_max_2d.setDecimals(4)
-        self.sp_max_2d.setFixedWidth(80); self.sp_max_2d.setEnabled(False); l_rng.addWidget(self.sp_max_2d)
-        
-        # 모든 활성화된 2D 슬롯의 전체 데이터 Min/Max를 스캔하여 Static 범위로 자동 기입
-        self.btn_fit_2d = QtWidgets.QPushButton("🔄 Fit")
-        self.btn_fit_2d.setFixedWidth(50); self.btn_fit_2d.setEnabled(False)
-        self.btn_fit_2d.clicked.connect(self._on_fit_range_2d)
-        l_rng.addWidget(self.btn_fit_2d)
-        
-        self.cmb_range_2d.currentTextChanged.connect(self._on_range_mode_changed_2d)
-        self.sp_min_2d.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        self.sp_max_2d.valueChanged.connect(lambda: self.update_frame(self.current_frame))
-        
-        layout.addWidget(f_rng); layout.addWidget(self._create_v_line())
         f_opt = QtWidgets.QFrame(); l_opt = QtWidgets.QHBoxLayout(f_opt); l_opt.setContentsMargins(0, 0, 0, 0)
         self.checks = {}
-        for t, s in [("Sync", True), ("Interp.", True)]:
-            c = QtWidgets.QCheckBox(t); c.setChecked(s); c.toggled.connect(lambda: self.update_frame(self.current_frame))
-            l_opt.addWidget(c); self.checks[t.replace('.','')] = c
-        layout.addWidget(f_opt); layout.addWidget(self._create_v_line())
-        f_tls = QtWidgets.QFrame(); l_tls = QtWidgets.QHBoxLayout(f_tls); l_tls.setContentsMargins(0, 0, 0, 0)
-        bt_pop = QtWidgets.QPushButton("📺 Pop-out View"); bt_pop.clicked.connect(self._pop_out_2d); l_tls.addWidget(bt_pop)
-        l_tls.addWidget(QtWidgets.QLabel("Theme:")); self.cmb_theme = QtWidgets.QComboBox(); self.cmb_theme.addItems(['default', 'ggplot', 'bmh', 'dark_background'])
-        self.cmb_theme.currentTextChanged.connect(lambda: self.update_frame(self.current_frame)); l_tls.addWidget(self.cmb_theme)
-        
-        l_tls.addWidget(QtWidgets.QLabel("Font:")); self.cmb_font_2d = QtWidgets.QComboBox()
-        self.cmb_font_2d.addItems([str(i) for i in range(6, 31)]) # Range extended to match 3D
-        self.cmb_font_2d.setCurrentText("9") # Default to 9
-        self.cmb_font_2d.currentTextChanged.connect(lambda v: self.sp_vtk_font.setValue(int(v)))
-        l_tls.addWidget(self.cmb_font_2d)
-        
-        layout.addWidget(f_tls); layout.addStretch(1)
+        # Use Full Names: Sync Time, Interpolation
+        for t_full, t_short, s in [("Sync Time", "Sync", True), ("Interpolation", "Interp", True)]:
+            c = QtWidgets.QCheckBox(t_full); c.setChecked(s); c.toggled.connect(lambda: self.update_frame(self.current_frame))
+            l_opt.addWidget(c); self.checks[t_short] = c
+            
+        bt_pop = QtWidgets.QPushButton("📺 Pop-out View"); bt_pop.clicked.connect(self._pop_out_2d)
+        l_opt.addWidget(bt_pop)
+        row2.addWidget(f_opt); row2.addStretch(1)
 
     def _init_animation_dock(self):
         """
@@ -1405,17 +1581,19 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             f_i = min(self.part_actors.keys())
             fsize = int(self.cmb_font_2d.currentText()) if hasattr(self, 'cmb_font_2d') else 9
             self.sb = self.v_int.add_scalar_bar(
-                "Field Analysis [mm]", 
-                position_x=0.15, position_y=0.05, 
-                width=0.7, 
+                "Field Analysis", 
+                position_x=0.88, position_y=0.1, 
+                width=0.08, height=0.8,
+                vertical=True,
                 mapper=self.part_actors[f_i]['mesh'].mapper,
                 title_font_size=fsize,
-                label_font_size=fsize - 1,
-                n_labels=5,
+                label_font_size=max(6, fsize - 1),
+                n_labels=11,
                 fmt="%.3e"
             )
+            self.sb.unconstrained_font_size = True
         else:
-            self.sb = self.v_int.add_scalar_bar("No Data", position_x=0.15)
+            self.sb = self.v_int.add_scalar_bar("No Data", vertical=True, position_x=0.88)
             self.sb.SetVisibility(False)
             
         self.ov = self.v_int.add_text("-", position='upper_right', font_size=9, color='black')
@@ -1436,181 +1614,98 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.v_int.add_key_event('space', self._on_toggle_play)
         self.v_int.add_key_event('r', self._on_reset_animation)
 
-    def _on_cmap_changed(self):
-        """[WHTOOLS] 3D 컬러맵(LUT)을 즉시 업데이트하고 범례 및 2D 플롯과 동기화합니다."""
-        cmap_base = self.cmb_cmap.currentText()
-        is_rev = self.ch_cmap_r.isChecked()
-        
-        try:
-            cmap_obj = plt.get_cmap(cmap_base)
-            colors = cmap_obj(np.linspace(0, 1, 256))
-            if is_rev: colors = colors[::-1]
-            
-            self.lut.SetNumberOfTableValues(256)
-            for i in range(256):
-                c = colors[i]
-                self.lut.SetTableValue(i, c[0], c[1], c[2], c[3])
-            
-            self.lut.below_range_color = 'lightgrey'
-            self.lut.above_range_color = 'magenta'
-            self.lut.Modified() 
-        except Exception as e:
-            print(f"[WHTOOLS] Low-level LUT update failed: {e}")
-        
-        for ai in self.part_actors.values():
-            if ai['mesh'] is not None:
-                ai['mesh'].mapper.lookup_table = self.lut
-                ai['mesh'].mapper.Modified()
-        
-        if hasattr(self, 'sb') and self.sb is not None:
-            self.sb.SetLookupTable(self.lut)
-            self.sb.Modified()
-            self.v_int.render()
-            
-        self.update_frame(self.current_frame)
-        self.v_int.render()
+    # [WHT] Redundant _on_cmap_changed removed. Using the one at line 2298.
 
-    def _update_scalar_bar(self, fk, v_min, v_max, dy):
-        """[WHTOOLS] 컬러 범례(Scalar Bar)의 범위 및 폰트 정보를 업데이트합니다."""
-        if not hasattr(self, 'sb') or self.sb is None:
-            return
-            
-        current_state = (fk, v_min, v_max, dy, self.v_font_size)
-        if hasattr(self, '_prev_sb_state') and self._prev_sb_state == current_state:
-            return
-        self._prev_sb_state = current_state
-
-        clim = [v_min, v_max] if dy else [self.sp_min.value(), self.sp_max.value()]
-        if clim[0] >= clim[1]:
-            clim[1] = clim[0] + 1e-6
-        
-        if dy:
-            self.sp_min.blockSignals(True)
-            self.sp_min.setValue(v_min)
-            self.sp_min.blockSignals(False)
-            self.sp_max.blockSignals(True)
-            self.sp_max.setValue(v_max)
-            self.sp_max.blockSignals(False)
-        
-        r_min, r_max = clim[0], clim[1]
-        
-        self.lut.scalar_range = (r_min, r_max)
-        self.sb.SetVisibility(True)
-        self.sb.title = f"[{fk}] Analysis [mm]"
-        
-        self.v_int.update_scalar_bar_range((r_min, r_max))
-        
-        for ai in self.part_actors.values():
-            if ai['mesh'] is not None:
-                ai['mesh'].mapper.SetScalarRange(r_min, r_max)
-        
-        fsize = self.v_font_size
-        self.sb.title_font_size = fsize
-        self.sb.label_font_size = max(6, fsize)
-        
-        unit_str = "" if ("(" in fk or "[" in fk) else " mm"
-        status_text = f"[{fk}]\nMin: {v_min:.3f}{unit_str}\nMax: {v_max:.3f}{unit_str}"
-        self.v_int.add_text(status_text, position='upper_left', font_size=fsize, color='white', name='st_ov', shadow=True)
 
     def update_frame(self, f_i: int):
-        """
-        주어진 시점(f_i)으로 모든 파트의 변형 정보를 실시간 업데이트.
-        """
-        if self.mgr is None or self.mgr.times is None:
-            return
-            
-        if not hasattr(self, 'sp_min') or not hasattr(self, 'sp_max') or not hasattr(self, 'sb') or not hasattr(self, 'sld'):
-            return
-            
+        """[WHTOOLS] Real-time frame update with professional field mapping."""
+        if self.mgr is None or self.mgr.times is None or len(self.mgr.times) == 0: return
         self.current_frame = f_i
         
-        self.sld.blockSignals(True)
-        self.sld.setValue(f_i)
-        self.sld.blockSignals(False)
+        # UI Sync
+        if hasattr(self, 'sld'):
+            self.sld.blockSignals(True); self.sld.setValue(f_i); self.sld.blockSignals(False)
+        self.lf.setText(f"Frame: {f_i} / {len(self.mgr.times)-1}")
         
-        n_frames_tot = len(self.mgr.times) if self.mgr.times is not None else 1
-        self.lf.setText(f"Frame: {f_i} / {n_frames_tot - 1}")
+        # State
+        # [WHTOOLS] 필드 키 추출 (듀얼 콤보 시스템 연동)
+        cat = self.cmb_cat.currentText()
+        fk = self.cmb_comp.currentData()
+        if fk is None: fk = self.cmb_comp.currentText()
         
-        vm = self.cmb_v.currentText()
-        fk = self.cmb_3d.currentText()
-        sc = self.sp_sc.value()
-        dy = self.cmb_l.currentText() == "Dynamic"
+        # [WHT] Basic 모드 체크 로직 강화
+        is_basic = (cat == "Basic" or str(fk) in ["Body Color", "Face Color"])
+        
+        vm = self.cmb_v.currentText() if hasattr(self, 'cmb_v') else "Global"
+        sc = self.sp_sc.value(); mode = self.cmb_lay.currentText() if hasattr(self, 'cmb_lay') else "Surface w/ Edge"
         
         active_values = []
+        n_frames_tot = len(self.mgr.times)
         
         for i, ana in enumerate(self.mgr.analyzers):
             if i not in self.part_actors: continue
             inf = self.part_actors[i]
-            if inf['mesh'] is None: continue
+            if not inf['mesh']: continue
             
+            # Visibility
             mv = inf['visible']; mkv = inf['visible_markers']
-            inf['mesh'].SetVisibility(mv)
-            inf['markers'].SetVisibility(mkv)
-            inf['labels'].SetVisibility(mkv)
-            
+            inf['mesh'].SetVisibility(mv); inf['markers'].SetVisibility(mkv); inf['labels'].SetVisibility(mkv)
             if not mv and not mkv: continue
             
-            displacement_w = ana.results.get('Displacement [mm]', np.zeros((n_frames_tot, ana.sol.res, ana.sol.res)))[f_i]
+            # Deformation
+            disp = ana.results.get('Displacement [mm]', np.zeros((n_frames_tot, ana.sol.res, ana.sol.res)))[f_i]
+            pts = inf['p_base'].copy()
+            if self.chk_warp.isChecked(): pts[:, 2] = disp.ravel() * sc
             
-            points_local = inf['p_base'].copy()
-            points_local[:, 2] = displacement_w.ravel() * sc
-            
-            R_matrix = ana.results.get('R_matrix')[f_i]
-            cur_centroid = ana.results.get('cur_centroid')[f_i]
-            ref_centroid = ana.results.get('ref_centroid')[f_i]
-            
-            if ana.kin:
-                local_basis = np.array(ana.kin.local_basis_axes)
-                local_cent_0 = np.array(ana.kin.local_centroid_0)
-            else:
-                local_basis = np.array(ana.results.get('local_basis_axes', np.eye(3)))
-                local_cent_0 = np.array(ana.results.get('local_centroid_0', np.zeros(3)))
-            
+            # Basis Transform
             if vm == "Global":
-                inf['poly'].points = (
-                    points_local @ local_basis.T + 
-                    local_cent_0 - ref_centroid
-                ) @ R_matrix + cur_centroid
+                R = ana.results.get('R_matrix')[f_i]; cur_c = ana.results.get('cur_centroid')[f_i]
+                ref_c = ana.results.get('ref_centroid')[f_i]
+                l_basis = np.array(ana.kin.local_basis_axes if ana.kin else ana.results.get('local_basis_axes', np.eye(3)))
+                l_c0 = np.array(ana.kin.local_centroid_0 if ana.kin else ana.results.get('local_centroid_0', np.zeros(3)))
+                inf['poly'].points = (pts @ l_basis.T + l_c0 - ref_c) @ R + cur_c
                 inf['m_poly'].points = np.array(ana.m_raw[f_i])
             else:
-                inf['poly'].points = points_local
+                inf['poly'].points = pts
                 inf['m_poly'].points = np.array(ana.results.get('local_markers')[f_i])
-                
-            if fk in ["Body Color", "Face Color"]:
+            
+            # Color Mapping
+            if is_basic:
                 inf['mesh'].mapper.scalar_visibility = False
-                inf['mesh'].GetProperty().SetColor(plt.cm.tab20(i % 20)[:3])
             else:
                 inf['mesh'].mapper.scalar_visibility = True
-                active_key = fk if fk in ana.results else 'Displacement [mm]'
-                if inf['visible'] and ana.sol is not None:
-                    field_val = ana.results.get(active_key)[f_i]
-                    if field_val.size == ana.sol.res**2:
-                        inf['poly'].point_data["S"] = field_val.ravel()
-                        inf['poly'].set_active_scalars("S")
-                        active_values.append(field_val)
-                        
-            vm_mode = inf.get('view_mode', "Surface w/ Edge")
-            prop = inf['mesh'].GetProperty()
-            if vm_mode == "Surface w/ Edge":
-                prop.SetRepresentationToSurface(); prop.SetEdgeVisibility(True)
-            elif vm_mode == "Surface only":
-                prop.SetRepresentationToSurface(); prop.SetEdgeVisibility(False)
-            elif vm_mode == "Wireframe":
-                prop.SetRepresentationToWireframe(); prop.SetEdgeVisibility(True)
-            elif vm_mode == "Outline":
-                prop.SetRepresentationToWireframe(); prop.SetEdgeVisibility(False); prop.SetOpacity(0.3)
-            else:
-                prop.SetOpacity(1.0)
+                if fk in ana.results:
+                    val = ana.results[fk][f_i]
+                    inf['poly'].point_data["S"] = val.ravel()
+                    inf['poly'].set_active_scalars("S")
+                    if mv: active_values.append(val)
+                else:
+                    inf['mesh'].mapper.scalar_visibility = False
             
-            inf['poly'].Modified()
-            inf['m_poly'].Modified()
+            inf['poly'].Modified(); inf['m_poly'].Modified()
+            if not is_basic and mv:
+                try: inf['mesh'].mapper.Modified()
+                except: pass
             
-        if active_values and fk not in ["Body Color", "Face Color"]:
-            v_min = float(min(v.min() for v in active_values))
-            v_max = float(max(v.max() for v in active_values))
-            self._update_scalar_bar(fk, v_min, v_max, dy)
+        # Scalar Bar Update
+        if active_values and not is_basic:
+            v_min, v_max = float(min(v.min() for v in active_values)), float(max(v.max() for v in active_values))
+            
+            mode = self.rng_3d.cmb_mode.currentText()
+            if mode == "Dynamic":
+                self.rng_3d.set_range(v_min, v_max)
+            elif mode == "Robust":
+                pct = self.rng_3d.get_robust_pct()
+                r_min, r_max = self._calculate_robust_range(fk, p_low=(100-pct)/2, p_high=100-(100-pct)/2)
+                self.rng_3d.set_range(r_min, r_max)
+            
+            cur_min, cur_max = self.rng_3d.get_range()
+            self._update_scalar_bar(fk, cur_min, cur_max)
         else:
-            self.sb.SetVisibility(False)
+            # [WHT] 데이터가 없는 경우 스칼라 바 숨김
+            if hasattr(self, 'sb') and self.sb is not None:
+                try: self.sb.SetVisibility(False)
+                except: pass
             self.v_int.add_text("", position='upper_left', name='st_ov')
             
         self._update_2d_plots(f_i)
@@ -1650,7 +1745,10 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         """2D 차트 영역(Grid Layout) 초기화 및 슬롯 생성"""
         for i in reversed(range(self._cl.count())):
             item = self._cl.itemAt(i)
-            if item.widget(): item.widget().setParent(None)
+            if item.widget():
+                w = item.widget()
+                w.setParent(None)
+                w.deleteLater()
                 
         plt.rcParams['font.size'] = 9
         self._is_first_2d_update = True
@@ -1686,7 +1784,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
 
     def _update_2d_plots(self, f_i):
         """현재 프레임에 맞춰 2D 슬롯 데이터 갱신"""
-        if self.mgr is None or self.mgr.times is None or not self.axes: return
+        if self.mgr is None or self.mgr.times is None or len(self.mgr.times) == 0 or not self.axes: return
             
         is_sync = self.checks.get('Sync').isChecked() if 'Sync' in self.checks else True
         if self.is_playing and not is_sync: return
@@ -1703,29 +1801,38 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
 
             if not cfg: continue
                 
-            p_idx_main = cfg.part_indices[0] if cfg.part_indices else 0
+            p_idx_main = cfg.part_indices[0] if (cfg.part_indices is not None and len(cfg.part_indices) > 0) else 0
             if p_idx_main < 0: p_idx_main = 0
             ana = self.mgr.analyzers[p_idx_main]
             key = cfg.data_key
             
+            # [WHT] 데이터 키 유효성 체크 및 폴백
+            if key not in ana.results:
+                if self.field_keys: key = self.field_keys[0] # 첫 번째 필드로 대체
+                else: continue
+            
             if cfg.plot_type == "contour":
                 if ana.sol is None: continue
                 data_2d = ana.results.get(key, np.zeros((len(self.mgr.times), ana.sol.res, ana.sol.res)))[f_i]
-                dy_2d = self.cmb_range_2d.currentText() == "Dynamic"
+                dy_2d = self.rng_2d.cmb_mode.currentText() == "Dynamic"
                 vmin, vmax = float(data_2d.min()), float(data_2d.max())
                 
                 if dy_2d:
-                    self.sp_min_2d.blockSignals(True); self.sp_min_2d.setValue(vmin); self.sp_min_2d.blockSignals(False)
-                    self.sp_max_2d.blockSignals(True); self.sp_max_2d.setValue(vmax); self.sp_max_2d.blockSignals(False)
+                    self.rng_2d.set_range(vmin, vmax)
                     clim = [vmin, vmax]
-                else: clim = [self.sp_min_2d.value(), self.sp_max_2d.value()]
+                else: 
+                    clim = list(self.rng_2d.get_range())
                 
                 if clim[0] >= clim[1]: clim[1] = clim[0] + 1e-6
                 
                 if self.ims[i] is None:
                     ax.clear()
                     if self.cbs[i] is not None:
-                        try: self.cbs[i].ax.remove(); self.cbs[i] = None
+                        try:
+                            # [WHT] More robust colorbar removal to prevent layout corruption
+                            if hasattr(self.cbs[i], 'ax'):
+                                self.fig.delaxes(self.cbs[i].ax)
+                            self.cbs[i] = None
                         except: pass
                     cmap_3d = self.cmb_cmap.currentText()
                     self.ims[i] = ax.imshow(data_2d, cmap=cmap_3d, origin='lower', extent=[0, ana.W, 0, ana.H])
@@ -1836,58 +1943,48 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         else: self.v_int.enable_parallel_projection()
         self.v_int.render()
 
-    def _on_bg_changed(self, text):
-        if text == "Grey Grad.": self.v_int.set_background("white", top="lightgray")
-        elif text == "Sky Grad.": self.v_int.set_background("white", top="#E0F7FA")
-        elif text == "White": self.v_int.set_background("white")
-        elif text == "Black": self.v_int.set_background("black")
-        self.v_int.render()
 
     def _on_legend_mode_changed(self, mode):
-        if self.mgr is None: return
-        is_static = (mode == "Static")
-        if hasattr(self, 'sp_min'): self.sp_min.setEnabled(is_static)
-        if hasattr(self, 'sp_max'): self.sp_max.setEnabled(is_static)
-        if hasattr(self, 'btn_fit'): self.btn_fit.setEnabled(is_static)
-        if is_static: self._on_fit_range()
+        """기존 시그널 대응 (하위 호환성)"""
         self.update_frame(self.current_frame)
 
     def _on_fit_range(self):
         if self.mgr is None: return
-        field_key = self.cmb_3d.currentText()
-        if field_key in ["Body Color", "Face Color"]: return
+        field_key = self.cmb_comp.currentData()
+        if not field_key or field_key == "Body Color": return
         all_values = []
-        for a in self.mgr.analyzers:
-            if field_key in a.results: all_values.append(a.results[field_key])
+        for i, a in enumerate(self.mgr.analyzers):
+            # [WHTOOLS] Only include data from VISIBLE parts
+            if i in self.part_actors and self.part_actors[i]['visible']:
+                if field_key in a.results: 
+                    all_values.append(a.results[field_key])
         if all_values:
-            v_min = float(min(v.min() for v in all_values)); v_max = float(max(v.max() for v in all_values))
-            self.sp_min.blockSignals(True); self.sp_min.setValue(v_min); self.sp_min.blockSignals(False)
-            self.sp_max.blockSignals(True); self.sp_max.setValue(v_max); self.sp_max.blockSignals(False)
+            merged = np.concatenate([v.ravel() for v in all_values])
+            v_min, v_max = float(np.nanmin(merged)), float(np.nanmax(merged))
+            self.rng_3d.set_range(v_min, v_max)
             self.update_frame(self.current_frame)
 
     def _on_field_changed(self, field_key):
+        """기존 cmb_3d 시그널 대응 (하위 호환성)"""
         if self.mgr is None: return
-        if self.cmb_l.currentText() == "Static": self._on_fit_range()
         self.update_frame(self.current_frame)
 
-    def _on_range_mode_changed_2d(self, mode):
-        is_static = (mode == "Static")
-        self.sp_min_2d.setEnabled(is_static); self.sp_max_2d.setEnabled(is_static); self.btn_fit_2d.setEnabled(is_static)
-        if is_static: self._on_fit_range_2d()
-        self.update_frame(self.current_frame)
 
     def _on_fit_range_2d(self):
         if self.mgr is None: return
         all_vals = []
         for cfg in self.plot_slots:
             if cfg and cfg.plot_type == "contour":
-                p_idx = cfg.part_indices[0] if cfg.part_indices else 0
-                ana = self.mgr.analyzers[p_idx]
-                if cfg.data_key in ana.results: all_vals.append(ana.results[cfg.data_key])
+                for p_idx in cfg.part_indices:
+                    # [WHTOOLS] Only include data from VISIBLE parts
+                    if p_idx in self.part_actors and self.part_actors[p_idx]['visible']:
+                        ana = self.mgr.analyzers[p_idx]
+                        if cfg.data_key in ana.results: 
+                            all_vals.append(ana.results[cfg.data_key])
         if all_vals:
-            v_min = float(min(v.min() for v in all_vals)); v_max = float(max(v.max() for v in all_vals))
-            self.sp_min_2d.blockSignals(True); self.sp_min_2d.setValue(v_min); self.sp_min_2d.blockSignals(False)
-            self.sp_max_2d.blockSignals(True); self.sp_max_2d.setValue(v_max); self.sp_max_2d.blockSignals(False)
+            merged = np.concatenate([v.ravel() for v in all_vals])
+            v_min, v_max = float(np.nanmin(merged)), float(np.nanmax(merged))
+            self.rng_2d.set_range(v_min, v_max)
             self.update_frame(self.current_frame)
 
     def keyPressEvent(self, event):
@@ -1896,10 +1993,26 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
 
     def _show_part_menu(self, pos=None):
         if pos is None: pos = self.v_int.mapFromGlobal(QtGui.QCursor.pos())
-        menu = QtWidgets.QMenu(self); menu.addAction("Visibility Manager", self.visibility_tool.show); menu.addSeparator()
-        view_actions = [("XY Plane", self.v_int.view_xy), ("YZ Plane", self.v_int.view_yz), ("ZX Plane", self.v_int.view_zx), ("Isometric", self.v_int.view_isometric)]
-        for name, func in view_actions: menu.addAction(name, func)
-        menu.addSeparator()
+        menu = QtWidgets.QMenu(self)
+        # [WHT] 픽킹된 파트 감지 및 매니저 연동
+        picked_actor = self.v_int.picker.GetActor()
+        target_part_idx = -1
+        if picked_actor:
+            for idx, act_inf in self.part_actors.items():
+                if act_inf['mesh'] == picked_actor:
+                    target_part_idx = idx; break
+        
+        if target_part_idx != -1:
+            part_name = self.mgr.analyzers[target_part_idx].name
+            menu.addAction(f"🎯 Focus on: {part_name}", lambda: self._focus_part_in_manager(target_part_idx))
+            
+            # [WHT] 회전 중심 설정 기능 추가
+            pick_pos = self.v_int.picker.GetPickPosition()
+            if pick_pos:
+                menu.addAction("📍 Set Rotation Center", lambda: self._set_rotation_center(pick_pos))
+            
+            menu.addSeparator()
+
         act_floor = menu.addAction("Floor Visibility"); act_floor.setCheckable(True); act_floor.setChecked(self.ground.GetVisibility())
         fs = menu.addMenu("Floor Settings"); fs.addAction("Change Origin", self._set_floor_origin); fs.addAction("Change Normal", self._set_floor_normal); fs.addAction("Change Size", self._set_floor_size)
         menu.addSeparator()
@@ -1928,6 +2041,25 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 if ai['mesh'] is not None: ai['mesh'].GetProperty().SetEdgeVisibility(selected_action.isChecked())
             self.v_int.render()
         elif selected_action == act_perp: self.ch_per.setChecked(selected_action.isChecked())
+
+    def _set_rotation_center(self, pos):
+        """[WHTOOLS] 선택한 좌표를 카메라의 회전 중심(Focal Point)으로 설정합니다."""
+        if pos is None: return
+        self.v_int.set_focus(pos)
+        # 시각적 피드백: 회전 중심 지점에 잠시 표시 (선택 사항)
+        print(f"[WHT-DEBUG] Rotation center updated to: {pos}")
+        self.v_int.render()
+
+    def _focus_part_in_manager(self, idx):
+        """3D에서 선택한 파트를 매니저 트리에서 강조하고 창을 띄웁니다."""
+        if not hasattr(self, 'visibility_tool') or self.visibility_tool is None:
+            self.visibility_tool = PartManagerWindow(self)
+        
+        self.visibility_tool.show()
+        if idx in self.visibility_tool.id_to_item:
+            item = self.visibility_tool.id_to_item[idx]
+            self.visibility_tool.tree.setCurrentItem(item)
+            self.visibility_tool.tree.scrollToItem(item)
 
     def _set_floor_origin(self):
         v, ok = QtWidgets.QInputDialog.getText(self, "Floor Origin", "Origin (x,y,z):", text=",".join(map(str, self.floor_origin)))
@@ -1964,6 +2096,23 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             idx = self.axes.index(event.inaxes); self.active_slot = idx; self._update_selection_ui()
         except ValueError: pass
 
+    def _on_category_changed(self, cat=None):
+        """카테고리 변경 시 컴포넌트 목록(cmb_comp)을 동적 갱신합니다."""
+        if cat is None:
+            cat = self.cmb_cat.currentText()
+            
+        if self._categories is not None and cat in self._categories:
+            self.cmb_comp.blockSignals(True)
+            self.cmb_comp.clear()
+            
+            items = self._categories[cat]
+            if items is not None and len(items) > 0:
+                for comp, fk in sorted(items): 
+                    self.cmb_comp.addItem(comp, fk)
+                    
+            self.cmb_comp.blockSignals(False)
+            self._on_component_changed()
+
     def _show_add_plot_dialog(self):
         if not self.mgr: self._show_warning("No Data", "Please load a result file first."); return
         parts_list = [p.name for p in self.mgr.analyzers]
@@ -1999,8 +2148,338 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
     def _show_critical_error(self, title, msg):
         print(f"\n[CRITICAL ERROR] {title}: {msg}"); QtWidgets.QMessageBox.critical(self, title, msg)
 
-    def _show_warning(self, title, msg):
-        print(f"\n[WARNING] {title}: {msg}"); QtWidgets.QMessageBox.warning(self, title, msg)
+    # --- WHT Inspector Field Management Logic ---
+    def _populate_category_combos(self):
+        """[WHTOOLS] 필드 키를 카테고리와 컴포넌트로 분리하여 콤보박스에 채웁니다."""
+        if not self.field_keys: return
+        
+        categories = {}
+        for fk in self.field_keys:
+            if "[" in fk:
+                cat = fk.split("[")[0].strip()
+                comp = "[" + fk.split("[")[1]
+            else:
+                cat, comp = fk, "Value"
+            
+            if cat not in categories: categories[cat] = []
+            categories[cat].append((comp, fk)) # (표시 이름, 실제 키) 저장
+            
+        self.cmb_cat.blockSignals(True); self.cmb_cat.clear()
+        self.cmb_cat.addItem("Body Color")
+        for cat in sorted(categories.keys()): self.cmb_cat.addItem(cat)
+        self.cmb_cat.blockSignals(False)
+        
+        self._categories = categories
+        self._on_category_changed(self.cmb_cat.currentText())
+
+
+    def _on_component_changed(self):
+        """컴포넌트 변경 시 범위 초기화 및 프레임 업데이트"""
+        fk = self.cmb_comp.currentData()
+        if fk is None or str(fk) == "Body Color" or str(fk) == "":
+            self.update_frame(self.current_frame)
+            return
+            
+        mode = self.rng_3d.cmb_mode.currentText()
+        if mode == "Static":
+            self._on_fit_range() 
+        elif mode == "Robust":
+            pct = self.rng_3d.get_robust_pct()
+            r_min, r_max = self._calculate_robust_range(fk, p_low=(100-pct)/2, p_high=100-(100-pct)/2)
+            self.rng_3d.set_range(r_min, r_max)
+            
+        self.update_frame(self.current_frame)
+
+    def _show_range_dialog(self):
+        fk = self.cmb_comp.currentData()
+        if fk is None or str(fk) == "Body Color" or str(fk) == "": return
+        def get_limits():
+            all_vals = []
+            for i, a in enumerate(self.mgr.analyzers):
+                if i in self.part_actors and self.part_actors[i]['visible'] and fk in a.results:
+                    all_vals.append(a.results[fk])
+            if all_vals is None or len(all_vals) == 0: return 0.0, 1.0
+            merged = np.concatenate([v.ravel() for v in all_vals])
+            return float(np.nanmin(merged)), float(np.nanmax(merged))
+        
+        def get_robust(pct):
+            return self._calculate_robust_range(fk, p_low=(100-pct)/2, p_high=100-(100-pct)/2)
+            
+        dlg = WHTRangeDialog(self, fk, self.rng_3d, get_limits, get_robust)
+        dlg.exec()
+
+    def _show_range_dialog_2d(self):
+        cfg = self.plot_slots[self.active_slot]
+        if not cfg: return
+        fk = cfg.data_key
+        
+        def get_limits():
+            all_vals = []
+            for slot_cfg in self.plot_slots:
+                if slot_cfg and slot_cfg.data_key == fk:
+                    for p_idx in slot_cfg.part_indices:
+                        ana = self.mgr.analyzers[p_idx]
+                        if fk in ana.results: all_vals.append(ana.results[fk])
+            if not all_vals: return 0.0, 1.0
+            merged = np.concatenate([v.ravel() for v in all_vals])
+            return float(np.nanmin(merged)), float(np.nanmax(merged))
+            
+        def get_robust(pct):
+            all_vals = []
+            for slot_cfg in self.plot_slots:
+                if slot_cfg and slot_cfg.data_key == fk:
+                    for p_idx in slot_cfg.part_indices:
+                        ana = self.mgr.analyzers[p_idx]
+                        if fk in ana.results: all_vals.append(ana.results[fk])
+            if not all_vals: return 0.0, 1.0
+            merged = np.concatenate([v.ravel() for v in all_vals])
+            v_min = np.nanpercentile(merged, (100-pct)/2)
+            v_max = np.nanpercentile(merged, 100-(100-pct)/2)
+            return float(v_min), float(v_max)
+
+        dlg = WHTRangeDialog(self, fk, self.rng_2d, get_limits, get_robust)
+        dlg.exec()
+
+    def _calculate_robust_range(self, field_key, p_low=2.0, p_high=98.0):
+        """[WHTOOLS] 가시적인 파트의 전체 시간 데이터에서 유효 범위를 계산합니다."""
+        if self.mgr is None: return 0.0, 1.0
+        all_vals = []
+        for i, ana in enumerate(self.mgr.analyzers):
+            # [WHTOOLS] Only include data from VISIBLE parts
+            if i in self.part_actors and self.part_actors[i]['visible']:
+                if field_key in ana.results:
+                    all_vals.append(ana.results[field_key].ravel())
+        if not all_vals: return 0.0, 1.0
+        
+        merged = np.concatenate(all_vals)
+        merged = merged[~np.isnan(merged)]
+        if len(merged) == 0: return 0.0, 1.0
+
+        # [DEBUG LOG] Statistical Distribution
+        v_max = float(merged.max()); v_min = float(merged.min())
+        p99 = float(np.percentile(merged, 99.0))
+        p95 = float(np.percentile(merged, 95.0))
+        p90 = float(np.percentile(merged, 90.0))
+        
+        print(f"\n[WHT-STATS] Field: {field_key}")
+        print(f"  > Absolute MAX: {v_max:.4e}")
+        print(f"  > 99th Pct    : {p99:.4e}")
+        print(f"  > 95th Pct    : {p95:.4e}")
+        print(f"  > 90th Pct    : {p90:.4e}")
+        print(f"  > Absolute MIN: {v_min:.4e}")
+        print(f"  > Total Nodes : {len(merged):,}")
+        
+        v_min_robust = np.nanpercentile(merged, p_low)
+        v_max_robust = np.nanpercentile(merged, p_high)
+        
+        # [WHT] 데이터가 모두 동일한 경우를 대비한 수치 해석적 안정성 확보
+        if v_min_robust >= v_max_robust:
+            v_max_robust = v_min_robust + 1e-6
+            
+        return float(v_min_robust), float(v_max_robust)
+
+    def _highlight_outliers(self, field_key, threshold):
+        """Visualizes nodes that exceed the specified threshold as bright points."""
+        f_i = self.current_frame
+        found_any = False
+        
+        # Clear existing highlight if any
+        if hasattr(self, "_outlier_actor"):
+            self.v_int.remove_actor(self._outlier_actor)
+            delattr(self, "_outlier_actor")
+
+        all_outlier_pts = []
+        for i, ana in enumerate(self.mgr.analyzers):
+            if i not in self.part_actors or not self.part_actors[i]['visible']: continue
+            if field_key not in ana.results: continue
+            
+            val = ana.results[field_key][f_i].ravel()
+            mask = val > threshold
+            if np.any(mask):
+                inf = self.part_actors[i]
+                pts = np.array(inf['poly'].points)[mask]
+                all_outlier_pts.append(pts)
+        
+        if all_outlier_pts:
+            merged_pts = np.concatenate(all_outlier_pts)
+            import pyvista as pv
+            cloud = pv.PolyData(merged_pts)
+            self._outlier_actor = self.v_int.add_mesh(
+                cloud, color="magenta", point_size=12, 
+                render_points_as_spheres=True, label="Outliers",
+                name="_wht_outliers"
+            )
+            found_any = True
+            print(f" -> [WHT-DEBUG] Found {len(merged_pts)} nodes exceeding {threshold:.4e}")
+        else:
+            print(f" -> [WHT-DEBUG] No nodes found exceeding {threshold:.4e}")
+        
+        self.v_int.render()
+
+    def clear_outliers(self):
+        """Removes the magenta outlier highlight actor."""
+        if hasattr(self, "_outlier_actor"):
+            try:
+                self.v_int.remove_actor(self._outlier_actor)
+                delattr(self, "_outlier_actor")
+                self.v_int.render()
+            except: pass
+
+    def _on_cmap_changed(self):
+        """[WHTOOLS] 컬러맵 변경 시 LUT 재구축을 통해 색상 반전 버그를 방지합니다."""
+        cmap_base = self.cmb_cmap.currentText()
+        is_rev = self.ch_cmap_r.isChecked()
+        cmap_name = cmap_base + "_r" if is_rev else cmap_base
+        
+        # [WHT] LUT 객체를 새로 생성하여 상태를 초기화 (반전 버그 해결책 및 범위 외 색상 제거)
+        self.lut = pv.LookupTable(cmap=cmap_name)
+        self.lut.below_range_color = None
+        self.lut.above_range_color = None
+        
+        # 기존 액터들에게 새 LUT 적용
+        for act in self.part_actors.values():
+            if act['mesh']: act['mesh'].mapper.lookup_table = self.lut
+            
+        if hasattr(self, 'sb') and self.sb:
+            self.sb.SetLookupTable(self.lut)
+            
+        self.update_frame(self.current_frame)
+
+    def _update_scalar_bar(self, fk, v_min, v_max):
+        """[WHTOOLS] 컬러 범례(Scalar Bar) 업데이트 (Professional Style)"""
+        if not hasattr(self, 'sb') or self.sb is None: return
+        
+        fsize = self.v_font_size
+        mode = self.cmb_cb_type.currentText()
+        levels = int(self.cmb_cb_lv.currentText())
+        decimals = self.sp_cb_dec.value()
+        
+        r_min, r_max = v_min, v_max
+        if r_min >= r_max: r_max = r_min + 1e-6
+        
+        self.sb.SetVisibility(True)
+        # [WHT] 타이틀과 바 사이의 간격을 확보하기 위해 끝에 줄바꿈(\n)과 공백 추가
+        title_str = fk.replace(" ", "\n").replace("_", "\n") if len(fk) > 12 else fk
+        self.sb.title = title_str + "\n "
+        
+        self.sb.format = f"%.{decimals}e"
+        self.sb.n_labels = (levels + 1) if mode == "Discrete" else 11
+        
+        self.sb.unconstrained_font_size = True
+        self.sb.title_font_size = fsize
+        self.sb.label_font_size = max(6, fsize)
+        
+        # [WHT] VTK SetColor 근본 해결: GetVTKObject().SetColor(r, g, b) 패턴 사용
+        bg_r, bg_g, bg_b = self.v_int.renderer.GetBackground()
+        bg_brightness = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b
+        fg_color = "black" if bg_brightness > 0.5 else "white"
+        fr, fg_v, fb = pv.Color(fg_color).float_rgb
+        
+        try:
+            self.sb.title_text_property.GetVTKObject().SetColor(fr, fg_v, fb)
+            self.sb.label_text_property.GetVTKObject().SetColor(fr, fg_v, fb)
+        except AttributeError:
+            try:
+                self.sb.GetTitleTextProperty().SetColor(fr, fg_v, fb)
+                self.sb.GetLabelTextProperty().SetColor(fr, fg_v, fb)
+            except Exception:
+                pass
+        
+        # ParaView Style Position (Right side, Vertical)
+        self.sb.position_x = 0.88; self.sb.position_y = 0.1
+        self.sb.height = 0.7; self.sb.width = 0.08
+        
+        # LUT Update
+        self.lut.n_values = levels if mode == "Discrete" else 256
+        self.lut.scalar_range = (r_min, r_max)
+        
+        # [WHT] Disable explicit out-of-range colors to use colormap ends
+        self.lut.above_range_color = None
+        self.lut.below_range_color = None
+            
+        self.lut.Build()
+        
+        if hasattr(self.v_int, 'update_scalar_bar_range'):
+            self.v_int.update_scalar_bar_range((r_min, r_max))
+        
+        # [WHT] Ensure scalar bar actor itself is updated
+        if hasattr(self, 'sb') and self.sb is not None:
+            self.sb.Modified()
+        for act in self.part_actors.values():
+            if act.get('mesh') is not None and hasattr(act['mesh'], 'mapper'):
+                try: act['mesh'].mapper.SetScalarRange(r_min, r_max)
+                except: pass
+            
+        # Status Text (Scientific notation, dynamic decimals synced with UI)
+        unit = " [mm]" if "Disp" in fk else ""
+        stat_msg = f"[{fk}]{unit}\nMin: {v_min:.{decimals}e}\nMax: {v_max:.{decimals}e}"
+        self.v_int.add_text(stat_msg, position='upper_left', font_size=fsize, color=fg_color, name='st_ov', shadow=False)
+        
+        if hasattr(self, 'visibility_tool'): self.visibility_tool.update_info()
+
+    def _on_bg_changed(self, color_name):
+        """[WHT] 배경색 변경 및 폰트/그라운드 색상 자동 최적화 (Premium Grad. 지원)"""
+        # 1. 배경색 및 폰트색(Foreground) 결정
+        if color_name == "Black":
+            self.v_int.set_background("black")
+            fg = "white"
+        elif color_name == "White":
+            self.v_int.set_background("white")
+            fg = "black"
+        elif color_name == "Dark Grey":
+            self.v_int.set_background("#222222")
+            fg = "white"
+        elif color_name == "Light Grey":
+            self.v_int.set_background("#D3D3D3")
+            fg = "black"
+        elif color_name == "Grey Grad.":
+            # ParaView Style: Dark Grey to Black
+            self.v_int.set_background("#666666", top="black")
+            fg = "white"
+        elif color_name == "Light Grey Grad.":
+            # [WHT-NEW] Light Grey to White (Default)
+            self.v_int.set_background("white", top="#D3D3D3")
+            fg = "black"
+        elif color_name == "Light Sky Grad.":
+            # [WHT-NEW] Light Sky Blue to White
+            self.v_int.set_background("white", top="#E0F7FA")
+            fg = "black"
+        else: return
+
+        # [WHT] VTK SetColor 에러 근본 해결:
+        # pv.Color().float_rgb는 np.ndarray를 반환하며, VTK의 title_text_property.color에
+        # ndarray를 직접 할당하면 SetColor 시그니처와 불일치로 TypeError가 발생합니다.
+        # 반드시 .GetVTKObject().SetColor(r, g, b) 패턴을 사용해야 합니다.
+        r, g, b = pv.Color(fg).float_rgb
+        pv.global_theme.font.color = fg
+        
+        if hasattr(self, 'sb') and self.sb is not None:
+            try:
+                self.sb.title_text_property.GetVTKObject().SetColor(r, g, b)
+                self.sb.label_text_property.GetVTKObject().SetColor(r, g, b)
+            except AttributeError:
+                try:
+                    # PyVista 구버전 fallback: VTK 객체에 직접 접근
+                    self.sb.GetTitleTextProperty().SetColor(r, g, b)
+                    self.sb.GetLabelTextProperty().SetColor(r, g, b)
+                except Exception:
+                    pass
+        
+        if hasattr(self, 'ground') and self.ground is not None:
+            # 밝은 배경에서는 더 어두운 바닥 그리드 사용
+            g_r, g_g, g_b = pv.Color("#111111" if fg == "black" else "#333333").float_rgb
+            self.ground.prop.color = (g_r, g_g, g_b)
+            
+        self.v_int.render()
+
+    def _toggle_bg(self):
+        """[WHT] 현재 배경색 반전 (White <-> Black)"""
+        bg_r, bg_g, bg_b = self.v_int.renderer.GetBackground()
+        bg_brightness = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b
+        if bg_brightness > 0.5:
+            self._on_bg_changed("Black")
+        else:
+            self._on_bg_changed("White")
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
