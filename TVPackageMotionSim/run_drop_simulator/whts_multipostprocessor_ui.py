@@ -88,33 +88,44 @@ class PartManagerWindow(QtWidgets.QWidget):
         
         layout = QtWidgets.QVBoxLayout(self)
         
-        # 1. Global Control Section
+        # 1. Global Control Section (Single Row)
         global_group = QtWidgets.QGroupBox("Global Control")
-        global_layout = QtWidgets.QVBoxLayout(global_group)
-        for title, col_idx in [("Mesh", 1), ("Markers", 2)]:
-            h_layout = QtWidgets.QHBoxLayout()
-            h_layout.addWidget(QtWidgets.QLabel(f"{title}:"))
-            
-            btn_show = QtWidgets.QPushButton("💡 Show All")
-            btn_hide = QtWidgets.QPushButton("🌑 Hide All")
-            
-            btn_show.clicked.connect(partial(self._bulk_set, col_idx, True))
-            btn_hide.clicked.connect(partial(self._bulk_set, col_idx, False))
-            
-            h_layout.addWidget(btn_show)
-            h_layout.addWidget(btn_hide)
-            global_layout.addLayout(h_layout)
+        global_layout = QtWidgets.QHBoxLayout(global_group)
+        
+        # Mesh Section
+        global_layout.addWidget(QtWidgets.QLabel("Mesh:"))
+        btn_m_show = QtWidgets.QPushButton("💡 Show All"); btn_m_show.clicked.connect(partial(self._bulk_set, 2, True))
+        btn_m_hide = QtWidgets.QPushButton("🌑 Hide All"); btn_m_hide.clicked.connect(partial(self._bulk_set, 2, False))
+        global_layout.addWidget(btn_m_show); global_layout.addWidget(btn_m_hide)
+        
+        # Separator Line
+        v_line = QtWidgets.QFrame(); v_line.setFrameShape(QtWidgets.QFrame.VLine); v_line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        global_layout.addWidget(v_line)
+        
+        # Markers Section
+        global_layout.addWidget(QtWidgets.QLabel("Markers:"))
+        btn_k_show = QtWidgets.QPushButton("💡 Show All"); btn_k_show.clicked.connect(partial(self._bulk_set, 3, True))
+        btn_k_hide = QtWidgets.QPushButton("🌑 Hide All"); btn_k_hide.clicked.connect(partial(self._bulk_set, 3, False))
+        global_layout.addWidget(btn_k_show); global_layout.addWidget(btn_k_hide)
+        
+        global_layout.addStretch(1)
         layout.addWidget(global_group)
         
         self.tree = QtWidgets.QTreeWidget()
-        self.tree.setHeaderLabels(["Part", "Mesh", "Markers", "View Mode", "Info (Min / Max)"])
-        self.tree.setColumnWidth(0, 150)
+        self.tree.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection) # [WHT] Multi-selection
+        self.tree.setHeaderLabels(["Part", "Clr", "Mesh", "Markers", "View Mode", "Info (Min / Max)"])
+        self.tree.setColumnWidth(0, 160) # Part Name
+        self.tree.setColumnWidth(1, 15)  # Clr (Color) - Ultra Slim
+        self.tree.setColumnWidth(2, 50)  # Mesh (Narrow)
+        self.tree.setColumnWidth(3, 100) # Markers
+        self.tree.setColumnWidth(4, 180) # View Mode (Wide)
+        
         self.tree.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.tree)
         
         # 3. Focus Mode Button
-        self.btn_focus = QtWidgets.QPushButton("🎯 Focus Selection (Contour Only)")
-        self.btn_focus.setStyleSheet("background-color: #E8F0FE; font-weight: bold; padding: 5px;")
+        self.btn_focus = QtWidgets.QPushButton("🎯 Focus Selection (Toggle Highlight)")
+        self.btn_focus.setStyleSheet("font-weight: bold; padding: 5px;") # [WHT] Default BG color
         self.btn_focus.clicked.connect(self._on_focus_view)
         layout.addWidget(self.btn_focus)
         
@@ -148,18 +159,28 @@ class PartManagerWindow(QtWidgets.QWidget):
             m_v = QtCore.Qt.Checked if actor_data.get('visible', True) else QtCore.Qt.Unchecked
             mk_v = QtCore.Qt.Checked if actor_data.get('visible_markers', False) else QtCore.Qt.Unchecked
             
-            item.setCheckState(1, m_v)
-            item.setCheckState(2, mk_v)
-            item.setText(2, f"Markers ({n_markers})")
+            # [WHT] Color Picker Button (Ultra Slim version)
+            btn_clr = QtWidgets.QPushButton()
+            btn_clr.setFixedWidth(10)
+            btn_clr.setFixedHeight(18)
+            btn_clr.setCursor(QtCore.Qt.PointingHandCursor)
+            c_hex = actor_data.get('body_color', "#888888")
+            btn_clr.setStyleSheet(f"background-color: {c_hex}; border: 1px solid #555; margin: 0px; padding: 0px;")
+            btn_clr.clicked.connect(partial(self._on_color_clicked, i))
+            self.tree.setItemWidget(item, 1, btn_clr)
+            
+            item.setCheckState(2, m_v)
+            item.setCheckState(3, mk_v)
+            item.setText(3, f"Markers ({n_markers})")
             
             # View Mode ComboBox
             cmb = QtWidgets.QComboBox()
             cmb.addItems(["Surface w/ Edge", "Surface only", "Wireframe", "Outline"])
             cmb.setCurrentText(actor_data.get('view_mode', "Surface w/ Edge"))
             cmb.currentTextChanged.connect(partial(self._on_view_mode_changed, i))
-            self.tree.setItemWidget(item, 3, cmb)
+            self.tree.setItemWidget(item, 4, cmb)
             
-            item.setText(4, "-")
+            item.setText(5, "-")
             self.id_to_item[i] = item
             
         self.tree.expandAll()
@@ -197,32 +218,99 @@ class PartManagerWindow(QtWidgets.QWidget):
         self._apply()
 
     def _on_view_mode_changed(self, part_idx, mode):
+        # 1. Update the triggered item
         if part_idx in self.parent.part_actors:
             self.parent.part_actors[part_idx]['view_mode'] = mode
+            
+        # [WHT] 2. Batch Update: If multiple items are selected, update all of them
+        selected_items = self.tree.selectedItems()
+        target_item = self.id_to_item.get(part_idx)
+        
+        if target_item in selected_items:
+            for item in selected_items:
+                idx = item.data(0, QtCore.Qt.UserRole)
+                if idx is not None and idx in self.parent.part_actors and idx != part_idx:
+                    self.parent.part_actors[idx]['view_mode'] = mode
+                    # Update the UI ComboBox without triggering signals recursively
+                    cmb = self.tree.itemWidget(item, 3)
+                    if isinstance(cmb, QtWidgets.QComboBox):
+                        cmb.blockSignals(True)
+                        cmb.setCurrentText(mode)
+                        cmb.blockSignals(False)
+        
+        self.parent.update_frame(self.parent.current_frame)
+
+    def _on_color_clicked(self, part_idx):
+        """[WHTOOLS] 컬러 피커 다이얼로그 실행 및 멀티 선택 일괄 적용"""
+        actor_data = self.parent.part_actors.get(part_idx)
+        if not actor_data: return
+        
+        initial_qcolor = QtGui.QColor(actor_data.get('body_color', "#888888"))
+        color = QtWidgets.QColorDialog.getColor(initial_qcolor, self, "Select Part Color")
+        
+        if color.isValid():
+            new_hex = color.name()
+            rgb_float = (color.redF(), color.greenF(), color.blueF())
+            
+            # 1. Identify targets (single vs batch)
+            selected_items = self.tree.selectedItems()
+            target_item = self.id_to_item.get(part_idx)
+            
+            target_indices = [part_idx]
+            if target_item in selected_items:
+                for item in selected_items:
+                    idx = item.data(0, QtCore.Qt.UserRole)
+                    if idx is not None and idx not in target_indices:
+                        target_indices.append(idx)
+            
+            # 2. Apply to actors and UI
+            for idx in target_indices:
+                act_inf = self.parent.part_actors[idx]
+                act_inf['body_color'] = new_hex
+                # [WHT] 필드 데이터(Body/Face Color)도 즉시 업데이트하여 시각화 동기화
+                ana = self.parent.mgr.analyzers[idx]
+                if 'Body Color' in ana.results:
+                    # 모든 프레임에 대해 색상 업데이트 (상수 색상 가정)
+                    ana.results['Body Color'][:] = rgb_float[0] 
+                    ana.results['Face Color'][:] = rgb_float[0] # [WHT] 기본적으로 동일하게 유지
+                
+                # UI 버튼 색상 업데이트
+                item = self.id_to_item[idx]
+                btn = self.tree.itemWidget(item, 1)
+                if isinstance(btn, QtWidgets.QPushButton):
+                    btn.setStyleSheet(f"background-color: {new_hex}; border: 1px solid #555;")
+            
             self.parent.update_frame(self.parent.current_frame)
 
     def _on_focus_view(self):
-        """[WHTOOLS] 선택한 파트만 Contour, 나머지는 Wireframe으로 전환하는 상용 S/W 기법"""
+        """[WHTOOLS] 선택한 파트들을 강조하고 나머지는 Wireframe으로 전환"""
         selected_items = self.tree.selectedItems()
         if not selected_items: return
         
-        self.tree.blockSignals(True)
-        target_id = selected_items[0].data(0, QtCore.Qt.UserRole)
+        # 1. Get all selected indices
+        target_ids = []
+        for item in selected_items:
+            idx = item.data(0, QtCore.Qt.UserRole)
+            if idx is not None: target_ids.append(idx)
+            
+        if not target_ids: return
         
+        self.tree.blockSignals(True)
         for i, act in self.parent.part_actors.items():
-            if i == target_id:
+            if i in target_ids:
                 act['visible'] = True
                 act['view_mode'] = "Surface only"
-                self.id_to_item[i].setCheckState(1, QtCore.Qt.Checked)
+                self.id_to_item[i].setCheckState(2, QtCore.Qt.Checked)
             else:
                 act['view_mode'] = "Wireframe"
             
             # UI ComboBox 동기화
-            widget = self.tree.itemWidget(self.id_to_item[i], 3)
+            widget = self.tree.itemWidget(self.id_to_item[i], 4)
             if isinstance(widget, QtWidgets.QComboBox):
                 widget.setCurrentText(act['view_mode'])
                 
         self.tree.blockSignals(False)
+        self._on_focus() # [WHT] Also focus camera
         self.parent.update_frame(self.parent.current_frame)
 
     def update_info(self):
@@ -274,8 +362,9 @@ class PartManagerWindow(QtWidgets.QWidget):
         """변경된 가시성 설정을 메인 렌더러에 즉각 반영"""
         for i, item in self.id_to_item.items():
             if i in self.parent.part_actors:
-                self.parent.part_actors[i]['visible'] = (item.checkState(1) == QtCore.Qt.Checked)
-                self.parent.part_actors[i]['visible_markers'] = (item.checkState(2) == QtCore.Qt.Checked)
+                # [WHT] Column index adjustment: 2: Mesh, 3: Markers
+                self.parent.part_actors[i]['visible'] = (item.checkState(2) == QtCore.Qt.Checked)
+                self.parent.part_actors[i]['visible_markers'] = (item.checkState(3) == QtCore.Qt.Checked)
         self.parent.update_frame(self.parent.current_frame)
 
 
@@ -1093,11 +1182,15 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             self.cmb_f2d.blockSignals(False)
 
         # [WHT-INITIAL] 4. 초기 플롯 구성을 위한 자동 설정
+        self._on_clear_2d_plots() # [WHT] 기존 플롯 데이터 및 설정 완전 초기화
         self.plot_slots = [None] * 6
         
         # (1) 2D Grid Setup
         if hasattr(self, 'cmb_lay'):
-            self._on_grid_layout_changed(self.cmb_lay.currentText())
+            self.cmb_lay.blockSignals(True)
+            self.cmb_lay.setCurrentText("2x1")
+            self.cmb_lay.blockSignals(False)
+            self._on_grid_layout_changed("2x1")
 
         # (2) Slot 1: Contour (Principal Strain)
         target_contour_key = next((k for k in self.field_keys if "Prin.Strain" in k or "Principal" in k), None)
@@ -1110,19 +1203,16 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 data_key=target_contour_key
             )
             
-        # (3) Slot 2: Curve (Max.Curvature Mean)
-        target_curve_key = "Max.Curvature Mean"
-        # 만약 해당 키가 없으면 field_keys에서 유도 (Max- 가상키 처리 로직이 있으므로 문자열로 설정)
-        if target_curve_key:
-            self.plot_slots[1] = PlotSlotConfig(
-                part_indices=[-2], # All Main Parts
-                plot_type="curve",
-                data_key=target_curve_key
-            )
+        # (3) [WHTOOLS] Slot 2 Default: Curve (Max-Curvature Mean) - User Request
+        self.plot_slots[1] = PlotSlotConfig(
+            part_indices=[-2], # All Main Parts
+            plot_type="curve",
+            data_key="Max-Curvature Mean [1/mm]"
+        )
         
         # (4) 3D Force Refresh (Colormap & Initial Frame)
-        self._on_cmap_changed()
-        self.update_frame(0)
+        self._on_cmap_changed()  # [WHT] 컬러맵 설정
+        self.update_frame(0)    # [WHT] 프레임 업데이트
         if hasattr(self, 'fig'):
             self.fig.tight_layout()
             self.can.draw_idle()
@@ -1147,7 +1237,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             try: self.visibility_tool.update_info()
             except: pass
         
-        if hasattr(self, 'sld'):
+        if hasattr(self, 'sld'):    # [WHT] 슬라이더 초기화
             n_frames = len(self.mgr.times) if self.mgr.times is not None else 1
             self.sld.setRange(0, n_frames - 1); self.sld.setValue(0)
             
@@ -1171,18 +1261,6 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         b_res = QtWidgets.QPushButton("🔄 Reset View"); b_res.clicked.connect(lambda: self.v_int.reset_camera()); l_vis.addWidget(b_res)
         layout.addWidget(f_vis); layout.addWidget(self._create_v_line())
         
-        # [WHTOOLS] Colormap Style (3D 탭에서 이동됨)
-        f_style = QtWidgets.QFrame(); l_style = QtWidgets.QHBoxLayout(f_style); l_style.setContentsMargins(0, 0, 0, 0)
-        l_style.addWidget(QtWidgets.QLabel("Cmap:")); self.cmb_cmap = QtWidgets.QComboBox()
-        self.cmb_cmap.addItems(["jet", "turbo", "rainbow", "viridis", "coolwarm", "plasma", "magma"])
-        self.cmb_cmap.setCurrentText("jet"); self.cmb_cmap.setFixedWidth(100); l_style.addWidget(self.cmb_cmap)
-        
-        self.ch_cmap_r = QtWidgets.QCheckBox("Rev."); self.ch_cmap_r.setChecked(False); l_style.addWidget(self.ch_cmap_r)
-        
-        self.cmb_cmap.currentTextChanged.connect(self._on_cmap_changed)
-        self.ch_cmap_r.toggled.connect(self._on_cmap_changed)
-        layout.addWidget(f_style); layout.addWidget(self._create_v_line())
-        
         f_ani = QtWidgets.QFrame(); l_ani = QtWidgets.QHBoxLayout(f_ani); l_ani.setContentsMargins(0, 0, 0, 0)
         l_ani.addWidget(QtWidgets.QLabel("Font size:")); self.sp_vtk_font = QtWidgets.QSpinBox()
         self.sp_vtk_font.setRange(6, 30); self.sp_vtk_font.setValue(9); self.sp_vtk_font.valueChanged.connect(self._update_vtk_font); l_ani.addWidget(self.sp_vtk_font)
@@ -1196,7 +1274,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.v_font_size = v
         # 1. PyVista Global Theme
         pv.global_theme.font.size = v
-        pv.global_theme.font.label_size = max(6, v - 1)
+        pv.global_theme.font.label_size = max(6, v - 2)
         # 2. Matplotlib Global Params
         plt.rcParams['font.size'] = v
         # 3. UI Sync (2D Font ComboBox)
@@ -1204,11 +1282,31 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             self.cmb_font_2d.blockSignals(True)
             self.cmb_font_2d.setCurrentText(str(v))
             self.cmb_font_2d.blockSignals(False)
-        # 4. Immediate Refresh
+        # 4. Immediate Refresh (PyVista Text & Scalar Bar)
+        if hasattr(self, 'ov'): 
+            self.ov.prop.font_size = max(6, v - 2)
+        if hasattr(self, 'gui_txt'): 
+            self.gui_txt.prop.font_size = max(6, v - 2)
+        
         if hasattr(self, 'sb') and self.sb is not None:
-            self.sb.unconstrained_font_size = True
-            self.sb.label_font_size = v
-            self.sb.title_font_size = v
+            try:
+                # vtkScalarBarActor use LabelTextProperty and TitleTextProperty
+                self.sb.GetLabelTextProperty().SetFontSize(v + 2)
+                self.sb.GetTitleTextProperty().SetFontSize(v + 2)
+                self.sb.SetUnconstrainedFontSize(True)
+            except: pass
+        
+        # [WHT] Actor labels update
+        if hasattr(self, 'part_actors'):
+            for act in self.part_actors.values():
+                if 'labels' in act and act['labels']:
+                    try: 
+                        # add_point_labels returns a vtkActor2D with a vtkTextMapper/vtkLabeledDataMapper
+                        # The actor itself might have GetTextProperty()
+                        if hasattr(act['labels'], 'GetTextProperty'):
+                            act['labels'].GetTextProperty().SetFontSize(max(6, v - 2))
+                    except: pass
+                    
         self.update_frame(self.current_frame)
 
     def _on_2d_font_changed(self, text):
@@ -1243,7 +1341,24 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         if target_idx != -1:
             # Opencell이 있으면 해당 파트를 1번 슬롯(Contour)에 자동 할당
             self.plot_slots[0] = PlotSlotConfig(part_indices=[target_idx], plot_type="contour", data_key=self.cmb_comp.currentText())
-            self.plot_slots[1] = PlotSlotConfig(part_indices=[-2], plot_type="curve", data_key="Max-" + self.cmb_comp.currentText())
+        
+        # [WHTOOLS] Slot 2: [Multi] Max-Curvature Mean (User Request Default)
+        # 파일 로딩 직후 Slot 2는 항상 주요 파트의 최대 곡률 추이를 보여주도록 설정합니다.
+        self.plot_slots[1] = PlotSlotConfig(
+            part_indices=[-2], # All Main Parts
+            plot_type="curve", 
+            data_key="Max-Curvature Mean [1/mm]"
+        )
+        
+        # UI 슬롯 선택 콤보박스 업데이트 (필요 시)
+        if hasattr(self, 'cmb_slot'):
+            self.cmb_slot.blockSignals(True)
+            self.cmb_slot.setCurrentIndex(1) # Slot 2 선택 상태로 시작 (선택 사항)
+            self.cmb_slot.blockSignals(False)
+            
+        # [WHTOOLS] 초기 로딩 시 1회 정렬 (성능 최적화)
+        self.fig.tight_layout(pad=3.0)
+        self.can.draw_idle()
 
     def _update_step(self, v):
         self.anim_step = v
@@ -1298,11 +1413,19 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         l_field.addWidget(self.cmb_cat, 0, 1)
         l_field.addWidget(QtWidgets.QLabel(" Comp:"), 0, 2)
         l_field.addWidget(self.cmb_comp, 0, 3)
-        l_field.setColumnStretch(1, 0); l_field.setColumnStretch(3, 0); l_field.setColumnStretch(4, 1) 
+        
+        # [WHT] Repositioned Fit button
+        btn_fit = QtWidgets.QPushButton("🎯 Fit")
+        btn_fit.setFixedWidth(50)
+        btn_fit.setToolTip("Fit Scalar Range to Data")
+        btn_fit.clicked.connect(self._on_fit_range)
+        l_field.addWidget(btn_fit, 0, 4)
+        
+        l_field.setColumnStretch(1, 0); l_field.setColumnStretch(3, 0); l_field.setColumnStretch(4, 0); l_field.setColumnStretch(5, 1) 
         
         # Row 2: Range & Robustness
         l_field.addWidget(QtWidgets.QLabel("Range:"), 1, 0)
-        l_field.addWidget(self.rng_3d, 1, 1, 1, 4) # Span to include the stretch column for symmetry if needed, or keep to 3
+        l_field.addWidget(self.rng_3d, 1, 1, 1, 5) 
         
         layout.addWidget(g_field)
 
@@ -1354,10 +1477,28 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.ch_per.setChecked(True)
         self.ch_per.toggled.connect(self._on_persp_toggled)
         
-        row_env2.addWidget(self.btn_bg); row_env2.addWidget(self.ch_per); row_env2.addWidget(btn_fit); row_env2.addStretch(1)
+        row_env2.addWidget(self.btn_bg); row_env2.addWidget(self.ch_per); row_env2.addStretch(1)
         
         l_env_main.addLayout(row_env1); l_env_main.addLayout(row_env2)
         layout.addWidget(g_env)
+
+        # [Group 5] View Orientation Control
+        g_view = QtWidgets.QGroupBox("Camera View")
+        l_view_main = QtWidgets.QVBoxLayout(g_view); l_view_main.setContentsMargins(5, 5, 5, 5); l_view_main.setSpacing(2)
+        row_v1 = QtWidgets.QHBoxLayout()
+        
+        btn_px = QtWidgets.QPushButton("+X"); btn_px.setToolTip("View from +X Axis"); btn_px.clicked.connect(lambda: self.v_int.view_zy())
+        btn_py = QtWidgets.QPushButton("+Y"); btn_py.setToolTip("View from +Y Axis"); btn_py.clicked.connect(lambda: self.v_int.view_xz())
+        btn_pz = QtWidgets.QPushButton("+Z"); btn_pz.setToolTip("View from +Z Axis"); btn_pz.clicked.connect(lambda: self.v_int.view_xy())
+        btn_iso = QtWidgets.QPushButton("Iso"); btn_iso.setToolTip("Isometric View"); btn_iso.clicked.connect(lambda: self.v_int.view_isometric())
+        
+        for b in [btn_px, btn_py, btn_pz, btn_iso]:
+            b.setFixedWidth(38)
+            row_v1.addWidget(b)
+            
+        l_view_main.addLayout(row_v1)
+        layout.addWidget(g_view)
+
         layout.addStretch(1)
 
         # Hidden Spinboxes for range state management
@@ -1513,11 +1654,18 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.lut.above_range_color = 'magenta'
         
         analyzers = self.mgr.analyzers if self.mgr else []
+        import matplotlib
+        tab10 = matplotlib.colormaps.get_cmap('tab10')
+        
         for i, ana in enumerate(analyzers):
             if ana.m_raw is None or ana.sol is None:
                 self.part_actors[i] = {'mesh': None, 'visible': False}
                 continue
                 
+            # [WHT] Use cyclic tab10 colormap for consistent part coloring
+            c_rgb = tab10(i % 10)[:3]
+            c_hex = matplotlib.colors.to_hex(c_rgb)
+            
             poly = pv.Plane(
                 i_size=ana.W, 
                 j_size=ana.H, 
@@ -1527,6 +1675,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             ma = self.v_int.add_mesh(
                 poly, 
                 scalars=None, 
+                color=c_hex,
                 cmap=self.lut, 
                 show_edges=True, 
                 edge_color="darkgray", 
@@ -1540,21 +1689,22 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 mp, 
                 render_points_as_spheres=True, 
                 point_size=10, 
-                color='skyblue'
+                color=c_hex # [WHT] Match mesh color
             )
             
             la = self.v_int.add_point_labels(
                 mp, "names", 
-                font_size=self.v_font_size, 
+                font_size=max(6, self.v_font_size - 2), 
                 text_color='black', 
-                always_visible=True, 
+                always_visible=False, 
                 point_size=0, 
-                shadow=False
+                shadow=False,
+                pickable=False
             )
             
             if not hasattr(ana.sol, 'X_mesh') or ana.sol.X_mesh is None:
                 ma.SetVisibility(False)
-                self.part_actors[i] = {'mesh': ma, 'visible': False}
+                self.part_actors[i] = {'mesh': ma, 'body_color': c_hex, 'visible': False}
                 continue
                 
             mka.SetVisibility(False)
@@ -1568,6 +1718,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             
             self.part_actors[i] = {
                 'mesh': ma, 
+                'body_color': c_hex,
                 'poly': poly, 
                 'm_poly': mp, 
                 'markers': mka, 
@@ -1648,8 +1799,41 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             if not inf['mesh']: continue
             
             # Visibility
-            mv = inf['visible']; mkv = inf['visible_markers']
-            inf['mesh'].SetVisibility(mv); inf['markers'].SetVisibility(mkv); inf['labels'].SetVisibility(mkv)
+            mv = inf['visible']
+            mkv = inf['visible_markers']
+            
+            inf['mesh'].SetVisibility(mv)
+            
+            # [WHT] View Mode Apply (Bug Fix)
+            if inf['mesh'] is not None and mv:
+                v_mode = inf.get('view_mode', "Surface w/ Edge")
+                prop = inf['mesh'].GetProperty()
+                if v_mode == "Surface w/ Edge":
+                    prop.SetRepresentationToSurface()
+                    prop.SetEdgeVisibility(True)
+                    prop.SetOpacity(1.0)
+                elif v_mode == "Surface only":
+                    prop.SetRepresentationToSurface()
+                    prop.SetEdgeVisibility(False)
+                    prop.SetOpacity(1.0)
+                elif v_mode == "Wireframe":
+                    prop.SetRepresentationToWireframe()
+                    prop.SetEdgeVisibility(True)
+                    prop.SetOpacity(1.0)
+                elif v_mode == "Outline":
+                    prop.SetRepresentationToSurface()
+                    prop.SetEdgeVisibility(True)
+                    prop.SetOpacity(0.3) # Outline 대용으로 투명 처리
+                else:
+                    prop.SetRepresentationToSurface()
+                    prop.SetOpacity(1.0)
+            
+            if inf['markers'] is not None:
+                inf['markers'].SetVisibility(mkv)
+                if 'body_color' in inf:
+                    inf['markers'].prop.color = inf['body_color']
+            if inf['labels'] is not None:
+                inf['labels'].SetVisibility(mkv)
             if not mv and not mkv: continue
             
             # Deformation
@@ -1672,6 +1856,8 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             # Color Mapping
             if is_basic:
                 inf['mesh'].mapper.scalar_visibility = False
+                if 'body_color' in inf:
+                    inf['mesh'].prop.color = inf['body_color']
             else:
                 inf['mesh'].mapper.scalar_visibility = True
                 if fk in ana.results:
@@ -1718,6 +1904,10 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
     def _on_grid_layout_changed(self, text):
         """그리드 레이아웃 변경 시 슬롯 선택 위젯 항목을 동기화합니다."""
         self._init_2d_plots()
+        # [WHTOOLS] 레이아웃 변경 시 1회 정렬
+        self.fig.tight_layout(pad=3.0)
+        self.can.draw_idle()
+        
         layout_map = {"1x1": (1,1), "1x2": (1,2), "2x2": (2,2), "3x2": (3,2), "2x1": (2,1)}
         rows, cols = layout_map.get(text, (2, 1))
         n_slots = rows * cols
@@ -1898,8 +2088,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                     
                 self.vls[i].set_xdata([current_time])
         
-        if getattr(self, '_is_first_2d_update', False):
-            self.fig.tight_layout(); self._is_first_2d_update = False
+        # [WHTOOLS] 매 프레임 업데이트 시에는 성능을 위해 tight_layout 호출을 지양합니다.
         self.can.draw_idle()
 
     def _on_clear_2d_plots(self):
@@ -2123,7 +2312,10 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             final_slot = dialog.slot_idx; config = dialog.get_config()
             self.plot_slots[final_slot] = config; self.active_slot = final_slot
             if final_slot < len(self.ims): self.ims[final_slot] = self.vls[final_slot] = self.cbs[final_slot] = None
-            self._update_selection_ui(); self._is_first_2d_update = True; self.update_frame(self.current_frame); self.can.draw_idle()
+            self._update_selection_ui(); 
+            # [WHTOOLS] 그래프 추가 시 1회 정렬
+            self.fig.tight_layout(pad=3.0)
+            self.update_frame(self.current_frame); self.can.draw_idle()
 
     def _on_toggle_play(self):
         if not hasattr(self, 'timer'): return

@@ -466,6 +466,12 @@ class ShellDeformationAnalyzer:
         # 2. 다항식 피팅
         coeffs, scales = self.sol.opt.solve_coefficients(local_disp, local_disp[0], self.cfg.regularization_lambda)
         
+        # [WHTOOLS] Reference Configuration Offset (Relative Deformation) 적용
+        # 첫 번째 프레임(Frame 0)의 피팅 계수를 모든 프레임에서 빼주어, 
+        # 초기 상태의 미세한 곡률이나 조립 오차를 'Zero' 상태로 강제합니다.
+        # 이를 통해 Displacement, Stress, Strain 등의 모든 필드는 Frame 0 대비 '순수 변화량'을 나타내게 됩니다.
+        coeffs = coeffs - coeffs[0]
+        
         # 3. 물리 필드 산출 (배치 처리)
         n_frames = len(self.m_raw)
         batch_size = self.cfg.batch_size
@@ -519,9 +525,16 @@ class PlateAssemblyManager:
         from rich.table import Table
         console = Console()
         table = Table(title="[WHTOOLS] Assembly Structural Report")
-        table.add_column("Part Name"); table.add_column("Markers", style="cyan"); table.add_column("Max Disp [mm]", style="green"); table.add_column("Max Stress [MPa]", style="magenta")
+        table.add_column("Part Name"); table.add_column("Markers", style="cyan"); table.add_column("Max Disp [mm]", style="green"); table.add_column("Max Stress [MPa]", style="magenta"); table.add_column("Max Gauss [1/mm^2]", style="yellow")
         for a in self.analyzers:
             if not a.results: continue
             n_m = len(a.m_raw[0]) if a.m_raw is not None else 0
-            table.add_row(a.name, str(n_m), f"{np.max(np.abs(a.results['Displacement [mm]'])):.2f}", f"{np.max(a.results['Von-Mises [MPa]']):.2f}")
+            max_gauss = np.max(np.abs(a.results.get('Curvature Gauss [1/mm^2]', [0.0])))
+            table.add_row(
+                a.name, 
+                str(n_m), 
+                f"{np.max(np.abs(a.results['Displacement [mm]'])):.2f}", 
+                f"{np.max(a.results['Von-Mises [MPa]']):.2f}",
+                f"{max_gauss:.2e}"
+            )
         console.print(table)
