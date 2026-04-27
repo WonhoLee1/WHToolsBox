@@ -45,6 +45,22 @@ class ControlPanel(QMainWindow):
         # [WHTOOLS] 모니터링 창 리스트 (복수 모달리스 지원)
         self.monitor_windows = []
 
+    def showEvent(self, event):
+        """창이 표시될 때 화면 우측 상단으로 자동 이동합니다."""
+        super().showEvent(event)
+        try:
+            # 현재 창이 표시되는 스크린의 가용 영역 획득
+            screen_geo = self.screen().availableGeometry()
+            win_geo = self.frameGeometry()
+            
+            # 우측 상단 배치 (여백: 가로 20px, 세로 60px - 타이틀바 고려)
+            target_x = screen_geo.x() + screen_geo.width() - win_geo.width() - 20
+            target_y = screen_geo.y() + 60
+            
+            self.move(target_x, target_y)
+        except Exception:
+            pass
+
     def _init_ui(self):
         """현대적인 Dark Mode 스타일의 UI를 구성합니다."""
         central_widget = QWidget()
@@ -92,6 +108,23 @@ class ControlPanel(QMainWindow):
         
         header_layout.addWidget(status_group, 1) # Status group expands
         main_layout.addLayout(header_layout)
+
+        # 1-1. 카메라 시점 제어 그룹 (NEW)
+        from functools import partial
+        cam_group = QGroupBox("Camera Orientation (MuJoCo View)")
+        cam_layout = QHBoxLayout(cam_group)
+        cam_layout.setSpacing(5)
+        
+        views = ["+X", "-X", "+Y", "-Y", "+Z", "-Z", "+ISO", "-ISO"]
+        for v in views:
+            btn = QPushButton(v)
+            btn.setMinimumHeight(30)
+            btn.setMinimumWidth(42)
+            btn.setFont(QFont("Consolas", 8, QFont.Bold)) # User requested 8pt
+            btn.clicked.connect(partial(self._on_cam_view, v))
+            cam_layout.addWidget(btn)
+            
+        main_layout.addWidget(cam_group)
 
         # 2. 재생 제어 그룹
         playback_group = QGroupBox("Playback Controls")
@@ -341,6 +374,14 @@ class ControlPanel(QMainWindow):
             f"- Trans. Velocity: [{tvel[0]:.4f}, {tvel[1]:.4f}, {tvel[2]:.4f}] (Resultant: {tvel_res:.4f} m/s)"
         )
         self.sim.log(msg, level="info")
+
+    def _on_cam_view(self, view_name):
+        """MuJoCo 뷰어의 시점 전환 요청을 시뮬레이터로 전달합니다."""
+        if hasattr(self.sim, 'ctrl_cam_view'):
+            self.sim.ctrl_cam_view = view_name
+        else:
+            # 동적 속성으로라도 추가하여 엔진에서 감지할 수 있게 함
+            self.sim.ctrl_cam_view = view_name
 
     def _on_monitor(self):
         """실시간 모니터링 설정 다이얼로그를 띄우고 그래프 윈도우를 생성합니다."""

@@ -272,7 +272,15 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
 
     # 5. 부품 간 인터페이스 용접
     inter_weld_xml = []
+    enable_btm_weld = p_occ.get("enable_btm_weld", True)
+    
     for (i,j,k_occ), blk_occ in b_occ.blocks.items():
+        # [WHTOOLS] Bottom Weld Deactivation Logic: 
+        # 전면 기준 하단 바 영역(cy < -assy_h/2 + ithick)의 용접을 선택적으로 비활성화
+        is_bottom = blk_occ.cy < (-assy_h/2 + occ_ithick + 1e-4)
+        if not enable_btm_weld and is_bottom:
+            continue
+            
         if (i,j,0) in b_opencell.blocks: 
             inter_weld_xml.append(f'        <weld class="weld_bopencellcohesive" site1="s_BOpenCellCohesive_{i}_{j}_{0}_PZ" site2="s_BOpenCell_{i}_{j}_{0}_NZ"/>')
         if (i,j,0) in b_chassis.blocks: 
@@ -406,7 +414,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     all_geoms = [("ground", "ground", -1, (0, 0, 0), (2.5, 2.5, 0.1))] # (name, type, instance_id, pos, size)
     
     def _collect_metadata(body):
-        t_map = {"bpaperbox":"paper", "bcushion":"cushion", "bopencell":"opencell", "bopencellcohesive":"paper", "bchassis":"chassis"}
+        t_map = {"bpaperbox":"paper", "bcushion":"cushion", "bopencell":"opencell", "bopencellcohesive":"opencellcoh", "bchassis":"chassis"}
         m_type = t_map.get(body.__class__.__name__.lower(), "part")
         
         for idx, blk in body.blocks.items():

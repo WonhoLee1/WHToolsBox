@@ -167,6 +167,8 @@ class PlateMechanicsSolver:
                 'Stress XX [MPa]': sx,
                 'Signed Von-Mises [MPa]': svm,
                 'Eq. Strain [mm/mm]': eq_e,
+                'Curvature Mean [1/mm]': -(kxx + kyy) / 2.0,
+                'Curvature Gauss [1/mm^2]': kxx * kyy - kxy**2,
                 'Mean-VM': jnp.mean(vm),
                 'Max-VM': jnp.max(vm)
             }

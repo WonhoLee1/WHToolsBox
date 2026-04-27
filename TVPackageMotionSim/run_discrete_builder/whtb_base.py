@@ -54,6 +54,7 @@ class BaseDiscreteBody:
         self.div = div  # [Nx, Ny, Nz]
         self.material_props = material_props 
         self.use_internal_weld = use_internal_weld 
+        self.use_body_joints = True # 기본적으로 개별 부품은 독립 자유도를 가짐
         
         self.blocks = {} # 생성된 블록 저장소 {(i,j,k): DiscreteBlock}
         self.children = [] 
@@ -278,7 +279,7 @@ class BaseDiscreteBody:
         
         # 내부 용접을 사용하지 않는 모드: 하나의 body 내에 수많은 geom 배치
         if not self.use_internal_weld:
-            if self.name not in ["PackagingBox", "AssySet"]:
+            if self.use_body_joints and self.name not in ["PackagingBox", "AssySet"]:
                 # 각 블록(Geom) 간의 상대 운동이 필요할 경우 관절 추가 고려 가능 (현재는 정적 배치)
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="1 0 0"/>')
                 xml_outs.append(f'{ind_c}<joint type="slide" axis="0 1 0"/>')

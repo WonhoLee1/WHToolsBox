@@ -162,7 +162,7 @@ def run_digital_twin_pipeline_v6(case_func):
         return
 
     # [v6] 최소 정보 기반 분석 호출
-    run_analysis_and_dashboard_minimal(sim.result)
+    #run_analysis_and_dashboard_minimal(sim.result)
 
 def test_case_1_setup():
     """
@@ -203,6 +203,21 @@ def test_case_1_setup():
     cfg["initial_tilt_deg"] = 0.0           # 수직에서 5도 기울임
     cfg["initial_tilt_azimuth_deg"] = 0.0 # 45도 방향으로 기울임
 
+    # [8. SOLVER & REPORTING OPTIONS]
+    cfg["sim_integrator"] = "implicitfast"
+    cfg["sim_timestep"]   = 0.0012
+    cfg["sim_iterations"] = 50
+    cfg["sim_noslip_iterations"] = 0
+    cfg["sim_tolerance"]  = 1e-5
+    cfg["sim_gravity"]    = [0, 0, -9.81]
+    cfg["sim_nthread"]    = 4
+    cfg["reporting_interval"] = 0.0024
+    cfg["sim_duration"] = 2.0
+
+    # [9. AIR FLUIDICS]
+    cfg["enable_air_drag"]    = True
+    cfg["enable_air_squeeze"] = True
+
     # [WHTOOLS] PREMIUM VISUALS: Fog & Infinite Ground Effect
     cfg["visual"] = {
         "fogstart": 3.0,              # 3m 지점부터 안개 시작
@@ -215,11 +230,24 @@ def test_case_1_setup():
         "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
         "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
         "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0)},
-        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4)},
+        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": False},
         "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
     }
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
+    # fast mode
+    '''
+    cfg["components"] = {
+        "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
+        "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
+        "opencell"      : {"div": [3, 3, 1], "use_weld": False, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0)},
+        "opencellcoh"   : {"div": [3, 3, 1], "use_weld": False, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": True},
+        "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
+    }
+    cfg["sim_integrator"] = "euler"
+    cfg["sim_iterations"] = 30
+    '''
+    cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.7, 0.7]
     p_solref = [-55000.0,-800.0]
@@ -263,7 +291,7 @@ def test_case_1_setup():
         "cushion"        : {"solref": p_solref, "solimp": p_solimp},
         "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
         "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
-        "opencellcoh"    : {"solref": [-15000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},
     }
     
@@ -286,23 +314,6 @@ def test_case_1_setup():
     # [7. GROUND PROPERTIES]
     # (Unused legacy keys removed)
 
-    # [8. SOLVER & REPORTING OPTIONS]
-    cfg["sim_integrator"] = "implicitfast"
-    cfg["sim_timestep"]   = 0.0012
-    cfg["sim_iterations"] = 50
-    cfg["sim_noslip_iterations"] = 0
-    cfg["sim_tolerance"]  = 1e-5
-    cfg["sim_gravity"]    = [0, 0, -9.81]
-    cfg["sim_nthread"]    = 4
-    cfg["reporting_interval"] = 0.0024
-    cfg["sim_duration"] = 2.0
-
-    # [9. AIR FLUIDICS]
-    cfg["enable_air_drag"]    = True
-    cfg["enable_air_squeeze"] = True
-
-    # [V5 ADDITIONAL UPDATES]
-    cfg["use_jax_reporting"] = True # JAX 엔진 활성화
 
     # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 확인
     from run_discrete_builder.whtb_physics import analyze_and_balance_components

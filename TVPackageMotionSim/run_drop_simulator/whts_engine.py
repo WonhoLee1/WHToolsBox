@@ -140,6 +140,7 @@ class DropSimulator:
         self.ctrl_jump_snapshot_idx = -1
         self.ctrl_speed_multiplier = 1.0  # 1.0이 정상 속도
         self.ctrl_export_camera = False   # 카메라 정보 출력 요청
+        self.ctrl_cam_view = None         # [WHTOOLS] 시점 전환 요청 (+X, -X, ISO 등)
         self.ctrl_reload_only_xml = False # XML 생성을 건너뛰고 기존 파일만 로드할지 여부
         self.ctrl_reload_xml_path = None  # 리로드할 외부 XML 경로
         
@@ -845,6 +846,23 @@ class DropSimulator:
         if self.ctrl_export_camera:
             self._export_camera_xml()
             self.ctrl_export_camera = False
+
+        # 5. [WHTOOLS] MuJoCo 카메라 시점 전환 처리
+        if self.ctrl_cam_view and self.viewer:
+            cv = self.ctrl_cam_view
+            cam = self.viewer.cam
+            if cv == "+X":   cam.azimuth, cam.elevation = 0, 0
+            elif cv == "-X": cam.azimuth, cam.elevation = 180, 0
+            elif cv == "+Y": cam.azimuth, cam.elevation = 90, 0
+            elif cv == "-Y": cam.azimuth, cam.elevation = 270, 0
+            elif cv == "+Z": cam.azimuth, cam.elevation = 0, -90
+            elif cv == "-Z": cam.azimuth, cam.elevation = 0, 90
+            elif cv == "+ISO": cam.azimuth, cam.elevation = 45, -35
+            elif cv == "-ISO": cam.azimuth, cam.elevation = 225, -35
+            
+            self.ctrl_cam_view = None
+            self.viewer.sync()
+            self.log(f"📸 Camera orientation switched to: {cv}")
 
     def _export_camera_xml(self) -> None:
         """

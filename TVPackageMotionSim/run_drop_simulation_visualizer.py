@@ -33,12 +33,17 @@ def get_latest_result():
     if not os.path.exists(results_base):
         return None
         
-    result_files = glob.glob(os.path.join(results_base, "rds-*", "simulation_result.pkl"))
-    if not result_files:
+    # 1. 딥 폴더 패턴 (rds-*/simulation_result.pkl)
+    candidates = glob.glob(os.path.join(results_base, "rds-*", "simulation_result.pkl"))
+    # 2. 루트 폴더 패턴 (latest_results.pkl 등)
+    candidates += glob.glob(os.path.join(results_base, "*.pkl"))
+    
+    if not candidates:
         return None
-    # 파일 수정 시간 순으로 정렬
-    result_files.sort(key=os.path.getmtime, reverse=True)
-    return result_files[0]
+        
+    # 파일 수정 시간 순으로 정렬 (최신순)
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    return candidates[0]
 
 def main():
     app = QtWidgets.QApplication(sys.argv)

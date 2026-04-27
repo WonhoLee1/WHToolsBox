@@ -327,6 +327,8 @@ def compute_ssr_shell_metrics(comp_name: str, positions: np.ndarray, values: np.
     # 결과 저장소 초기화
     stress_field = np.zeros_like(XI)
     interp_field = np.zeros_like(XI)
+    k_mean_field = np.zeros_like(XI)
+    k_gauss_field = np.zeros_like(XI)
     
     # --- 2. Local Polynomial Regression (PSR) 실행 ---
     from scipy.spatial import cKDTree
@@ -355,6 +357,9 @@ def compute_ssr_shell_metrics(comp_name: str, positions: np.ndarray, values: np.
                 w_val = coeffs[0]
                 w_xx, w_yy, w_xy = 2*coeffs[3], 2*coeffs[5], coeffs[4]
                 interp_field[r, c] = w_val
+                k_mean_field[r, c] = -(w_xx + w_yy) / 2.0
+                k_gauss_field[r, c] = w_xx * w_yy - w_xy**2
+                
                 Mx = -D * (w_xx + nu * w_yy); My = -D * (w_yy + nu * w_xx); Mxy = D * (1 - nu) * w_xy
                 Mavg = (Mx + My) / 2.0
                 Mdiff = np.sqrt(max(0.0, ((Mx - My)/2.0)**2 + Mxy**2))
@@ -369,5 +374,7 @@ def compute_ssr_shell_metrics(comp_name: str, positions: np.ndarray, values: np.
         "max_loc": [float(XI[np.unravel_index(np.argmax(stress_field), stress_field.shape)]),
                     float(YI[np.unravel_index(np.argmax(stress_field), stress_field.shape)])],
         "grid_x": XI.tolist(), "grid_y": YI.tolist(),
-        "stress_field": stress_field.tolist(), "displacement_field": interp_field.tolist()
+        "stress_field": stress_field.tolist(), "displacement_field": interp_field.tolist(),
+        "curvature_mean": k_mean_field.tolist(),
+        "curvature_gauss": k_gauss_field.tolist()
     }
