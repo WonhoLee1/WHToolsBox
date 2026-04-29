@@ -30,9 +30,21 @@ def get_single_body_instance(body_name: str, config: Optional[Dict[str, Any]] = 
     # 2. 완충재 치수 (박스 내부를 꽉 채우는 기준)
     cush_gap = config["cush_gap"]
     cush_w, cush_h, cush_d = box_w - 2 * box_thick, box_h - 2 * box_thick, box_d - 2 * box_thick
-    
+
+    if cush_w <= 0 or cush_h <= 0 or cush_d <= 0:
+        raise ValueError(
+            f"완충재 치수가 0 이하입니다 (cush_w={cush_w:.4f}, cush_h={cush_h:.4f}, cush_d={cush_d:.4f}). "
+            f"box_thick({box_thick}) 대비 box 치수를 확인하세요."
+        )
+
     # 3. 내부 제품(Assy) 치수 및 배치 위치 계산
     assy_w = config.get("assy_w", cush_w - 0.3); assy_h = config.get("assy_h", cush_h - 0.3)
+
+    if assy_w <= 0 or assy_h <= 0:
+        raise ValueError(
+            f"Assy 치수가 0 이하입니다 (assy_w={assy_w:.4f}, assy_h={assy_h:.4f}). "
+            f"assy_w/assy_h를 config에 직접 지정하거나 완충재 치수를 키우세요."
+        )
     opencell_d = config["opencell_d"]; opencellcoh_d = config["opencellcoh_d"]; chassis_d = config["chassis_d"]
     assy_d = opencell_d + opencellcoh_d + chassis_d
     
@@ -437,11 +449,18 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     
     for (t1, t2), p in config["contacts"].items():
         cls_name = f"cls_{t1}_{t2}"
-        f_str = " ".join(map(str, get_friction_standard(p["friction"], 5)))
+        # [V5.11.4] Sliding -> Torsional 마찰 자동 계산 (대표 반경 R=5mm 기준)
+        f_vals = get_friction_standard(p["friction"])
+        if len(f_vals) >= 2:
+            mu_s = f_vals[0]
+            mu_t = mu_s * 0.6 * 0.005 # 비틀림 마찰계수 자동 산출
+            f_vals = [f_vals[0], f_vals[1], mu_t]
+            
+        f_str = " ".join(map(str, f_vals))
         sr_str = " ".join(map(str, p["solref"]))
         si_str = " ".join(map(str, p["solimp"]))
         
-        pair_classes_xml += f'    <default class="{cls_name}">\n      <pair friction="{f_str}" solref="{sr_str}" solimp="{si_str}"/>\n    </default>\n'
+        pair_classes_xml += f'    <default class="{cls_name}">\n      <pair friction="{f_str}" solref="{sr_str}" solimp="{si_str}" condim="4"/>\n    </default>\n'
         
         # 실제 조합 검색 및 Pair 추가
         for i in range(len(all_geoms)):
@@ -454,13 +473,14 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
                 
                 # Rule 2: Type Match
                 if (gt1 == t1 and gt2 == t2) or (gt1 == t2 and gt2 == t1):
-                    # [V5.10.1] Distance-Based Pair Filter (Skip far away blocks)
-                    # Ground 접촉은 필터를 적용하지 않음 (사용자 요청)
                     if gt1 != "ground" and gt2 != "ground":
-                        dist = np.sqrt(np.sum((np.array(p1) - np.array(p2))**2))
-                        max_dim_i = max(s1) * 2.0; max_dim_j = max(s2) * 2.0
-                        if dist > 1.5 * max(max_dim_i, max_dim_j):
-                            continue # 멀리 떨어져 있으면 Pair 생성을 건너뜀
+                        # [V5.11.3] AABB-Based Proximity Filter (Precise)
+                        # 각 축 방향으로 두 블록의 절반 크기 합 + 마진(1cm) 보다 멀면 접촉 불가
+                        p1_arr, p2_arr = np.array(p1), np.array(p2)
+                        s1_arr, s2_arr = np.array(s1), np.array(s2)
+                        dist_vec = np.abs(p1_arr - p2_arr)
+                        if np.any(dist_vec > (s1_arr + s2_arr + 0.01)):
+                            continue
 
                     contact_pairs_xml += f'    <pair class="{cls_name}" geom1="{gn1}" geom2="{gn2}"/>\n'
 

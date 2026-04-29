@@ -172,7 +172,7 @@ def calculate_plate_twist_weld_params(mass: float, width: float, height: float, 
 
     # [WHTOOLS] 수치적 안정성 캡 (Simulation Stability Cap)
     # 일반적인 dt=0.001s 환경에서 200Hz 이상의 국부 강성은 폭발을 유발함
-    max_f_safe = 200.0 
+    max_f_safe = 1000.0 
     is_capped = False
     if f_base_local > max_f_safe:
         f_base_local = max_f_safe

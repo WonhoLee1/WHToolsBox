@@ -11,5 +11,6 @@ __all__ = [
     "parse_drop_target", "get_local_pose", "calculate_solref", "get_rgba_by_name", "calculate_plate_twist_weld_params",
     "DiscreteBlock", "BaseDiscreteBody",
     "BPaperBox", "BCushion", "BOpenCellCohesive", "BOpenCell", "BChassis", "BAuxBoxMass", "BUnitBlock",
-    "create_model", "get_single_body_instance"
+    "create_model", "get_single_body_instance",       
+    "get_rgba_by_name", "calculate_plate_twist_weld_params",
 ]

@@ -103,8 +103,12 @@ def run_analysis_and_dashboard_minimal(result: Any):
             diet_res = {}
             for k, v in res_dict.items():
                 if isinstance(v, (np.ndarray, jnp.ndarray)):
-                    # [v6.8a] 32비트 다운샘플링 적용 (용량 50% 절감)
-                    diet_res[k] = np.array(v).astype(np.float32)
+                    arr = np.array(v)
+                    # 정수·불리언 배열은 타입 유지, 부동소수점만 float32로 다운샘플
+                    if np.issubdtype(arr.dtype, np.floating):
+                        diet_res[k] = arr.astype(np.float32)
+                    else:
+                        diet_res[k] = arr
                 else:
                     diet_res[k] = v
             return diet_res
@@ -186,7 +190,7 @@ def test_case_1_setup():
     cfg["box_thick"] = 0.008      # 박스 골판지(더블 월 등) 두께 [m]
     cfg["assy_w"] = 1.892         # 제품(TV) 어셈블리 가로 [m]
     cfg["assy_h"] = 1.082         # 제품(TV) 어셈블리 세로 [m]
-    cfg["cush_gap"] = 0.001       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
+    cfg["cush_gap"] = 0.0001       # 쿠션과 제품 사이의 조립 공극(Tolerance) [m]
     # [Geometry]
     cfg["opencell_d"] = 0.012        # Open Cell의 두께 (기본값: 12mm)
     cfg["opencellcoh_d"] = 0.002     # Open Cell Cohesion(Tape 등)의 두께
@@ -249,16 +253,16 @@ def test_case_1_setup():
     '''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
-    common_friction = [0.7, 0.7]
-    p_solref = [-55000.0,-800.0]
-    p_solimp = [0.10, 0.95, 0.02, 0.5, 2]
+    common_friction = [0.9, 0.9]
+    p_solref = [-25000.0,-1200.0]
+    p_solimp = [0.90, 0.95, 0.001, 0.5, 2]
     cfg["contacts"] = {
-        ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
-        ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
-        ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
+        ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
+        ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
+        ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
         ("cushion", "opencell")     : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
         ("cushion", "chassis")      : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},        
-        ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.02, 0.5, 2]},
+        ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
     }
     
     # [WHTOOLS] 실제 물성(E, h_real) 기반 인장 강성 산출 + 실험치(f_target) 기반 벤딩 튜닝
@@ -298,8 +302,8 @@ def test_case_1_setup():
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
     cfg["plasticity_ratio"]     = 0.3
-    cfg["cush_yield_pressure"]  = 1500.0
-    cfg["plastic_hardening_modulus"] = 30000.0
+    cfg["cush_yield_pressure"]  = 25000.0
+    cfg["plastic_hardening_modulus"] = 300000.0
     
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     # [6. MASS TOTALS & AUTO BALANCING]

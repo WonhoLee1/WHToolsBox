@@ -68,6 +68,7 @@ from .whts_reporting import (
     compute_critical_timestamps,
     compute_batch_structural_metrics
 )
+from .whts_control_panel import launch_control_panel
 
 # [WHTOOLS] 외부 패키지 임포트
 from run_discrete_builder import create_model, get_default_config
@@ -90,6 +91,21 @@ if sys.stdout.encoding != 'utf-8':
 
 logger = logging.getLogger("WHTS_Engine")
 console = Console()
+
+from PySide6.QtCore import QThread
+class SimThread(QThread):
+    """[WHTOOLS] 시뮬레이션 엔진을 메인 UI 스레드와 별개로 실행하는 스레드입니다."""
+    def __init__(self, outer):
+        super().__init__()
+        self.outer = outer
+
+    def run(self):
+        try:
+            self.outer._run_engine()
+        finally:
+            # reload 중에는 _wrap_up 생략 — UI 스레드가 새 세션을 시작함
+            if not self.outer.ctrl_reload_request:
+                self.outer._wrap_up()
 
 class DropSimulator:
     """
@@ -260,6 +276,9 @@ class DropSimulator:
             
             self.data = mujoco.MjData(self.model)
             
+            # [WHTOOLS] 현재 로드된 모델 경로 저장 (에디터 연동용)
+            self.config["model_path"] = str(current_xml_path.absolute())
+            
             # 리로드 완료 후 플래그 리셋
             self.ctrl_reload_only_xml = False
             self.ctrl_reload_xml_path = None
@@ -285,6 +304,7 @@ class DropSimulator:
             self.log(f"🚀 Simulation Ready. Timestep: {self.model.opt.timestep:.6f}s")
             
         except Exception as e:
+            mujoco.set_mjcb_control(None)  # dangling 콜백 방지
             self.log(f"Failed to setup simulation: {e}", level="error")
             raise
 
@@ -558,6 +578,9 @@ class DropSimulator:
                     k = p_ratio * 50.0
                     reduction_step = diff * k * m.opt.timestep
                     m.geom_size[g_id][ax] -= min(diff, reduction_step)
+                    # 원본 크기의 1% 미만으로 줄어들지 않도록 클램프
+                    m.geom_size[g_id][ax] = max(self.original_geom_size[g_id][ax] * 0.01,
+                                                m.geom_size[g_id][ax])
             
             for i in range(3):
                 def_mm = (self.original_geom_size[g_id][i] - m.geom_size[g_id][i]) * 1000.0
@@ -585,9 +608,13 @@ class DropSimulator:
         
         self.cog_pos_hist.append(d.subtree_com[rid].copy())
         
-        # 충격력 및 공기저항 기록
-        impact_force = np.sum([np.linalg.norm(d.contact[i].frame[:3]) for i in range(d.ncon)])
-        self.ground_impact_hist.append(impact_force)
+        # 충격력 및 공기저항 기록 (contact.frame은 법선 방향벡터이므로 mj_contactForce로 실제 힘을 사용)
+        total_impact = 0.0
+        _cf = np.zeros(6)
+        for ci in range(d.ncon):
+            mujoco.mj_contactForce(self.model, d, ci, _cf)
+            total_impact += np.linalg.norm(_cf[:3])
+        self.ground_impact_hist.append(total_impact)
         self.air_drag_hist.append(self._last_f_drag)
         self.air_squeeze_hist.append(self._last_f_sq)
         
@@ -669,149 +696,144 @@ class DropSimulator:
         finally:
             self._wrap_up()
 
-    def _launch_with_control_panel(self) -> None:
-        """PySide6 컨트롤 패널과 함께 시뮬레이션을 스레드로 실행합니다."""
-        from .whts_control_panel import launch_control_panel
-        from PySide6.QtCore import QThread
-        import signal
 
-        # 1. 초기 셋업 (모델 및 데이터 준비)
-        self.setup()
-        self.ctrl_paused = True
-
-        class SimThread(QThread):
-            def __init__(self, outer):
-                super().__init__()
-                self.outer = outer
-            def run(self):
-                try:
-                    while not self.outer.ctrl_quit_request:
-                        # 엔진 실행 (이미 셋업된 상태)
-                        self.outer._run_engine()
-                        if not self.outer.ctrl_reload_request: break
-                        
-                        # 리로드 요청 시 재셋업
-                        self.outer.setup()
-                        self.outer.ctrl_reload_request = False
-                finally:
-                    self.outer._wrap_up()
-
-        # UI 생성
-        self.app, self.panel = launch_control_panel(self)
-
-        # Ctrl+C 핸들러
-        def handle_sigint(sig, frame):
-            self.log("\n🛑 External Interrupt Received (Ctrl+C). Shutting down...", level="warning")
-            self.ctrl_quit_request = True
-            if hasattr(self, 'app'): self.app.quit()
-            sys.exit(0)
-        signal.signal(signal.SIGINT, handle_sigint)
-
-        self.sim_thread = SimThread(self)
-
-        # [CRITICAL] 뷰어를 메인 스레드에서 실행
-        with mujoco.viewer.launch_passive(
+    def start_viewer(self) -> None:
+        """MuJoCo 뷰어를 비차단(Non-blocking) 방식으로 실행합니다."""
+        self.stop_viewer() # 기존 뷰어가 있다면 종료
+        
+        self.viewer = mujoco.viewer.launch_passive(
             self.model, self.data, 
             key_callback=self._on_key,
             show_left_ui=False, show_right_ui=False
-        ) as viewer:
-            self.viewer = viewer
-            # 초기 카메라 설정
-            viewer.cam.lookat[:] = [-0.0295, -0.3909, 0.8668]
-            viewer.cam.distance = 5.8341
-            viewer.cam.elevation = -9.88
-            viewer.cam.azimuth = 136.50
-            
-            # 시뮬레이션 스레드 시작
-            self.sim_thread.start()
-            
-            # UI 루프 (메인 스레드 점유)
-            self.app.exec()
-            
-            # 종료 처리
-            self.ctrl_quit_request = True
-            self.sim_thread.wait()
+        )
+        
+        # 초기 카메라 설정
+        self.viewer.cam.lookat[:] = [-0.0295, -0.3909, 0.8668]
+        self.viewer.cam.distance = 5.8341
+        self.viewer.cam.elevation = -9.88
+        self.viewer.cam.azimuth = 136.50
+        self.viewer.sync()
+        self.log("🌐 MuJoCo Viewer Started.")
+
+    def stop_viewer(self) -> None:
+        """MuJoCo 뷰어를 안전하게 종료합니다."""
+        if hasattr(self, 'viewer') and self.viewer:
+            try:
+                self.viewer.close()
+            except:
+                pass
+            self.viewer = None
+            self.log("🌐 MuJoCo Viewer Closed.")
+
+    def _restart_sim_thread(self) -> None:
+        """시뮬레이션 스레드를 (재)시작합니다. 기존 스레드가 살아있으면 종료를 기다립니다."""
+        if hasattr(self, 'sim_thread') and self.sim_thread.isRunning():
+            self.sim_thread.wait(3000)
+        self.sim_thread = SimThread(self)
+        self.sim_thread.start()
+
+    def _launch_with_control_panel(self) -> None:
+        """제어 패널과 함께 시뮬레이션을 실행합니다."""
+        # 1. 모델 준비
+        self.setup()
+
+        # 2. Control Center UI 먼저 생성 (메인 스레드)
+        self.app, self.panel = launch_control_panel(self)
+
+        # 3. Passive viewer 열기
+        self.start_viewer()
+
+        # 4. 물리 스레드 시작
+        self._restart_sim_thread()
+
+        # 5. UI 이벤트 루프 (창 닫힐 때까지 블록)
+        self.app.exec()
+
+        # 6. 종료 처리
+        self.ctrl_quit_request = True
+        self.stop_viewer()
+        if hasattr(self, 'sim_thread') and self.sim_thread.isRunning():
+            self.sim_thread.wait(3000)
 
     def _run_engine(self) -> None:
         """시뮬레이션 루프를 실행합니다. 뷰어는 이미 메인 스레드에서 실행 중입니다."""
         self._main_loop()
 
     def _main_loop(self) -> None:
-        """실제 시뮬레이션 타임스텝을 진행하는 핵심 루프입니다."""
+        """실제 시뮬레이션 타임스텝을 진행하는 핵심 루프입니다. (단일 세션)"""
+        # 세션 파라미터 초기화
         self.step_idx = 0
         total_steps = int(self.config.get("sim_duration", 1.0) / self.model.opt.timestep)
         report_step = max(1, int(self.config.get("reporting_interval", 0.005) / self.model.opt.timestep))
-        
-        # [WHTOOLS] 시뮬레이션 시작 직전의 초기 상태(Frame 0)를 강제 저장
-        self.snapshots = [] 
-        mujoco.mj_forward(self.model, self.data) # 초기 상태 확정
+
+        # 초기 상태 저장 및 동기화
+        self.snapshots = []
+        self._init_state_variables()
+        self._init_histories()
+        mujoco.mj_forward(self.model, self.data)
         self._save_snapshot()
-        
-        self.log(f"🎬 Simulation Loop Started. Target Duration: {self.config.get('sim_duration', 1.0)}s")
-        
-        # 뷰어가 켜져 있는 동안 또는 뷰어가 없으면 타겟 스텝까지 무한 루프
+
+        self.log(f"🎬 Simulation Session Started. Target Duration: {self.config.get('sim_duration', 1.0)}s")
+
+        # 물리 연산 루프 (quit 또는 reload 요청 시 탈출)
         while not self.ctrl_quit_request and not self.ctrl_reload_request:
             # 뷰어 종료 감지
             if self.viewer and not self.viewer.is_running():
+                self.ctrl_quit_request = True
                 break
-                
-            # [WHTOOLS] UI 요청 처리 (Step, Reset, Jump 등)
+
+            # UI 요청 처리 (Step, Reset, Jump 등)
             self._handle_ui_requests()
 
             if not self.ctrl_paused:
-                # [WHTOOLS] 과거 시점에서 다시 시작하려 할 경우, 미래 데이터 절단
+                # 과거 시점에서 다시 시작하려 할 경우, 미래 데이터 절단
                 self._check_and_truncate_future()
-                
+
                 # 1. Physics Step
                 mujoco.mj_step(self.model, self.data)
-                
+
                 # 2. Advanced Physics Post-step
                 self._apply_plasticity_v2()
-                
+
                 # 3. Data Collection & Snapshotting
                 if self.step_idx % report_step == 0:
-                    # [WHTOOLS] 목표 시간 이내이거나 사용자가 수동 레코딩을 활성화한 경우 데이터 기록
                     if self.step_idx <= total_steps or self.is_recording:
                         self._collect_history()
-                    
-                    # 되감기용 스냅샷 저장 (항시 가능하도록 타겟 시간 이후에도 저장)
                     self._save_snapshot()
-                
+
                 # 4. Progress Reporting
                 self._report_progress(self.step_idx)
-                
-                # 타겟 도달 시 자동 일시 정지 및 알림 (한 번만)
+
+                # 타겟 도달 시 자동 일시 정지 (viewer 모드) 또는 종료 (headless)
                 if self.step_idx == total_steps:
                     if self.config.get("use_viewer", False):
                         self.ctrl_paused = True
                         self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Paused for review.", level="info")
                         self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
-                        self.log("💡 [Tip] Simulation paused. Press 'Play' to continue in interactive mode or 'L' to record more data.", level="debug")
+                        self.log("💡 [Tip] Press 'Play' to continue or 'L' to record more data.", level="debug")
                     else:
                         self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Finishing simulation.", level="info")
                         self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
-                        self.ctrl_quit_request = True # Headless 모드일 경우 즉시 종료 플래그 활성화
-                
+                        self.ctrl_quit_request = True
+
                 self.step_idx += 1
-                # [WHTOOLS] 뷰어 동기화 (매 스텝 동기화하여 부드러운 애니메이션 복구)
-                if self.viewer: 
+                if self.viewer and self.viewer.is_running():
                     self.viewer.sync()
-                
+
                 # 속도 제어 (Speed Multiplier 및 Slow Motion 적용)
                 effective_multiplier = self.ctrl_speed_multiplier
                 if self.ctrl_slow_motion:
-                    effective_multiplier *= 0.2 # 5배 느리게
-                
+                    effective_multiplier *= 0.2
                 if effective_multiplier != 1.0:
                     base_sleep = self.model.opt.timestep / effective_multiplier
                     if base_sleep > 0.0001:
                         time.sleep(base_sleep)
             else:
-                # 일시 정지 시에도 리포트 종료 처리
                 if self._report_count > 0:
                     self._print_border()
                     self._report_count = -1
-                if self.viewer: self.viewer.sync()
+                if self.viewer:
+                    self.viewer.sync()
                 time.sleep(0.01)
 
     def _handle_ui_requests(self) -> None:
@@ -897,11 +919,18 @@ class DropSimulator:
             f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {info_str}\n")
         self.log(f"📄 Camera config appended to: {cam_file}")
 
-    def reload_xml(self, xml_path: Optional[str] = None) -> None:
+    def reload_xml(self, xml_path: Optional[str] = None, xml_string: Optional[str] = None) -> None:
         """
-        특정 XML 파일을 로드하여 시뮬레이션을 재시작합니다.
+        특정 XML 파일 또는 XML 문자열을 로드하여 시뮬레이션을 재시작합니다.
         """
-        if xml_path is None:
+        if xml_string:
+            # 에디터에서 수정한 XML을 output_dir의 고정 경로에 저장 (temp 파일 누적 방지)
+            live_edit_path = self.output_dir / "simulation_model_live_edit.xml"
+            live_edit_path.write_text(xml_string, encoding='utf-8')
+            xml_path = str(live_edit_path)
+            self.log(f"♻️ Reloading from live-edited XML: {xml_path}")
+        elif xml_path is None:
+            # 파일 선택 다이얼로그
             from PySide6.QtWidgets import QFileDialog
             selected, _ = QFileDialog.getOpenFileName(
                 None, "Select MuJoCo Simulation XML",
@@ -911,13 +940,13 @@ class DropSimulator:
                 self.log("🚫 Reload cancelled: No file selected.")
                 return
             xml_path = selected
+            self.log(f"♻️ Reloading from file: {xml_path}")
+        else:
+            self.log(f"♻️ Reloading from file: {xml_path}")
 
-        self.log(f"♻️ Reloading from: {xml_path}")
         self.ctrl_reload_xml_path = xml_path
         self.ctrl_reload_only_xml = True
         self.ctrl_reload_request = True
-        if self.viewer:
-            self.viewer.close()
 
     def _jump_to_snapshot(self, idx: int) -> None:
         """저장된 스냅샷 리스트에서 특정 인덱스의 상태로 시뮬레이션을 되돌립니다."""
@@ -952,16 +981,24 @@ class DropSimulator:
 
     def _check_and_truncate_future(self) -> None:
         """현재 step_idx가 저장된 최신 스냅샷보다 과거라면 미래 데이터를 삭제합니다."""
-        if len(self.snapshots) > 0:
-            last_snap = self.snapshots[-1]
-            if self.step_idx < last_snap['step_idx']:
-                # 현재 step_idx에 가장 인접한 스냅샷 찾기 및 절단
-                for i, snap in enumerate(self.snapshots):
-                    if snap['step_idx'] == self.step_idx:
-                        self._truncate_histories(snap['hist_len'])
-                        self.snapshots = self.snapshots[:i+1]
-                        self.log(f"✂️ Future truncated from step {self.step_idx} to maintain causality.")
-                        break
+        if len(self.snapshots) == 0:
+            return
+        last_snap = self.snapshots[-1]
+        if self.step_idx >= last_snap['step_idx']:
+            return
+
+        # step_idx 이하인 스냅샷 중 가장 가까운 것(마지막)을 절단 기준으로 사용
+        cut_i = None
+        for i, snap in enumerate(self.snapshots):
+            if snap['step_idx'] <= self.step_idx:
+                cut_i = i
+        if cut_i is not None:
+            self._truncate_histories(self.snapshots[cut_i]['hist_len'])
+            self.snapshots = self.snapshots[:cut_i + 1]
+            self.log(f"✂️ Future truncated at snapshot {cut_i} (step {self.snapshots[-1]['step_idx']}).")
+        else:
+            self.log("⚠️ _check_and_truncate_future: no matching snapshot found, skipping truncation.",
+                     level="warning")
 
     def _truncate_histories(self, h_idx: int) -> None:
         """모든 히스토리 데이터를 지정된 인덱스까지 잘라냅니다."""
@@ -1005,8 +1042,8 @@ class DropSimulator:
             target_steps = 2000
         snapshot_limit = max(1000, target_steps)
         
-        if len(self.snapshots) > snapshot_limit:
-            self.snapshots.pop(1) 
+        if len(self.snapshots) >= snapshot_limit:
+            self.snapshots.pop(1)  # index 0(초기 상태)는 Reset 기준점으로 보존
             
         state = np.zeros(mujoco.mj_stateSize(self.model, mujoco.mjtState.mjSTATE_PHYSICS))
         mujoco.mj_getState(self.model, self.data, state, mujoco.mjtState.mjSTATE_PHYSICS)

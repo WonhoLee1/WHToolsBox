@@ -8,12 +8,16 @@ import os
 import sys
 import time
 from pathlib import Path
+from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox
+    QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox,
+    QPlainTextEdit, QDialog, QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
+import ctypes
+from ctypes import wintypes
 
 # [WHTOOLS] UTF-8 인코딩 강제 설정 (이모지 및 한글 깨짐 방지)
 if sys.stdout.encoding != 'utf-8':
@@ -23,6 +27,101 @@ if sys.stdout.encoding != 'utf-8':
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
     except (AttributeError, io.UnsupportedOperation):
         pass
+
+class XMLEditorDialog(QtWidgets.QDialog):
+    """
+    [WHTOOLS] MuJoCo XML 라이브 에디터 다이얼로그
+    사용자가 직접 XML 수식을 수정하고 시뮬레이션에 즉각 반영할 수 있도록 합니다.
+    """
+    def __init__(self, parent=None, initial_xml="", model_path=None):
+        super().__init__(parent)
+        self.setWindowTitle("[WHTOOLS] Live XML Editor")
+        self.setMinimumSize(900, 700)
+        self.model_path = model_path
+        self._xml_modified = False
+
+        # 레이아웃 구성
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # 상단 안내문
+        info_label = QtWidgets.QLabel(
+            "<b>MuJoCo XML Editor:</b> 수식을 직접 수정하고 [Apply & Reload]를 누르면 즉시 반영됩니다.<br>"
+            "<small>Tip: 외부 에디터 버튼을 누르면 VS Code나 메모장 등 평소 쓰시는 도구로 편집할 수 있습니다.</small>"
+        )
+        layout.addWidget(info_label)
+
+        # 텍스트 에디터
+        self.editor = QtWidgets.QPlainTextEdit()
+        self.editor.setPlainText(initial_xml)
+        
+        # 고정폭 폰트 적용
+        font = QtGui.QFont("Consolas", 11)
+        if not font.fixedPitch():
+            font = QtGui.QFont("Courier New", 11)
+        self.editor.setFont(font)
+        self.editor.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
+        layout.addWidget(self.editor)
+
+        # 버튼 영역
+        btn_layout = QtWidgets.QHBoxLayout()
+        
+        self.btn_external = QtWidgets.QPushButton(" 📝 Open in External Editor")
+        self.btn_external.setMinimumHeight(40)
+        self.btn_external.clicked.connect(self._on_open_external)
+        
+        self.btn_apply = QtWidgets.QPushButton(" 🚀 Apply & Reload")
+        self.btn_apply.setMinimumHeight(40)
+        self.btn_apply.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        self.btn_apply.clicked.connect(self.accept)
+
+        self.btn_cancel = QtWidgets.QPushButton("Cancel")
+        self.btn_cancel.setMinimumHeight(40)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addWidget(self.btn_external)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_apply)
+        
+        layout.addLayout(btn_layout)
+
+    def get_xml_content(self):
+        return self.editor.toPlainText()
+
+    def _on_open_external(self):
+        """임시 파일을 생성하고 시스템 기본 에디터로 엽니다."""
+        import os
+        import tempfile
+
+        try:
+            content = self.editor.toPlainText()
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            self._external_tmp_path = tmp_path  # 다이얼로그 종료 시 삭제용
+
+            os.startfile(tmp_path)
+
+            QtWidgets.QMessageBox.information(
+                self, "External Editor",
+                "외부 에디터에서 파일을 수정하고 저장한 후,\n"
+                "본 창에서 [Apply & Reload]를 눌러주세요.\n\n"
+                f"임시 파일 경로: {tmp_path}"
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Error", f"Failed to open external editor: {e}")
+
+    def done(self, result):
+        """다이얼로그 종료 시 외부 에디터용 임시파일을 정리합니다."""
+        tmp = getattr(self, '_external_tmp_path', None)
+        if tmp:
+            try:
+                import os
+                os.unlink(tmp)
+            except OSError:
+                pass
+            self._external_tmp_path = None
+        super().done(result)
 
 class ControlPanel(QMainWindow):
     """
@@ -44,22 +143,13 @@ class ControlPanel(QMainWindow):
         
         # [WHTOOLS] 모니터링 창 리스트 (복수 모달리스 지원)
         self.monitor_windows = []
+        self._mujoco_aligned = False
+        self._reloading = False  # _do_reload 재진입 방지 플래그
 
     def showEvent(self, event):
-        """창이 표시될 때 화면 우측 상단으로 자동 이동합니다."""
+        """창이 표시될 때 정렬을 위해 부모 이벤트를 호출합니다."""
         super().showEvent(event)
-        try:
-            # 현재 창이 표시되는 스크린의 가용 영역 획득
-            screen_geo = self.screen().availableGeometry()
-            win_geo = self.frameGeometry()
-            
-            # 우측 상단 배치 (여백: 가로 20px, 세로 60px - 타이틀바 고려)
-            target_x = screen_geo.x() + screen_geo.width() - win_geo.width() - 20
-            target_y = screen_geo.y() + 60
-            
-            self.move(target_x, target_y)
-        except Exception:
-            pass
+        # [WHTOOLS] 기본 화면 구석 이동 로직 제거 (MuJoCo 정렬에 집중)
 
     def _init_ui(self):
         """현대적인 Dark Mode 스타일의 UI를 구성합니다."""
@@ -259,6 +349,13 @@ class ControlPanel(QMainWindow):
     def _update_status(self):
         """시뮬레이터의 현재 상태를 UI에 반영합니다."""
         try:
+            self._align_with_mujoco_window()
+
+            # reload 요청은 메인 스레드에서 전담 처리
+            if self.sim.ctrl_reload_request:
+                self._do_reload()
+                return
+
             if self.sim is None or self.sim.data is None:
                 return
                 
@@ -286,11 +383,13 @@ class ControlPanel(QMainWindow):
             if snap_count > 0:
                 self.slider.setRange(0, snap_count - 1)
                 
-                # [WHTOOLS] 재생 중에는 슬라이더 핸들을 자동으로 맨 뒤로 이동
+                # 재생 중에는 슬라이더 핸들을 자동으로 맨 뒤로 이동
                 if not self.sim.ctrl_paused:
                     self.slider.blockSignals(True)
-                    self.slider.setValue(snap_count - 1)
-                    self.slider.blockSignals(False)
+                    try:
+                        self.slider.setValue(snap_count - 1)
+                    finally:
+                        self.slider.blockSignals(False)
 
             # 재생 버튼 텍스트 업데이트
             self.btn_play.setText("▶️ Play" if self.sim.ctrl_paused else "⏸️ Pause")
@@ -307,6 +406,107 @@ class ControlPanel(QMainWindow):
             self.btn_rec.setStyleSheet("background-color: #550000; color: #ff0000; font-weight: bold;" if self.sim.is_recording else "")
         except (AttributeError, RuntimeError, KeyboardInterrupt):
             pass
+
+    def _align_with_mujoco_window(self):
+        """
+        MuJoCo 뷰어 창을 찾아 Control Center를 우측 상단에 정렬합니다.
+        사용자가 수동으로 옮기기 전까지는 MuJoCo 창을 따라다닙니다.
+        """
+        if not sys.platform.startswith('win'):
+            return
+
+        try:
+            # RECT 구조체 정의
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            found_hwnd = [None]
+            def callback(hwnd, lParam):
+                if ctypes.windll.user32.IsWindowVisible(hwnd):
+                    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        ctypes.windll.user32.GetWindowTextW(hwnd, buff, length + 1)
+                        title = buff.value
+                        if "MuJoCo" in title: 
+                            found_hwnd[0] = hwnd
+                            return False
+                return True
+
+            cb_func = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(callback)
+            ctypes.windll.user32.EnumWindows(cb_func, 0)
+
+            if found_hwnd[0]:
+                hwnd = found_hwnd[0]
+                rect = RECT()
+                
+                # [WHTOOLS] DWMWA_EXTENDED_FRAME_BOUNDS (9)를 사용하여 그림자 제외 실제 가시 영역 획득
+                ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                    hwnd, 9, ctypes.byref(rect), ctypes.sizeof(rect)
+                )
+                
+                # 현재 스크린의 배율(DPI Ratio) 획득
+                dpi_ratio = self.screen().devicePixelRatio()
+                
+                # 물리적 좌표를 논리적 좌표로 변환 (Qt move용)
+                m_right_logical = rect.right / dpi_ratio
+                m_top_logical = rect.top / dpi_ratio
+                
+                # Control Center의 프레임 포함 크기 (이미 논리적 단위임)
+                win_geo = self.frameGeometry()
+                
+                # 목표 위치: Control Center의 우측 상단이 MuJoCo의 우측 상단에 일치
+                target_x = int(m_right_logical - win_geo.width())
+                target_y = int(m_top_logical)
+                
+                # 처음 한 번만 정렬 (오차 허용 범위 2px)
+                if not self._mujoco_aligned:
+                    self.move(target_x, target_y)
+                    self._mujoco_aligned = True
+
+        except Exception:
+            pass
+
+    def _do_reload(self):
+        """XML reload 요청을 메인 스레드에서 처리합니다.
+        시뮬 스레드 종료 → viewer 닫기 → 모델 재로드 → viewer 재시작 → 새 시뮬 스레드 시작.
+        """
+        if self._reloading:
+            return
+        self._reloading = True
+
+        self.sim.log("♻️ Reloading simulation (main thread)...")
+        self.lbl_status.setText("Status: Reloading... ♻️")
+        self.lbl_status.setStyleSheet("color: #e67e22;")
+
+        try:
+            # 1. 물리 스레드가 reload 플래그를 감지해 while을 탈출할 때까지 대기
+            if hasattr(self.sim, 'sim_thread') and self.sim.sim_thread.isRunning():
+                self.sim.sim_thread.wait(3000)
+
+            # 2. 기존 viewer 닫기
+            self.sim.stop_viewer()
+
+            # 3. 새 모델로 setup (ctrl_reload_xml_path / ctrl_reload_only_xml 플래그 이용)
+            try:
+                self.sim.setup()
+            except Exception as e:
+                self.sim.log(f"Reload failed during setup: {e}", level="error")
+                self.sim.ctrl_reload_request = False
+                return
+
+            # 4. Passive viewer 재시작
+            self.sim.start_viewer()
+            self._mujoco_aligned = False
+
+            # 5. 플래그 초기화 후 새 물리 스레드 시작
+            self.sim.ctrl_paused = True
+            self.sim.ctrl_reload_request = False
+            self.sim._restart_sim_thread()
+            self.sim.log("✅ Reload complete. Press Play to resume.")
+        finally:
+            self._reloading = False
 
     def closeEvent(self, event):
         """창이 닫힐 때 하위 모니터 창들도 모두 닫습니다."""
@@ -400,13 +600,24 @@ class ControlPanel(QMainWindow):
             win.show()
 
     def _on_open_config(self):
-        """설정 편집기 안내 메시지를 표시합니다."""
-        from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(
-            self, "Notice", 
-            "Tkinter 기반의 ConfigEditor는 제거되었습니다.\n"
-            "추후 PySide6 기반으로 통합될 예정입니다."
-        )
+        """XML 라이브 에디터를 엽니다."""
+        model_path = self.sim.config.get("model_path")
+        if not model_path or not os.path.exists(model_path):
+            QtWidgets.QMessageBox.warning(self, "Error", "현재 로드된 모델 XML 파일을 찾을 수 없습니다.")
+            return
+
+        try:
+            with open(model_path, "r", encoding="utf-8") as f:
+                xml_content = f.read()
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Error", f"파일을 읽는 중 오류가 발생했습니다: {e}")
+            return
+
+        dialog = XMLEditorDialog(self, xml_content, model_path)
+        if dialog.exec() == QtWidgets.QDialog.Accepted:
+            new_xml = dialog.get_xml_content()
+            self.sim.log("📝 User modified XML. Triggering Reload...")
+            self.sim.reload_xml(xml_string=new_xml)
 
     def _on_reload_xml(self):
         from PySide6.QtWidgets import QFileDialog
