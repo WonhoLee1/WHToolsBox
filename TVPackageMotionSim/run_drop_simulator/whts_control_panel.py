@@ -42,12 +42,16 @@ class XMLEditorDialog(QtWidgets.QDialog):
 
         # 레이아웃 구성
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(5)
 
         # 상단 안내문
         info_label = QtWidgets.QLabel(
             "<b>MuJoCo XML Editor:</b> 수식을 직접 수정하고 [Apply & Reload]를 누르면 즉시 반영됩니다.<br>"
             "<small>Tip: 외부 에디터 버튼을 누르면 VS Code나 메모장 등 평소 쓰시는 도구로 편집할 수 있습니다.</small>"
         )
+        info_label.setStyleSheet("margin-bottom: 5px;")
+        info_label.setFixedHeight(info_label.sizeHint().height() + 5)
         layout.addWidget(info_label)
 
         # 메인 영역 (트리 + 에디터) - QSplitter 사용
@@ -85,6 +89,9 @@ class XMLEditorDialog(QtWidgets.QDialog):
         self.tree_timer.timeout.connect(self._update_tree)
         self.editor.textChanged.connect(lambda: self.tree_timer.start(500))
         
+        # 트리 클릭 시 에디터 이동 연결
+        self.tree_view.itemClicked.connect(self._on_tree_item_clicked)
+        
         # 초기 트리 생성
         self._update_tree()
 
@@ -118,27 +125,54 @@ class XMLEditorDialog(QtWidgets.QDialog):
 
     def _update_tree(self):
         """현재 에디터의 텍스트를 파싱하여 트리 구조를 업데이트합니다."""
-        import xml.etree.ElementTree as ET
+        try:
+            from lxml import etree as ET
+        except ImportError:
+            import xml.etree.ElementTree as ET # Fallback
         
         xml_text = self.editor.toPlainText().strip()
         if not xml_text:
+            self.tree_view.clear()
             return
             
         try:
-            # 주석 및 불필요한 공백 제거 시도 (간단하게)
-            root = ET.fromstring(xml_text)
+            # 1. XML 파싱 (lxml은 sourceline 정보를 제공함)
+            parser = ET.XMLParser(remove_blank_text=True, recover=True)
+            root = ET.fromstring(xml_text.encode('utf-8'), parser=parser)
             
+            # 2. 트리 업데이트 시작
+            self.tree_view.setUpdatesEnabled(False)
             self.tree_view.clear()
+            
+            # 3. 안전 장치
+            self._node_count = 0
+            self._max_nodes = 2000 
+            
+            self._dir_icon = self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon)
+            self._file_icon = self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
+            
             self._populate_tree_item(root, self.tree_view.invisibleRootItem())
-            self.tree_view.expandAll()
+            
+            for i in range(self.tree_view.topLevelItemCount()):
+                self.tree_view.topLevelItem(i).setExpanded(True)
+                
             self.tree_view.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6; border: 1px solid #333;")
         except Exception:
-            # 파싱 에러 발생 시 트리 스타일 변경 (에러 상태 표시)
             self.tree_view.setStyleSheet("background-color: #3b2b2b; color: #ff6b68; border: 1px solid #ff0000;")
-            pass
+        finally:
+            self.tree_view.setUpdatesEnabled(True)
 
     def _populate_tree_item(self, element, parent_item):
-        """재귀적으로 XML 요소를 트리에 추가합니다."""
+        """재귀적으로 XML 요소를 트리에 추가하며 라인 정보를 저장합니다."""
+        if self._node_count >= self._max_nodes:
+            if self._node_count == self._max_nodes:
+                limit_item = QtWidgets.QTreeWidgetItem(parent_item)
+                limit_item.setText(0, "... (Too many nodes, truncated)")
+                self._node_count += 1
+            return
+
+        self._node_count += 1
+        
         # 속성 문자열 생성
         attr_str = ", ".join([f"{k}: {v}" for k, v in element.attrib.items()])
         
@@ -146,14 +180,36 @@ class XMLEditorDialog(QtWidgets.QDialog):
         item.setText(0, element.tag)
         item.setText(1, attr_str)
         
-        # 아이콘 설정 (간단하게)
+        # 라인 정보 저장 (lxml sourceline)
+        if hasattr(element, 'sourceline') and element.sourceline is not None:
+            item.setData(0, Qt.UserRole, element.sourceline)
+        
         if len(element) > 0:
-            item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
+            item.setIcon(0, self._dir_icon)
+            for child in element:
+                self._populate_tree_item(child, item)
         else:
-            item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+            item.setIcon(0, self._file_icon)
+
+    def _on_tree_item_clicked(self, item, column):
+        """트리 항목 클릭 시 해당 라인으로 에디터 커서 이동."""
+        line_no = item.data(0, Qt.UserRole)
+        if line_no is None:
+            return
             
-        for child in element:
-            self._populate_tree_item(child, item)
+        # QPlainTextEdit에서 해당 라인으로 이동 (lxml은 1-based)
+        doc = self.editor.document()
+        block = doc.findBlockByLineNumber(line_no - 1)
+        
+        cursor = self.editor.textCursor()
+        cursor.setPosition(block.position())
+        
+        # 라인 전체 선택하여 강조
+        cursor.movePosition(QtGui.QTextCursor.EndOfBlock, QtGui.QTextCursor.KeepAnchor)
+        
+        self.editor.setTextCursor(cursor)
+        self.editor.ensureCursorVisible()
+        self.editor.setFocus()
 
     def _on_open_external(self):
         """임시 파일을 생성하고 시스템 기본 에디터로 엽니다."""
