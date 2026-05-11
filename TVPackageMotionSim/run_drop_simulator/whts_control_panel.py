@@ -12,7 +12,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox,
-    QPlainTextEdit, QDialog, QMessageBox
+    QPlainTextEdit, QDialog, QMessageBox, QSplitter, QTreeWidget, QTreeWidgetItem
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
@@ -50,20 +50,48 @@ class XMLEditorDialog(QtWidgets.QDialog):
         )
         layout.addWidget(info_label)
 
-        # 텍스트 에디터
+        # 메인 영역 (트리 + 에디터) - QSplitter 사용
+        self.splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        
+        # 1. 트리 뷰 (좌측)
+        self.tree_view = QtWidgets.QTreeWidget()
+        self.tree_view.setColumnCount(2)
+        self.tree_view.setHeaderLabels(["Element", "Attributes"])
+        self.tree_view.setColumnWidth(0, 200)
+        self.tree_view.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6;")
+        self.splitter.addWidget(self.tree_view)
+        
+        # 2. 텍스트 에디터 (우측)
         self.editor = QtWidgets.QPlainTextEdit()
         self.editor.setPlainText(initial_xml)
         
         # 고정폭 폰트 적용
-        font = QtGui.QFont("Consolas", 11)
+        font = QtGui.QFont("Consolas", 9)
         if not font.fixedPitch():
-            font = QtGui.QFont("Courier New", 11)
+            font = QtGui.QFont("Courier New", 9)
         self.editor.setFont(font)
         self.editor.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-        layout.addWidget(self.editor)
+        self.splitter.addWidget(self.editor)
+        
+        # 스플리터 비율 설정
+        self.splitter.setStretchFactor(0, 1) # Tree
+        self.splitter.setStretchFactor(1, 3) # Editor
+        
+        layout.addWidget(self.splitter)
+
+        # 트리 업데이트용 타이머 (입력 중 잦은 파싱 방지)
+        self.tree_timer = QtCore.QTimer(self)
+        self.tree_timer.setSingleShot(True)
+        self.tree_timer.timeout.connect(self._update_tree)
+        self.editor.textChanged.connect(lambda: self.tree_timer.start(500))
+        
+        # 초기 트리 생성
+        self._update_tree()
 
         # 버튼 영역
         btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.setContentsMargins(3, 3, 3, 3)
+        btn_layout.setSpacing(3)
         
         self.btn_external = QtWidgets.QPushButton(" 📝 Open in External Editor")
         self.btn_external.setMinimumHeight(40)
@@ -87,6 +115,45 @@ class XMLEditorDialog(QtWidgets.QDialog):
 
     def get_xml_content(self):
         return self.editor.toPlainText()
+
+    def _update_tree(self):
+        """현재 에디터의 텍스트를 파싱하여 트리 구조를 업데이트합니다."""
+        import xml.etree.ElementTree as ET
+        
+        xml_text = self.editor.toPlainText().strip()
+        if not xml_text:
+            return
+            
+        try:
+            # 주석 및 불필요한 공백 제거 시도 (간단하게)
+            root = ET.fromstring(xml_text)
+            
+            self.tree_view.clear()
+            self._populate_tree_item(root, self.tree_view.invisibleRootItem())
+            self.tree_view.expandAll()
+            self.tree_view.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6; border: 1px solid #333;")
+        except Exception:
+            # 파싱 에러 발생 시 트리 스타일 변경 (에러 상태 표시)
+            self.tree_view.setStyleSheet("background-color: #3b2b2b; color: #ff6b68; border: 1px solid #ff0000;")
+            pass
+
+    def _populate_tree_item(self, element, parent_item):
+        """재귀적으로 XML 요소를 트리에 추가합니다."""
+        # 속성 문자열 생성
+        attr_str = ", ".join([f"{k}: {v}" for k, v in element.attrib.items()])
+        
+        item = QtWidgets.QTreeWidgetItem(parent_item)
+        item.setText(0, element.tag)
+        item.setText(1, attr_str)
+        
+        # 아이콘 설정 (간단하게)
+        if len(element) > 0:
+            item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
+        else:
+            item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+            
+        for child in element:
+            self._populate_tree_item(child, item)
 
     def _on_open_external(self):
         """임시 파일을 생성하고 시스템 기본 에디터로 엽니다."""
