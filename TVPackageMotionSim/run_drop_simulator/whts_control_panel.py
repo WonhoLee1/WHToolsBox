@@ -61,8 +61,33 @@ class XMLEditorDialog(QtWidgets.QDialog):
         self.tree_view = QtWidgets.QTreeWidget()
         self.tree_view.setColumnCount(2)
         self.tree_view.setHeaderLabels(["Element", "Attributes"])
-        self.tree_view.setColumnWidth(0, 200)
-        self.tree_view.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6;")
+        self.tree_view.setColumnWidth(0, 180)
+        
+        # 기본 스타일 (Premium Dark)
+        self.tree_view.setStyleSheet("""
+            QTreeWidget {
+                background-color: #252525;
+                color: #dcdcdc;
+                border: 1px solid #333;
+                font-size: 9pt;
+            }
+            QTreeWidget::item:hover {
+                background-color: #333;
+            }
+            QTreeWidget::item:selected {
+                background-color: #3d4b5c;
+                color: white;
+            }
+            QHeaderView::section {
+                background-color: #333;
+                color: #888;
+                padding: 4px;
+                border: none;
+                border-bottom: 1px solid #222;
+                font-weight: bold;
+                font-size: 9pt;
+            }
+        """)
         self.splitter.addWidget(self.tree_view)
         
         # 2. 텍스트 에디터 (우측)
@@ -127,26 +152,34 @@ class XMLEditorDialog(QtWidgets.QDialog):
         """현재 에디터의 텍스트를 파싱하여 트리 구조를 업데이트합니다."""
         try:
             from lxml import etree as ET
+            is_lxml = True
         except ImportError:
-            import xml.etree.ElementTree as ET # Fallback
+            import xml.etree.ElementTree as ET
+            is_lxml = False
         
         xml_text = self.editor.toPlainText().strip()
         if not xml_text:
             self.tree_view.clear()
             return
             
+        success = False
         try:
-            # 1. XML 파싱 (lxml은 sourceline 정보를 제공함)
-            parser = ET.XMLParser(remove_blank_text=True, recover=True)
-            root = ET.fromstring(xml_text.encode('utf-8'), parser=parser)
+            # 1. XML 파싱
+            if is_lxml:
+                parser = ET.XMLParser(remove_blank_text=True, recover=True)
+                try:
+                    root = ET.fromstring(xml_text.encode('utf-8'), parser=parser)
+                except:
+                    root = ET.fromstring(xml_text, parser=parser)
+            else:
+                root = ET.fromstring(xml_text)
             
-            # 2. 트리 업데이트 시작
+            # 2. 트리 업데이트
             self.tree_view.setUpdatesEnabled(False)
             self.tree_view.clear()
             
-            # 3. 안전 장치
             self._node_count = 0
-            self._max_nodes = 2000 
+            self._max_nodes = 3000 
             
             self._dir_icon = self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon)
             self._file_icon = self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
@@ -155,12 +188,38 @@ class XMLEditorDialog(QtWidgets.QDialog):
             
             for i in range(self.tree_view.topLevelItemCount()):
                 self.tree_view.topLevelItem(i).setExpanded(True)
-                
-            self.tree_view.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6; border: 1px solid #333;")
+            
+            success = True
         except Exception:
-            self.tree_view.setStyleSheet("background-color: #3b2b2b; color: #ff6b68; border: 1px solid #ff0000;")
+            success = False
         finally:
             self.tree_view.setUpdatesEnabled(True)
+            self._set_tree_style(success)
+
+    def _set_tree_style(self, success: bool):
+        """성공/실패 여부에 따른 트리 뷰 스타일을 동적으로 설정합니다."""
+        border_color = "#333" if success else "#822"
+        text_color = "#dcdcdc" if success else "#ff6b68"
+        
+        self.tree_view.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: #252525;
+                color: {text_color};
+                border: 1px solid {border_color};
+                font-size: 9pt;
+            }}
+            QTreeWidget::item:hover {{ background-color: #333; }}
+            QTreeWidget::item:selected {{ background-color: #3d4b5c; color: white; }}
+            QHeaderView::section {{
+                background-color: #333;
+                color: #888;
+                padding: 4px;
+                border: none;
+                border-bottom: 1px solid #222;
+                font-weight: bold;
+                font-size: 9pt;
+            }}
+        """)
 
     def _populate_tree_item(self, element, parent_item):
         """재귀적으로 XML 요소를 트리에 추가하며 라인 정보를 저장합니다."""

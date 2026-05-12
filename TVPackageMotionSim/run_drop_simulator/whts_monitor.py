@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, 
     QRadioButton, QButtonGroup, QPushButton, QLabel, 
     QFrame, QWidget, QScrollArea, QMenuBar, QMenu,
-    QFileDialog, QApplication, QTabWidget, QSpinBox, QDoubleSpinBox
+    QFileDialog, QApplication, QTabWidget, QSpinBox, QDoubleSpinBox,
+    QComboBox, QGridLayout
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon
@@ -39,8 +40,16 @@ class MonitorConfigDialog(QDialog):
         tab_kin = QWidget()
         kin_layout = QVBoxLayout(tab_kin)
         
-        # 1. Corners Selection
-        kin_layout.addWidget(QLabel("<b>1. Select Corners:</b>"))
+        # 1. Target Part & Corners Selection
+        kin_layout.addWidget(QLabel("<b>1. Target Part & Corners Selection:</b>"))
+        
+        part_layout = QHBoxLayout()
+        part_layout.addWidget(QLabel("Target Part:"))
+        self.combo_part = QComboBox()
+        self.combo_part.addItems(["Cushion", "Cushion-Rigid", "Chassis", "OpenCell"])
+        part_layout.addWidget(self.combo_part)
+        kin_layout.addLayout(part_layout)
+        
         sel_btn_layout = QHBoxLayout()
         btn_sel_all = QPushButton("Select All")
         btn_desel_all = QPushButton("Deselect All")
@@ -50,7 +59,7 @@ class MonitorConfigDialog(QDialog):
         sel_btn_layout.addWidget(btn_desel_all)
         kin_layout.addLayout(sel_btn_layout)
 
-        corner_grid = QVBoxLayout()
+        corner_grid = QGridLayout()
         self.corner_checks = []
         
         self.corner_info = [
@@ -64,12 +73,12 @@ class MonitorConfigDialog(QDialog):
             {"id": "C8", "name": "Rear-Top-Left", "idx": 6},
         ]
         
-        for info in self.corner_info:
+        for i, info in enumerate(self.corner_info):
             cb = QCheckBox(f"{info['id']}: {info['name']}")
             if info['id'] == "C1": cb.setChecked(True)
             cb.setProperty("info", info)
             self.corner_checks.append(cb)
-            corner_grid.addWidget(cb)
+            corner_grid.addWidget(cb, i // 2, i % 2)
             
         kin_layout.addLayout(corner_grid)
         
@@ -221,6 +230,7 @@ class MonitorConfigDialog(QDialog):
         elif self.radio_acc.isChecked(): dtype = "acc"
         
         return {
+            "target_part": self.combo_part.currentText(),
             "selected_corners": [cb.property("info") for cb in self.corner_checks if cb.isChecked()],
             "data_type": dtype,
             "axes": [ax for ax, cb in [('X', self.check_x), ('Y', self.check_y), ('Z', self.check_z), ('Res', self.check_res)] if cb.isChecked()],
@@ -417,17 +427,9 @@ class RealTimeMonitorWindow(QWidget):
         if not times:
             return
             
-        # 데이터 소스 선택
-        if self.config['data_type'] == "pos":
-            data_source = self.sim.corner_pos_hist
-        elif self.config['data_type'] == "vel":
-            data_source = self.sim.corner_vel_hist
-        else: # acc
-            data_source = self.sim.corner_acc_hist
-            
-        if not data_source:
-            return
-            
+        target_part = self.config.get("target_part", "Cushion")
+        has_part_hist = hasattr(self.sim, 'part_corner_hist')
+        
         # 좀 더 범용적인 방식: 사용 중인 모든 히스토리의 최소 길이
         history_lens = [len(times)]
         if self.config['physics']['impact']: history_lens.append(len(self.sim.corner_impact_hist))
@@ -439,15 +441,16 @@ class RealTimeMonitorWindow(QWidget):
         if self.config['physics']['trans_vel_res']: history_lens.append(len(self.sim.trans_vel_res_hist))
         
         # Kinematics buffers
-        if self.config['data_type'] == "pos":
-            history_lens.append(len(self.sim.corner_pos_hist))
-            history_lens.append(len(self.sim.corner_pos_res_hist))
-        elif self.config['data_type'] == "vel":
-            history_lens.append(len(self.sim.corner_vel_hist))
-            history_lens.append(len(self.sim.corner_vel_res_hist))
+        if has_part_hist:
+            part_hist = self.sim.part_corner_hist[target_part]
+            history_lens.append(len(part_hist['pos']))
         else:
-            history_lens.append(len(self.sim.corner_acc_hist))
-            history_lens.append(len(self.sim.corner_acc_res_hist))
+            if self.config['data_type'] == "pos":
+                history_lens.append(len(self.sim.corner_pos_hist))
+            elif self.config['data_type'] == "vel":
+                history_lens.append(len(self.sim.corner_vel_hist))
+            else:
+                history_lens.append(len(self.sim.corner_acc_hist))
             
         min_len = min(history_lens)
         if min_len == 0: return
@@ -460,12 +463,13 @@ class RealTimeMonitorWindow(QWidget):
                 
                 if plot_info['type'] == "kin":
                     # Kinematics data selection
-                    if self.config['data_type'] == "pos":
-                        ds = self.sim.corner_pos_hist if plot_info['axis_idx'] < 3 else self.sim.corner_pos_res_hist
-                    elif self.config['data_type'] == "vel":
-                        ds = self.sim.corner_vel_hist if plot_info['axis_idx'] < 3 else self.sim.corner_vel_res_hist
-                    else: # acc
-                        ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
+                    dtype = self.config['data_type']
+                    if has_part_hist:
+                        ds = self.sim.part_corner_hist[target_part][dtype] if plot_info['axis_idx'] < 3 else self.sim.part_corner_hist[target_part][f"{dtype}_res"]
+                    else:
+                        if dtype == "pos": ds = self.sim.corner_pos_hist if plot_info['axis_idx'] < 3 else self.sim.corner_pos_res_hist
+                        elif dtype == "vel": ds = self.sim.corner_vel_hist if plot_info['axis_idx'] < 3 else self.sim.corner_vel_res_hist
+                        else: ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
                     
                     data_arr = np.array(ds[:min_len])
                     for c_info in self.config['selected_corners']:
@@ -535,10 +539,13 @@ class RealTimeMonitorWindow(QWidget):
         header = ["Frame", "Time"]
         corners = self.config['selected_corners']
         
+        target_part = self.config.get("target_part", "Cushion")
+        has_part_hist = hasattr(self.sim, 'part_corner_hist')
+        
         for plot_info in self.axes_plots:
             if plot_info['type'] == "kin":
                 for c_info in corners:
-                    header.append(f"{c_info['id']}_{self.config['data_type']}_{plot_info['label']}")
+                    header.append(f"{target_part}_{c_info['id']}_{self.config['data_type']}_{plot_info['label']}")
             elif plot_info['type'] == "impact":
                 for c_info in corners:
                     header.append(f"{c_info['id']}_ImpactForce")
@@ -559,12 +566,16 @@ class RealTimeMonitorWindow(QWidget):
             
             for plot_info in self.axes_plots:
                 if plot_info['type'] == "kin":
-                    if self.config['data_type'] == "pos":
-                        ds = self.sim.corner_pos_hist if plot_info['axis_idx'] < 3 else self.sim.corner_pos_res_hist
-                    elif self.config['data_type'] == "vel":
-                        ds = self.sim.corner_vel_hist if plot_info['axis_idx'] < 3 else self.sim.corner_vel_res_hist
+                    dtype = self.config['data_type']
+                    if has_part_hist:
+                        ds = self.sim.part_corner_hist[target_part][dtype] if plot_info['axis_idx'] < 3 else self.sim.part_corner_hist[target_part][f"{dtype}_res"]
                     else:
-                        ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
+                        if dtype == "pos":
+                            ds = self.sim.corner_pos_hist if plot_info['axis_idx'] < 3 else self.sim.corner_pos_res_hist
+                        elif dtype == "vel":
+                            ds = self.sim.corner_vel_hist if plot_info['axis_idx'] < 3 else self.sim.corner_vel_res_hist
+                        else:
+                            ds = self.sim.corner_acc_hist if plot_info['axis_idx'] < 3 else self.sim.corner_acc_res_hist
                     
                     data_pt = ds[i]
                     for c_info in corners:

@@ -224,6 +224,14 @@ class DropSimulator:
         self.corner_acc_res_hist: List[np.ndarray] = []
         self.corner_impact_hist: List[np.ndarray] = []
         
+        # [WHTOOLS] 파트별(다중) 코너 기구학 데이터
+        self.part_corner_hist: Dict[str, Dict[str, List[np.ndarray]]] = {
+            "Cushion": {"pos": [], "vel": [], "acc": [], "pos_res": [], "vel_res": [], "acc_res": []},
+            "Cushion-Rigid": {"pos": [], "vel": [], "acc": [], "pos_res": [], "vel_res": [], "acc_res": []},
+            "Chassis": {"pos": [], "vel": [], "acc": [], "pos_res": [], "vel_res": [], "acc_res": []},
+            "OpenCell": {"pos": [], "vel": [], "acc": [], "pos_res": [], "vel_res": [], "acc_res": []}
+        }
+        
         # [WHTOOLS] 강체 거동 대표 물리량 (회전축, 회전속도, 병진속도)
         self.rot_axis_hist: List[np.ndarray] = []
         self.rot_speed_hist: List[float] = []
@@ -618,9 +626,9 @@ class DropSimulator:
         self.air_drag_hist.append(self._last_f_drag)
         self.air_squeeze_hist.append(self._last_f_sq)
         
-        # 코너 기구학 데이터 계산
+        # 코너 기구학 데이터 계산 (Cushion 기준 - 하위 호환성 유지)
         bw, bh, bd = self.config.get('box_w', 2.0), self.config.get('box_h', 1.4), self.config.get('box_d', 0.25)
-        ck = compute_corner_kinematics(d.xpos[rid], d.xmat[rid].reshape(3,3), d.cvel[rid], d.cacc[rid], bw, bh, bd)
+        ck = self._get_discrete_corner_kinematics("cushion", bw, bh, bd)
         
         self.corner_pos_hist.append([c['pos'] for c in ck])
         self.corner_vel_hist.append([c['vel'] for c in ck])
@@ -631,6 +639,34 @@ class DropSimulator:
         self.corner_pos_res_hist.append(np.array([np.linalg.norm(c['pos']) for c in ck]))
         self.corner_vel_res_hist.append(np.array([np.linalg.norm(c['vel']) for c in ck]))
         self.corner_acc_res_hist.append(np.array([np.linalg.norm(c['acc']) for c in ck]))
+
+        # [WHTOOLS] 파트별(다중) 코너 기구학 계산 추가 (개별 코너 블럭 기반)
+        parts_info = {
+            "Cushion": (bw, bh, bd),
+            "Chassis": (self.config.get('assy_w', 1.892), self.config.get('assy_h', 1.082), self.config.get('chassis_d', 0.035)),
+            "OpenCell": (self.config.get('assy_w', 1.892), self.config.get('assy_h', 1.082), self.config.get('opencell_d', 0.012))
+        }
+        
+        for part_name, (w, h, d_val) in parts_info.items():
+            p_ck = self._get_discrete_corner_kinematics(part_name, w, h, d_val)
+            ph = self.part_corner_hist[part_name]
+            ph["pos"].append([c['pos'] for c in p_ck])
+            ph["vel"].append([c['vel'] for c in p_ck])
+            ph["acc"].append([c['acc'] for c in p_ck])
+            ph["pos_res"].append(np.array([np.linalg.norm(c['pos']) for c in p_ck]))
+            ph["vel_res"].append(np.array([np.linalg.norm(c['vel']) for c in p_ck]))
+            ph["acc_res"].append(np.array([np.linalg.norm(c['acc']) for c in p_ck]))
+
+        # [WHTOOLS] Cushion-Rigid 계산 추가 (전체 통강체 중심 기준)
+        from .whts_utils import compute_corner_kinematics
+        cr_ck = compute_corner_kinematics(d.xpos[rid], d.xmat[rid].reshape(3,3), d.cvel[rid], d.cacc[rid], bw, bh, bd)
+        ph_cr = self.part_corner_hist["Cushion-Rigid"]
+        ph_cr["pos"].append([c['pos'] for c in cr_ck])
+        ph_cr["vel"].append([c['vel'] for c in cr_ck])
+        ph_cr["acc"].append([c['acc'] for c in cr_ck])
+        ph_cr["pos_res"].append(np.array([np.linalg.norm(c['pos']) for c in cr_ck]))
+        ph_cr["vel_res"].append(np.array([np.linalg.norm(c['vel']) for c in cr_ck]))
+        ph_cr["acc_res"].append(np.array([np.linalg.norm(c['acc']) for c in cr_ck]))
 
         # [WHTOOLS] 코너별 바닥 충격력 추정 (가장 가까운 코너로 힘 할당)
         corner_impacts = np.zeros(8)
@@ -1000,6 +1036,61 @@ class DropSimulator:
             self.log("⚠️ _check_and_truncate_future: no matching snapshot found, skipping truncation.",
                      level="warning")
 
+    def _get_discrete_corner_kinematics(self, part_name: str, w: float, h: float, d_val: float) -> List[Dict[str, np.ndarray]]:
+        """
+        [WHTOOLS] 각 파트의 8개 코너 방향에 실제 위치한 개별 블럭(Corner Block)을 찾고,
+        그 블럭의 가장 바깥쪽 끝점(Corner Point)의 글로벌 거동을 계산합니다.
+        """
+        d = self.data
+        comp_key = part_name.lower()
+        
+        if comp_key not in self.components or not self.components[comp_key]:
+            # 구성 요소가 없거나 단일 바디가 아닌 경우 fallback: 루트 바디(Chassis) 기준 계산
+            rid = self.root_id
+            from .whts_utils import compute_corner_kinematics
+            return compute_corner_kinematics(d.xpos[rid], d.xmat[rid].reshape(3,3), d.cvel[rid], d.cacc[rid], w, h, d_val)
+        
+        comp_bodies = self.components[comp_key]
+        body_ids = list(comp_bodies.values())
+        body_xpos = d.xpos[body_ids]
+        
+        # 8개 코너 방향 정의 (whts_utils.compute_corner_kinematics와 순서 일치)
+        # [- - -], [- - +], [- + -], [- + +], [+ - -], [+ - +], [+ + -], [+ + +]
+        signs = []
+        for sx in [-1, 1]:
+            for sy in [-1, 1]:
+                for sz in [-1, 1]:
+                    signs.append([sx, sy, sz])
+        
+        results = []
+        for sx, sy, sz in signs:
+            # 1. 해당 코너 방향에 가장 치우친 블럭 탐색 (투영 점수 기반)
+            # Score = sx*x + sy*y + sz*z
+            scores = body_xpos[:, 0] * sx + body_xpos[:, 1] * sy + body_xpos[:, 2] * sz
+            best_idx = np.argmax(scores)
+            b_id = body_ids[best_idx]
+            
+            # 2. 해당 블럭의 실제 기하 사이즈(Half-extents) 획득
+            hw, hh, hd = self.block_half_extents.get(b_id, [0.0, 0.0, 0.0])
+            loc_corner = np.array([sx * hw, sy * hh, sz * hd])
+            
+            # 3. 강체 기구학 공식을 이용한 끝점 거동 역산
+            r = d.xmat[b_id].reshape(3,3) @ loc_corner
+            w_vel = d.cvel[b_id][0:3]
+            v_vel = d.cvel[b_id][3:6]
+            alpha = d.cacc[b_id][0:3]
+            a_acc = d.cacc[b_id][3:6]
+            
+            v_corner = v_vel + np.cross(w_vel, r)
+            a_corner = a_acc + np.cross(alpha, r) + np.cross(w_vel, np.cross(w_vel, r))
+            
+            results.append({
+                'pos': d.xpos[b_id] + r,
+                'vel': v_corner,
+                'acc': a_corner
+            })
+        return results
+
     def _truncate_histories(self, h_idx: int) -> None:
         """모든 히스토리 데이터를 지정된 인덱스까지 잘라냅니다."""
         self.time_history = self.time_history[:h_idx]
@@ -1026,6 +1117,11 @@ class DropSimulator:
         self.rot_speed_hist = self.rot_speed_hist[:h_idx]
         self.trans_vel_hist = self.trans_vel_hist[:h_idx]
         self.trans_vel_res_hist = self.trans_vel_res_hist[:h_idx]
+        
+        if hasattr(self, 'part_corner_hist'):
+            for part in self.part_corner_hist.values():
+                for k in part.keys():
+                    part[k] = part[k][:h_idx]
         
         # 구조적 시계열 데이터 초기화
         if hasattr(self, 'structural_time_series'):

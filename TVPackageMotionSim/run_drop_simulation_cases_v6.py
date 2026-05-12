@@ -253,7 +253,7 @@ def test_case_1_setup():
     '''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
-    common_friction = [0.9, 0.9]
+    common_friction = [0.3, 0.3]
     p_solref = [-25000.0,-1200.0]
     p_solimp = [0.90, 0.95, 0.001, 0.5, 2]
     cfg["contacts"] = {
