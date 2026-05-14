@@ -208,14 +208,14 @@ def test_case_1_setup():
     cfg["initial_tilt_azimuth_deg"] = 0.0 # 45도 방향으로 기울임
 
     # [8. SOLVER & REPORTING OPTIONS]
-    cfg["sim_integrator"] = "implicitfast"
-    cfg["sim_timestep"]   = 0.0012
+    cfg["sim_integrator"] = "implicitfast"      # implicitfast, implicit, euler, rk4
+    cfg["sim_timestep"]   = 0.0010
     cfg["sim_iterations"] = 50
     cfg["sim_noslip_iterations"] = 0
     cfg["sim_tolerance"]  = 1e-5
     cfg["sim_gravity"]    = [0, 0, -9.81]
     cfg["sim_nthread"]    = 4
-    cfg["reporting_interval"] = 0.0024
+    cfg["reporting_interval"] = 0.0020
     cfg["sim_duration"] = 2.0
 
     # [9. AIR FLUIDICS]
@@ -240,7 +240,7 @@ def test_case_1_setup():
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # fast mode
-    '''
+    #'''
     cfg["components"] = {
         "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
         "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
@@ -248,9 +248,9 @@ def test_case_1_setup():
         "opencellcoh"   : {"div": [3, 3, 1], "use_weld": False, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": True},
         "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
     }
-    cfg["sim_integrator"] = "euler"
+    cfg["sim_integrator"] = "implicitfast"
     cfg["sim_iterations"] = 30
-    '''
+    #'''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]
@@ -297,19 +297,20 @@ def test_case_1_setup():
         "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
         "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},
+        "auxboxmass"     : {"solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.001, 0.5, 2], "torquescale": 100.0},
     }
     
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
     cfg["plasticity_ratio"]     = 0.3
-    cfg["cush_yield_pressure"]  = 25000.0
+    cfg["cush_yield_pressure"]  = 5000.0
     cfg["plastic_hardening_modulus"] = 300000.0
     
     # [6. MASS TOTALS] : (전체 합계: 25.0kg)
     # [6. MASS TOTALS & AUTO BALANCING]
     cfg["components_balance"] = {
         "target_mass": 42.2,
-        "target_inertia": [3.0, 8.0, 14.0],
+        "target_inertia": [3.0, 8.0, 14.0, 0.1, 0.1, 0.1 ],
         "target_cog": [0.001, 0.007, 0.010],  # 10cm 편심 배치 시도
         "count": 8
     }

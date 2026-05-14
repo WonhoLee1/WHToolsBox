@@ -191,7 +191,7 @@ class DropSimulator:
         self.max_plastic_strain = 0.0
         self._last_reported_interval = -1
         self._report_count = 0
-        self.start_real_time = 0.0
+        self.start_real_time = time.time()
         
         # [WHTOOLS] 인터랙티브 레코딩 및 특수 효과
         self.is_recording = False    # 무한 모드에서의 데이터 누적 여부
@@ -1330,6 +1330,7 @@ class DropSimulator:
         self._collect_history()
         self._last_reported_interval = -1
         self._report_count = 0
+        self.start_real_time = time.time()
         self.log("♻️ Simulation Reset to Initial State. History cleared.")
 
 def launch_v2_subprocess(sim: DropSimulator) -> None:

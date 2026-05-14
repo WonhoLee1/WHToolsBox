@@ -124,19 +124,23 @@ def _print_physics_report(console, details, m0, c0, i0, tm, tc, ti, mf, cf, ifi)
     table.add_column("Component", style="dim", width=15)
     table.add_column("⚖️ Mass", justify="right", width=10)
     table.add_column("🎯 CoG (x,y,z)", justify="center", width=25)
-    table.add_column("🌀 Inertia (Ixx, Iyy, Izz)", justify="center", width=28)
+    table.add_column("🌀 MoI (xx,yy,zz, xy,xz,yz)", justify="center", width=35)
     
     for d in details:
         name = d["name"].replace("B", "")
         # 관성이 0인 경우 (AutoBalance 등) 사용자 오해 방지를 위해 별도 표시
-        moi_str = f"({d['moi'][0]:.3f}, {d['moi'][1]:.3f}, {d['moi'][2]:.3f})"
         if np.linalg.norm(d['moi']) < 1e-6:
             moi_str = "[dim](PointContribution)[/dim]"
+        else:
+            if len(d['moi']) >= 6:
+                moi_str = f"({d['moi'][0]:.4f}, {d['moi'][1]:.4f}, {d['moi'][2]:.4f}, {d['moi'][3]:.4f}, {d['moi'][4]:.4f}, {d['moi'][5]:.4f})"
+            else:
+                moi_str = f"({d['moi'][0]:.4f}, {d['moi'][1]:.4f}, {d['moi'][2]:.4f})"
             
         table.add_row(
             name, 
-            f"{d['mass']:.3f}", 
-            f"({d['cog'][0]:.3f}, {d['cog'][1]:.3f}, {d['cog'][2]:.3f})", 
+            f"{d['mass']:.4f}", 
+            f"({d['cog'][0]:.4f}, {d['cog'][1]:.4f}, {d['cog'][2]:.4f})", 
             moi_str
         )
     console.print(table)
@@ -153,9 +157,20 @@ def _print_physics_report(console, details, m0, c0, i0, tm, tc, ti, mf, cf, ifi)
         if abs(v1-v2) < tol: return "[green]✅ OK[/green]"
         return f"[yellow]⚠️ {'LIMIT' if v1 < v2 else 'SHIFT'}[/yellow]"
 
-    res_table.add_row("Total Mass", f"{m0:.3f}", f"{tm:.3f}", f"{mf:.3f}", get_status(mf, tm))
-    res_table.add_row("CoG (x, y, z)", f"({c0[0]:.2f}, {c0[1]:.2f}, {c0[2]:.2f})", "-", f"({cf[0]:.2f}, {cf[1]:.2f}, {cf[2]:.2f})", "-")
-    res_table.add_row("MoI (xx,yy,zz)", f"({i0[0]:.2f}, {i0[1]:.2f}, {i0[2]:.2f})", f"({ti[0]:.2f}, {ti[1]:.2f}, {ti[2]:.2f})", f"({ifi[0]:.2f}, {ifi[1]:.2f}, {ifi[2]:.2f})", get_status(ifi[2], ti[2], 1.0))
+    res_table.add_row("Total Mass", f"{m0:.4f}", f"{tm:.4f}", f"{mf:.4f}", get_status(mf, tm))
+    res_table.add_row("CoG (x, y, z)", f"({c0[0]:.4f}, {c0[1]:.4f}, {c0[2]:.4f})", "-", f"({cf[0]:.4f}, {cf[1]:.4f}, {cf[2]:.4f})", "-")
+    
+    # MoI Display (Diagonal and Products)
+    i0_str = f"({i0[0]:.4f}, {i0[1]:.4f}, {i0[2]:.4f})"
+    if len(i0) >= 6: i0_str += f" | ({i0[3]:.4f}, {i0[4]:.4f}, {i0[5]:.4f})"
+    
+    ti_str = f"({ti[0]:.4f}, {ti[1]:.4f}, {ti[2]:.4f})"
+    if len(ti) >= 6: ti_str += f" | ({ti[3]:.4f}, {ti[4]:.4f}, {ti[5]:.4f})"
+    
+    ifi_str = f"({ifi[0]:.4f}, {ifi[1]:.4f}, {ifi[2]:.4f})"
+    if len(ifi) >= 6: ifi_str += f" | ({ifi[3]:.4f}, {ifi[4]:.4f}, {ifi[5]:.4f})"
+    
+    res_table.add_row("MoI (Diag | Prod)", i0_str, ti_str, ifi_str, get_status(ifi[2], ti[2], 1.0))
     
     console.print(res_table)
     console.print("━"*105 + "\n", style="dim")

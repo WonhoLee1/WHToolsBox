@@ -26,8 +26,13 @@ class MonitorConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("📈 Monitor Configuration")
         self.setMinimumWidth(400)
-        # Remove Window Icon using Flags (Safe Version)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        # Ensure the close button is active and remove the help button
+        self.setWindowFlags(
+            Qt.Dialog | 
+            Qt.WindowTitleHint | 
+            Qt.WindowSystemMenuHint | 
+            Qt.WindowCloseButtonHint
+        )
         self.setWindowIcon(QIcon())
         self._init_ui()
         
@@ -254,7 +259,14 @@ class RealTimeMonitorWindow(QWidget):
         self.setWindowTitle(f"📈 WHTS Real-Time Monitor - {config['data_type'].upper()}")
         self.resize(600, 450)
         # Remove Window Icon using Flags (Safe Version)
-        self.setWindowFlags(Qt.Window | Qt.CustomizeWindowHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint)
+        self.setWindowFlags(
+            Qt.Window | 
+            Qt.WindowTitleHint | 
+            Qt.WindowSystemMenuHint | 
+            Qt.WindowMinimizeButtonHint | 
+            Qt.WindowMaximizeButtonHint | 
+            Qt.WindowCloseButtonHint
+        )
         self.setWindowIcon(QIcon())
         
         self._init_ui()

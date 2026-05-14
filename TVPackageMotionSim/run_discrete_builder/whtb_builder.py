@@ -311,7 +311,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
             body2_name = f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}" if b_chassis.use_internal_weld else b_chassis.name
             
             # [V5.11.2] 인터페이스 용접 전용 클래스 적용 (솔레프/솔임프 속성 제거)
-            w_prop = config["welds"].get("bauxboxmass", {"torquescale": 1.0})
+            w_prop = config["welds"].get("auxboxmass", {"torquescale": 1.0})
             ts = w_prop.get("torquescale", 1.0)
             inter_weld_xml.append(f'        <weld class="weld_bauxboxmass" body1="{body1_name}" body2="{body2_name}" torquescale="{ts}"/>')
 

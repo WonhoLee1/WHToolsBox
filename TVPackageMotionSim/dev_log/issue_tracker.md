@@ -12,6 +12,7 @@
 | #004 | Headless 시뮬레이션 종료 시 `mainloop` 프리징 현상 해결 | Completed | 2026-04-06 | Lazy UI Init 및 Guard 로직 도입 (V5.4.2) |
 | #005 | use_postprocess_v2의 PySide6 기반 고도화 요구사항 반영 | Completed | 2026-04-06 | 서브프로세스 독립 실행 및 V2 UI 연동 최적화 |
 | #006 | `use_postprocess_ui` 레거시 기능을 V2 Dashboard로 완전 이식 | In Progress | 2026-04-06 | 기구학/구조해석 탭 및 데이터 연동 로직 추가 |
+| #007 | 시뮬레이션 리포트의 'Real' 시간 표시 오류 (Unix Timestamp 출력) | Completed | 2026-05-14 | `start_real_time` 초기화 로직 수정 완료 |
 
 ## 🟣 Completed Issues
 

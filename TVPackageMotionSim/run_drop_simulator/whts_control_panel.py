@@ -7,6 +7,7 @@ PySide6 기반의 현대적인 MuJoCo 시뮬레이션 제어 패널입니다.
 import os
 import sys
 import time
+import numpy as np
 from pathlib import Path
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtWidgets import (
@@ -18,6 +19,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 import ctypes
 from ctypes import wintypes
+import mujoco
 
 # [WHTOOLS] UTF-8 인코딩 강제 설정 (이모지 및 한글 깨짐 방지)
 if sys.stdout.encoding != 'utf-8':
@@ -305,6 +307,168 @@ class XMLEditorDialog(QtWidgets.QDialog):
             self._external_tmp_path = None
         super().done(result)
 
+class StructuralDynamicsDialog(QtWidgets.QDialog):
+    """
+    [WHTOOLS] Structural Dynamics Data Extraction Dialog
+    근사화된 구조 해석용 하중점(Cushion Corners) 데이터를 추출하여 CSV로 저장합니다.
+    """
+    def __init__(self, parent=None, simulator=None):
+        super().__init__(parent)
+        self.sim = simulator
+        self.setWindowTitle("🏗️ Structural Dynamics Extraction")
+        self.setMinimumWidth(500)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # 1. 안내 메시지
+        info_label = QtWidgets.QLabel(
+            "<b>[안내]</b> 근사화된 구조 해석용 하중점 추출 프로토콜입니다.<br>"
+            "박스 모서리에 위치한 Cushion 요소들의 초기 위치와 시간에 따른 글로벌 좌표를 추출합니다."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # 2. 파일 저장 경로
+        path_layout = QtWidgets.QHBoxLayout()
+        self.edit_path = QtWidgets.QLineEdit()
+        default_path = str(self.sim.output_dir / "structural_dynamics.csv") if self.sim else "structural_dynamics.csv"
+        self.edit_path.setText(default_path)
+        self.btn_browse = QtWidgets.QPushButton("Browse...")
+        self.btn_browse.clicked.connect(self._on_browse)
+        path_layout.addWidget(QtWidgets.QLabel("Save Path:"))
+        path_layout.addWidget(self.edit_path)
+        path_layout.addWidget(self.btn_browse)
+        layout.addLayout(path_layout)
+
+        # 3. Chassis Geometry (mm 입력)
+        geo_group = QtWidgets.QGroupBox("Chassis Geometry (mm)")
+        geo_layout = QtWidgets.QGridLayout(geo_group)
+        
+        self.spin_width = QtWidgets.QDoubleSpinBox()
+        self.spin_width.setRange(0, 5000); self.spin_width.setValue(1600.0)
+        self.spin_height = QtWidgets.QDoubleSpinBox()
+        self.spin_height.setRange(0, 5000); self.spin_height.setValue(1200.0)
+        self.spin_thick = QtWidgets.QDoubleSpinBox()
+        self.spin_thick.setRange(0, 1000); self.spin_thick.setValue(120.0)
+        
+        geo_layout.addWidget(QtWidgets.QLabel("Width (mm):"), 0, 0)
+        geo_layout.addWidget(self.spin_width, 0, 1)
+        geo_layout.addWidget(QtWidgets.QLabel("Height (mm):"), 1, 0)
+        geo_layout.addWidget(self.spin_height, 1, 1)
+        geo_layout.addWidget(QtWidgets.QLabel("Depth/Thick (mm):"), 2, 0)
+        geo_layout.addWidget(self.spin_thick, 2, 1)
+        layout.addWidget(geo_group)
+
+        # 4. 분석 시작 시간
+        time_layout = QtWidgets.QHBoxLayout()
+        self.spin_start_time = QtWidgets.QDoubleSpinBox()
+        self.spin_start_time.setRange(0, 10.0); self.spin_start_time.setValue(0.0)
+        time_layout.addWidget(QtWidgets.QLabel("Start Time (s):"))
+        time_layout.addWidget(self.spin_start_time)
+        time_layout.addStretch()
+        layout.addLayout(time_layout)
+
+        # 5. 실행 버튼
+        self.btn_do = QtWidgets.QPushButton("🚀 Do it")
+        self.btn_do.clicked.connect(self._on_execute)
+        layout.addWidget(self.btn_do)
+
+    def _on_browse(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save CSV", self.edit_path.text(), "CSV Files (*.csv)")
+        if path:
+            self.edit_path.setText(path)
+
+    def _on_execute(self):
+        """데이터 추출 및 저장 로직 수행"""
+        if not self.sim or not self.sim.snapshots:
+            QtWidgets.QMessageBox.warning(self, "Error", "No simulation snapshots available.")
+            return
+
+        save_path = self.edit_path.text()
+        start_time = self.spin_start_time.value()
+        
+        # 버튼 상태 업데이트 (시각적 피드백)
+        self.btn_do.setText("⏳ Processing...")
+        self.btn_do.setEnabled(False)
+        QtWidgets.QApplication.processEvents()
+        
+        try:
+            # [WHTOOLS] Chassis C1-C8 코너 포인트 식별 및 데이터 추출
+            # 모니터(whts_monitor)와 동일한 C1-C8 정의 및 인덱스 사용
+            w_input = self.spin_width.value() / 1000.0
+            h_input = self.spin_height.value() / 1000.0
+            d_input = self.spin_thick.value() / 1000.0
+            
+            # whts_monitor.py의 정의와 일치하는 코너 정보
+            corner_configs = [
+                {"id": "C1", "name": "Front-Top-Right",    "s": [ 1,  1,  1]},
+                {"id": "C2", "name": "Front-Bottom-Right", "s": [ 1, -1,  1]},
+                {"id": "C3", "name": "Front-Bottom-Left",  "s": [-1, -1,  1]},
+                {"id": "C4", "name": "Front-Top-Left",     "s": [-1,  1,  1]},
+                {"id": "C5", "name": "Rear-Top-Right",     "s": [ 1,  1, -1]},
+                {"id": "C6", "name": "Rear-Bottom-Right",  "s": [ 1, -1, -1]},
+                {"id": "C7", "name": "Rear-Bottom-Left",   "s": [-1, -1, -1]},
+                {"id": "C8", "name": "Rear-Top-Left",      "s": [-1,  1, -1]},
+            ]
+            
+            # 데이터 추출용 임시 mjData 생성 (스레드 안전성 확보)
+            temp_data = mujoco.MjData(self.sim.model)
+            
+            with open(save_path, "w", encoding="utf-8") as f:
+                # 헤더 정보: 사용자 요청 양식 준수
+                f.write(f"# chassis, {self.spin_width.value():.0f}, {self.spin_height.value():.0f}, {self.spin_thick.value():.0f}\n")
+                f.write(f"# start time, {start_time:.1f}\n")
+                
+                for c in corner_configs:
+                    sx, sy, sz = c["s"]
+                    # 각 값은 half값이므로 *2를 하고 mm 단위(*1000)로 변환
+                    lx_full = sx * w_input * 1000.0
+                    ly_full = sy * h_input * 1000.0
+                    lz_full = sz * d_input * 1000.0
+                    f.write(f"# {c['id']}, {lx_full:.0f}, {ly_full:.0f}, {lz_full:.0f}\n")
+                
+                # 데이터 헤더
+                cols = ["Frame", "Time"]
+                for c in corner_configs:
+                    cols.extend([f"{c['id']}_X", f"{c['id']}_Y", f"{c['id']}_Z"])
+                f.write(",".join(cols) + "\n")
+                
+                # 타임 시리즈 데이터 추출 루프 (모든 시점 기록)
+                for i, snap in enumerate(self.sim.snapshots):
+                    t = snap['time']
+                    # [WHTOOLS] start_time 필터링 제거 (0부터 전체 기록)
+                    
+                    row = [str(i), f"{t:.6f}"]
+                    # 임시 데이터 객체에 물리 상태 복구
+                    mujoco.mj_setState(self.sim.model, temp_data, snap['state'], mujoco.mjtState.mjSTATE_PHYSICS)
+                    mujoco.mj_forward(self.sim.model, temp_data)
+                    
+                    rid = self.sim.root_id
+                    base_pos = temp_data.xpos[rid]
+                    base_mat = temp_data.xmat[rid].reshape(3,3)
+                    
+                    for c in corner_configs:
+                        sx, sy, sz = c["s"]
+                        loc = np.array([sx * w_input/2.0, sy * h_input/2.0, sz * d_input/2.0])
+                        glob_pos = base_pos + base_mat @ loc
+                        row.extend([f"{glob_pos[0]:.6f}", f"{glob_pos[1]:.6f}", f"{glob_pos[2]:.6f}"])
+                    
+                    f.write(",".join(row) + "\n")
+
+            QtWidgets.QMessageBox.information(self, "Success", f"Chassis C1-C8 data exported to:\n{save_path}")
+            self.accept()
+        except Exception as e:
+            error_msg = f"Execution failed: {e}"
+            if self.sim:
+                self.sim.log(f"❌ [Structural Dynamics] {error_msg}", level="error")
+            QtWidgets.QMessageBox.warning(self, "Error", error_msg)
+        finally:
+            self.btn_do.setText("🚀 Do it")
+            self.btn_do.setEnabled(True)
+
 class ControlPanel(QMainWindow):
     """
     MuJoCo 시뮬레이션을 실시간으로 제어하기 위한 PySide6 메인 윈도우입니다.
@@ -434,7 +598,10 @@ class ControlPanel(QMainWindow):
         self.btn_monitor = QPushButton("📈 Monitor")
         self.btn_monitor.clicked.connect(self._on_monitor)
         
-        for btn in [self.btn_slow, self.btn_rec, self.btn_monitor]:
+        self.btn_struct = QPushButton("🏗️ Structural Dynamics")
+        self.btn_struct.clicked.connect(self._on_structural_dynamics)
+        
+        for btn in [self.btn_slow, self.btn_rec, self.btn_monitor, self.btn_struct]:
             btn.setMinimumHeight(35)
             fx_layout.addWidget(btn)
         
@@ -780,6 +947,11 @@ class ControlPanel(QMainWindow):
             win.setAttribute(Qt.WA_DeleteOnClose)
             win.destroyed.connect(lambda: self.monitor_windows.remove(win) if win in self.monitor_windows else None)
             win.show()
+
+    def _on_structural_dynamics(self):
+        """구조 해석용 데이터 추출 다이얼로그를 실행합니다."""
+        dialog = StructuralDynamicsDialog(self, self.sim)
+        dialog.exec()
 
     def _on_open_config(self):
         """XML 라이브 에디터를 엽니다."""

@@ -221,14 +221,21 @@ class BaseDiscreteBody:
             if this_body_mass > 0:
                 this_body_cog = this_body_weighted_cog_sum / this_body_mass
                 # 평행축 정리 적용 (개별 블록 CoG와 바디 CoG 간의 거리 보정)
-                this_body_parallel_correction = np.zeros(3)
+                this_body_parallel_correction = np.zeros(6) # ixx, iyy, izz, ixy, ixz, iyz
                 for blk in this_body_blocks_list:
                     b_pos = np.array([blk.cx, blk.cy, blk.cz])
-                    dist_sq = (b_pos - this_body_cog)**2
-                    this_body_parallel_correction[0] += blk.mass * (dist_sq[1] + dist_sq[2])
-                    this_body_parallel_correction[1] += blk.mass * (dist_sq[0] + dist_sq[2])
-                    this_body_parallel_correction[2] += blk.mass * (dist_sq[0] + dist_sq[1])
-                this_body_final_moi = this_body_local_moi_sum + this_body_parallel_correction
+                    d = b_pos - this_body_cog
+                    this_body_parallel_correction[0] += blk.mass * (d[1]**2 + d[2]**2)
+                    this_body_parallel_correction[1] += blk.mass * (d[0]**2 + d[2]**2)
+                    this_body_parallel_correction[2] += blk.mass * (d[0]**2 + d[1]**2)
+                    # Products of inertia (관성 승적) - Parallel Axis Theorem (Assuming block's own products are 0)
+                    this_body_parallel_correction[3] += blk.mass * (d[0] * d[1])
+                    this_body_parallel_correction[4] += blk.mass * (d[0] * d[2])
+                    this_body_parallel_correction[5] += blk.mass * (d[1] * d[2])
+                
+                this_body_final_moi = np.zeros(6)
+                this_body_final_moi[:3] = this_body_local_moi_sum + this_body_parallel_correction[:3]
+                this_body_final_moi[3:] = this_body_parallel_correction[3:]
                 individual_details.append({"name": body.name, "mass": this_body_mass, "cog": this_body_cog, "moi": this_body_final_moi})
             
             for child in body.children: _collect(child)
@@ -246,15 +253,22 @@ class BaseDiscreteBody:
             
         if total_mass > 0:
             total_cog = total_weighted_cog_sum / total_mass
-            total_parallel_moI_correction = np.zeros(3)
+            total_parallel_moI_correction = np.zeros(6)
             for blk in all_primitive_blocks:
                 b_pos = np.array([blk.cx, blk.cy, blk.cz])
-                dist_sq = (b_pos - total_cog)**2
-                total_parallel_moI_correction[0] += blk.mass * (dist_sq[1] + dist_sq[2])
-                total_parallel_moI_correction[1] += blk.mass * (dist_sq[0] + dist_sq[2])
-                total_parallel_moI_correction[2] += blk.mass * (dist_sq[0] + dist_sq[1])
-            final_total_moi = total_pure_local_moi_sum + total_parallel_moI_correction
-        else: total_cog = np.zeros(3); final_total_moi = np.zeros(3)
+                d = b_pos - total_cog
+                total_parallel_moI_correction[0] += blk.mass * (d[1]**2 + d[2]**2)
+                total_parallel_moI_correction[1] += blk.mass * (d[0]**2 + d[2]**2)
+                total_parallel_moI_correction[2] += blk.mass * (d[0]**2 + d[1]**2)
+                # Products of inertia
+                total_parallel_moI_correction[3] += blk.mass * (d[0] * d[1])
+                total_parallel_moI_correction[4] += blk.mass * (d[0] * d[2])
+                total_parallel_moI_correction[5] += blk.mass * (d[1] * d[2])
+            
+            final_total_moi = np.zeros(6)
+            final_total_moi[:3] = total_pure_local_moi_sum + total_parallel_moI_correction[:3]
+            final_total_moi[3:] = total_parallel_moI_correction[3:]
+        else: total_cog = np.zeros(3); final_total_moi = np.zeros(6)
             
         return total_mass, total_cog, final_total_moi, individual_details
         

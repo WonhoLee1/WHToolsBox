@@ -85,7 +85,7 @@ def calculate_required_aux_masses(
     
     t_mass = target_mass if target_mass is not None else m_base
     t_cog  = np.array(target_cog) if (target_cog is not None and len(target_cog) == 3) else c_base
-    t_moi  = np.array(target_moi) if (target_moi is not None and len(target_moi) == 3) else None
+    t_moi  = np.array(target_moi) if (target_moi is not None and len(target_moi) >= 3) else None
     
     # 추가 필요 질량 (Target - Current)
     m_aux = t_mass - m_base
@@ -125,55 +125,87 @@ def calculate_required_aux_masses(
             p = [pos_aux[0] + sx * dx, pos_aux[1], pos_aux[2]]
             aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
             
-    elif num_masses == 4:
-        m_each = m_aux / 4.0
-        # XY 평면 분산 배치
-        dx = math.sqrt(max(0.005, (t_moi[1] - i_base[1]) / (4.0 * m_each))) if t_moi is not None else 0.05
-        dy = math.sqrt(max(0.005, (t_moi[0] - i_base[0]) / (4.0 * m_each))) if t_moi is not None else 0.05
-        for sx in [-1, 1]:
-            for sy in [-1, 1]:
-                p = [pos_aux[0] + sx * dx, pos_aux[1] + sy * dy, pos_aux[2]]
-                aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
-                
-    else: # Default 8 masses
+    else: 
         m_each = m_aux / 8.0
-        
-        # [WHTOOLS] 8개 질량 분산 배치를 위한 연립 방정식 해결
-        # I_xx_contribution = M_aux * (dy^2 + dz^2)
-        # I_yy_contribution = M_aux * (dx^2 + dz^2)
-        # I_zz_contribution = M_aux * (dx^2 + dy^2)
-        
+        # [WHTOOLS] 최적화 기반 밸런싱 (Scipy 활용)
+        # 목표: Target MoI와의 오차를 최소화하는 dx, dy, dz 및 개별 질량 배분(alpha, beta, gamma) 탐색
+        from scipy.optimize import minimize
+
         # 1. 기저 모델을 타겟 CoG로 이동시켰을 때의 관성 (평행축 정리)
         d = t_cog - c_base
-        i_at_t = i_base + m_base * np.array([d[1]**2 + d[2]**2, d[0]**2 + d[2]**2, d[0]**2 + d[1]**2])
+        i_at_t = np.zeros(6)
+        i_at_t[:3] = i_base[:3] + m_base * np.array([d[1]**2 + d[2]**2, d[0]**2 + d[2]**2, d[0]**2 + d[1]**2])
+        if len(i_base) >= 6:
+            i_at_t[3:6] = i_base[3:6] + m_base * np.array([d[0]*d[1], d[0]*d[2], d[1]*d[2]])
         
-        # 2. 보조 질량계가 담당해야 할 추가 관성량
-        di = t_moi - i_at_t
+        di_target = t_moi - i_at_t
+
+        def get_actual_moi_contribution(p):
+            dx, dy, dz, a, b, g = p
+            # Diagonal
+            ixx = m_aux * (dy**2 + dz**2)
+            iyy = m_aux * (dx**2 + dz**2)
+            izz = m_aux * (dx**2 + dy**2)
+            # Products
+            ixy = m_aux * dx * dy * a
+            ixz = m_aux * dx * dz * b
+            iyz = m_aux * dy * dz * g
+            return np.array([ixx, iyy, izz, ixy, ixz, iyz])
+
+        def objective(p):
+            actual = get_actual_moi_contribution(p)
+            # 가중치 부여 (Diagonal에 더 높은 우선순위)
+            weights = np.array([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])
+            err = (actual - di_target) * weights
+            return np.sum(err**2)
+
+        # 제약 조건: m_i >= 0 (8개 지점)
+        # m_i = m_avg * (1 + a*sx*sy + b*sx*sz + g*sy*sz)
+        def constraint_mass(p):
+            _, _, _, a, b, g = p
+            m_min = 1.0
+            for sx in [-1, 1]:
+                for sy in [-1, 1]:
+                    for sz in [-1, 1]:
+                        m_min = min(m_min, 1.0 + a*sx*sy + b*sx*sz + g*sy*sz)
+            return m_min # >= 0
+
+        # 초기값 설정 (Analytic solution 기반)
+        dx_init = math.sqrt(max(0.001, (di_target[1] + di_target[2] - di_target[0]) / (2.0 * m_aux))) if m_aux > 0 else 0.1
+        dy_init = math.sqrt(max(0.001, (di_target[0] + di_target[2] - di_target[1]) / (2.0 * m_aux))) if m_aux > 0 else 0.1
+        dz_init = math.sqrt(max(0.001, (di_target[0] + di_target[1] - di_target[2]) / (2.0 * m_aux))) if m_aux > 0 else 0.1
+        p0 = [dx_init, dy_init, dz_init, 0.0, 0.0, 0.0]
         
-        # 3. 연립 방정식 해결: A=dy^2+dz^2, B=dx^2+dz^2, C=dx^2+dy^2
-        A, B, C = di / (m_aux if m_aux > 0 else 1.0)
+        bounds = [(0.001, 1.0), (0.001, 1.0), (0.001, 1.0), (-0.95, 0.95), (-0.95, 0.95), (-0.95, 0.95)]
+        cons = {'type': 'ineq', 'fun': constraint_mass}
+
+        res = minimize(objective, p0, bounds=bounds, constraints=cons, method='SLSQP', options={'maxiter': 100})
         
-        # dx^2 = (B + C - A) / 2
-        # dy^2 = (A + C - B) / 2
-        # dz^2 = (A + B - C) / 2
-        dx2 = (B + C - A) / 2.0
-        dy2 = (A + C - B) / 2.0
-        dz2 = (A + B - C) / 2.0
+        dx_f, dy_f, dz_f, a_f, b_f, g_f = res.x
         
-        # 물리적 한계 체크 (관성이 너무 낮으면 COG에 밀착)
-        dx = math.sqrt(max(1e-6, dx2))
-        dy = math.sqrt(max(1e-6, dy2))
-        dz = math.sqrt(max(1e-6, dz2))
-        
+        m_list = []
         for sx in [-1, 1]:
             for sy in [-1, 1]:
                 for sz in [-1, 1]:
-                    p = [pos_aux[0] + sx * dx, pos_aux[1] + sy * dy, pos_aux[2] + sz * dz]
+                    m_this = m_each * (1.0 + a_f*sx*sy + b_f*sx*sz + g_f*sy*sz)
+                    m_list.append(max(m_this, 1e-6))
+        
+        # 질량 보존 강제
+        m_sum = sum(m_list)
+        scale = m_aux / m_sum if m_sum > 1e-9 else 1.0
+        
+        idx = 0
+        for sx in [-1, 1]:
+            for sy in [-1, 1]:
+                for sz in [-1, 1]:
+                    m_final = m_list[idx] * scale
+                    p = [pos_aux[0] + sx * dx_f, pos_aux[1] + sy * dy_f, pos_aux[2] + sz * dz_f]
                     aux_masses.append({
                         "name": f"AutoBalance_{len(aux_masses)+1}", 
                         "pos": clip_pos(p), 
-                        "mass": m_each, 
+                        "mass": float(m_final), 
                         "size": [0.01, 0.01, 0.01]
                     })
+                    idx += 1
                     
     return aux_masses
