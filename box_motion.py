@@ -2409,51 +2409,75 @@ def verify_rotation_process(geo, final_pose):
 
 # --- Reference Data (Samsung TV Models 2024/2025) ---
 # --- Reference Data (Samsung TV Models) ---
-REFERENCE_MODELS = [
-    # S95F (OLED)
-    {'name': 'S95F(OLED)', 'inch': 55, 'pkg_size': '1625 x 935 x 170', 'pkg_m': 39.8, 'set_w_std_size': '1444 x 894 x 268', 'set_w_std_m': 29.0, 'set_wo_std_size': '1444 x 829 x 11.0', 'set_wo_std_m': 18.9, 'stand_base': '360 x 268'},
-    {'name': 'S95F(OLED)', 'inch': 77, 'pkg_size': '1893 x 1153 x 185', 'pkg_m': 54.0, 'set_w_std_size': '1717 x 1048 x 286', 'set_w_std_m': 10.0, 'set_wo_std_size': '1717 x 984 x 11.2', 'set_wo_std_m': 20.2, 'stand_base': '360 x 286'},
-    # S90F (OLED)
-    {'name': 'S90F(OLED)', 'inch': 48, 'pkg_size': '1197 x 770 x 143', 'pkg_m': 17.8, 'set_w_std_size': '1069 x 683 x 210', 'set_w_std_m': 13.2, 'set_wo_std_size': '1069 x 620 x 39.6', 'set_wo_std_m': 12.3, 'stand_base': '584 x 210'},
-    {'name': 'S90F(OLED)', 'inch': 55, 'pkg_size': '1385 x 832 x 153', 'pkg_m': 22.9, 'set_w_std_size': '1225 x 774 x 265', 'set_w_std_m': 17.3, 'set_wo_std_size': '1225 x 709 x 39.9', 'set_wo_std_m': 16.0, 'stand_base': '366 x 265'},
-    {'name': 'S90F(OLED)', 'inch': 65, 'pkg_size': '1617 x 950 x 160', 'pkg_m': 29.9, 'set_w_std_size': '1444 x 897 x 265', 'set_w_std_m': 22.5, 'set_wo_std_size': '1444 x 832 x 39.9', 'set_wo_std_m': 21.2, 'stand_base': '366 x 265'},
-    {'name': 'S90F(OLED)', 'inch': 77, 'pkg_size': '1885 x 1154 x 180', 'pkg_m': 45.9, 'set_w_std_size': '1719 x 1059 x 359', 'set_w_std_m': 36.6, 'set_wo_std_size': '1719 x 988 x 44.9', 'set_wo_std_m': 34.8, 'stand_base': '366 x 359'},
-    # S85F (OLED)
-    {'name': 'S85F(OLED)', 'inch': 55, 'pkg_size': '1383 x 832 x 147', 'pkg_m': 17.0, 'set_w_std_size': '1225 x 765 x 235', 'set_w_std_m': 12.6, 'set_wo_std_size': '1225 x 706 x 33.9', 'set_wo_std_m': 12.2, 'stand_base': '897 x 235'},
-    {'name': 'S85F(OLED)', 'inch': 65, 'pkg_size': '1617 x 950 x 160', 'pkg_m': 22.7, 'set_w_std_size': '1444 x 897 x 263', 'set_w_std_m': 16.5, 'set_wo_std_size': '1444 x 829 x 33.9', 'set_wo_std_m': 16.1, 'stand_base': '953 x 263'},
-    # QN90F (Neo QLED)
-    {'name': 'QN90F(Neo QLED)', 'inch': 43, 'pkg_size': '1163 x 668 x 140', 'pkg_m': 17.5, 'set_w_std_size': '960 x 620 x 221', 'set_w_std_m': 13.4, 'set_wo_std_size': '960 x 559 x 28', 'set_wo_std_m': 9.4, 'stand_base': '518 x 221'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 50, 'pkg_size': '1318 x 767 x 140', 'pkg_m': 21.5, 'set_w_std_size': '1114 x 705 x 220', 'set_w_std_m': 17.6, 'set_wo_std_size': '1114 x 645 x 28', 'set_wo_std_m': 13.5, 'stand_base': '519 x 220'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 55, 'pkg_size': '1448 x 826 x 170', 'pkg_m': 26.2, 'set_w_std_size': '1227 x 767 x 236', 'set_w_std_m': 20.6, 'set_wo_std_size': '1227 x 706 x 28', 'set_wo_std_m': 17.7, 'stand_base': '369 x 236'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 65, 'pkg_size': '1623 x 935 x 185', 'pkg_m': 35.4, 'set_w_std_size': '1445 x 892 x 272', 'set_w_std_m': 27.5, 'set_wo_std_size': '1445 x 828 x 28', 'set_wo_std_m': 24.2, 'stand_base': '391 x 272'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 75, 'pkg_size': '1885 x 1118 x 191', 'pkg_m': 50.2, 'set_w_std_size': '1669 x 1016 x 302', 'set_w_std_m': 39.7, 'set_wo_std_size': '1669 x 958 x 28', 'set_wo_std_m': 34.1, 'stand_base': '417 x 302'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 85, 'pkg_size': '2141 x 1245 x 231', 'pkg_m': 63.3, 'set_w_std_size': '1892 x 1143 x 320', 'set_w_std_m': 49.9, 'set_wo_std_size': '1892 x 1082 x 28', 'set_wo_std_m': 43.5, 'stand_base': '417 x 320'},
-    {'name': 'QN90F(Neo QLED)', 'inch': 98, 'pkg_size': '2370 x 1420 x 274', 'pkg_m': 92.7, 'set_w_std_size': '2185 x 1306 x 365', 'set_w_std_m': 70.6, 'set_wo_std_size': '2185 x 1249 x 31', 'set_wo_std_m': 61.4, 'stand_base': '479 x 365'},
-    # QN80F (Neo QLED)
-    {'name': 'QN80F(Neo QLED)', 'inch': 50, 'pkg_size': '1241 x 744 x 142', 'pkg_m': 17.0, 'set_w_std_size': '1114 x 699 x 239', 'set_w_std_m': 13.3, 'set_wo_std_size': '1114 x 644 x 48', 'set_wo_std_m': 12.9, 'stand_base': '967 x 239'},
-    {'name': 'QN80F(Neo QLED)', 'inch': 55, 'pkg_size': '1352 x 813 x 148', 'pkg_m': 22.0, 'set_w_std_size': '1228 x 764 x 247', 'set_w_std_m': 17.2, 'set_wo_std_size': '1228 x 706 x 47', 'set_wo_std_m': 16.4, 'stand_base': '264 x 247'},
-    {'name': 'QN80F(Neo QLED)', 'inch': 65, 'pkg_size': '1593 x 930 x 158', 'pkg_m': 30.9, 'set_w_std_size': '1447 x 886 x 279', 'set_w_std_m': 23.7, 'set_wo_std_size': '1447 x 829 x 47', 'set_wo_std_m': 22.7, 'stand_base': '314 x 279'},
-    {'name': 'QN80F(Neo QLED)', 'inch': 75, 'pkg_size': '1822 x 1075 x 169', 'pkg_m': 42.2, 'set_w_std_size': '1671 x 1016 x 332', 'set_w_std_m': 33.5, 'set_wo_std_size': '1671 x 958 x 47', 'set_wo_std_m': 32.2, 'stand_base': '355 x 332'},
-    {'name': 'QN80F(Neo QLED)', 'inch': 85, 'pkg_size': '2056 x 1200 x 178', 'pkg_m': 54.1, 'set_w_std_size': '1893 x 1138 x 367', 'set_w_std_m': 42.2, 'set_wo_std_size': '1893 x 1083 x 48', 'set_wo_std_m': 40.6, 'stand_base': '375 x 367'},
-    # QN70F (Neo QLED)
-    {'name': 'QN70F(Neo QLED)', 'inch': 55, 'pkg_size': '1369 x 819 x 142', 'pkg_m': 19.7, 'set_w_std_size': '1233 x 766 x 247', 'set_w_std_m': 15.0, 'set_wo_std_size': '1233 x 709 x 26', 'set_wo_std_m': 14.2, 'stand_base': '264 x 247'},
-    {'name': 'QN70F(Neo QLED)', 'inch': 65, 'pkg_size': '1597 x 933 x 148', 'pkg_m': 29.1, 'set_w_std_size': '1452 x 890 x 279', 'set_w_std_m': 21.8, 'set_wo_std_size': '1452 x 832 x 26', 'set_wo_std_m': 20.8, 'stand_base': '314 x 279'},
-    {'name': 'QN70F(Neo QLED)', 'inch': 75, 'pkg_size': '1815 x 1080 x 164', 'pkg_m': 40.3, 'set_w_std_size': '1678 x 1016 x 332', 'set_w_std_m': 30.9, 'set_wo_std_size': '1678 x 961 x 27', 'set_wo_std_m': 29.6, 'stand_base': '355 x 332'},
-    {'name': 'QN70F(Neo QLED)', 'inch': 85, 'pkg_size': '2059 x 1200 x 171', 'pkg_m': 53.9, 'set_w_std_size': '1902 x 1144 x 367', 'set_w_std_m': 42.3, 'set_wo_std_size': '1902 x 1087 x 27', 'set_wo_std_m': 40.7, 'stand_base': '375 x 367'},
-    # U8000F (Crystal UHD)
-    {'name': 'U8000F(Crystal UHD)', 'inch': 43, 'pkg_size': '1070 x 650 x 123', 'pkg_m': 9.0, 'set_w_std_size': '958 x 609 x 157', 'set_w_std_m': 6.6, 'set_wo_std_size': '958 x 559 x 76', 'set_wo_std_m': 6.4, 'stand_base': '613 x 157'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 50, 'pkg_size': '1228 x 743 x 127', 'pkg_m': 12.0, 'set_w_std_size': '1111 x 695 x 199', 'set_w_std_m': 8.3, 'set_wo_std_size': '1111 x 644 x 76', 'set_wo_std_m': 8.0, 'stand_base': '747 x 199'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 55, 'pkg_size': '1354 x 810 x 127', 'pkg_m': 14.4, 'set_w_std_size': '1225 x 759 x 199', 'set_w_std_m': 9.9, 'set_wo_std_size': '1225 x 708 x 77', 'set_wo_std_m': 9.6, 'stand_base': '813 x 199'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 58, 'pkg_size': '1421 x 846 x 135', 'pkg_m': 17.5, 'set_w_std_size': '1286 x 800 x 222', 'set_w_std_m': 12.3, 'set_wo_std_size': '1286 x 749 x 77', 'set_wo_std_m': 12.0, 'stand_base': '883 x 222'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 65, 'pkg_size': '1578 x 930 x 142', 'pkg_m': 21.0, 'set_w_std_size': '1444 x 882 x 222', 'set_w_std_m': 14.5, 'set_wo_std_size': '1444 x 831 x 77', 'set_wo_std_m': 14.2, 'stand_base': '1005 x 222'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 70, 'pkg_size': '1755 x 1056 x 164', 'pkg_m': 28.5, 'set_w_std_size': '1567 x 926 x 280', 'set_w_std_m': 19.4, 'set_wo_std_size': '1567 x 876 x 77', 'set_wo_std_m': 19.0, 'stand_base': '1123 x 280'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 75, 'pkg_size': '1820 x 1100 x 164', 'pkg_m': 31.0, 'set_w_std_size': '1668 x 1006 x 280', 'set_w_std_m': 22.8, 'set_wo_std_size': '1668 x 958 x 77', 'set_wo_std_m': 22.4, 'stand_base': '1250 x 280'},
-    {'name': 'U8000F(Crystal UHD)', 'inch': 85, 'pkg_size': '2075 x 1200 x 171', 'pkg_m': 40.7, 'set_w_std_size': '1890 x 1133 x 326', 'set_w_std_m': 29.2, 'set_wo_std_size': '1890 x 1084 x 77', 'set_wo_std_m': 28.7, 'stand_base': '1411 x 326'},
-    # Frame Pro (LS03FW)
-    {'name': 'Frame Pro(LS03FW)', 'inch': 65, 'pkg_size': '1598 x 933 x 164', 'pkg_m': 32.3, 'set_w_std_size': '1457 x 867 x 257', 'set_w_std_m': 22.0, 'set_wo_std_size': '1457 x 837 x 25', 'set_wo_std_m': 21.8, 'stand_base': '1042 x 257'},
-    {'name': 'Frame Pro(LS03FW)', 'inch': 75, 'pkg_size': '1834 x 1082 x 171', 'pkg_m': 40.5, 'set_w_std_size': '1685 x 995 x 320', 'set_w_std_m': 30.9, 'set_wo_std_size': '1685 x 965 x 27', 'set_wo_std_m': 30.7, 'stand_base': '1244 x 320'},
-    {'name': 'Frame Pro(LS03FW)', 'inch': 85, 'pkg_size': '2068 x 1200 x 178', 'pkg_m': 53.7, 'set_w_std_size': '1904 x 1127 x 369', 'set_w_std_m': 41.1, 'set_wo_std_size': '1904 x 1091 x 27', 'set_wo_std_m': 40.8, 'stand_base': '1410 x 369'}
-]
+def _load_reference_models():
+    import os
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tv_ref_model_info.csv")
+    models = []
+    if os.path.exists(csv_path):
+        try:
+            import csv
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        models.append({
+                            'name': row['name'],
+                            'inch': int(row['inch']),
+                            'pkg_size': row['pkg_size'],
+                            'pkg_m': float(row['pkg_m']),
+                            'set_w_std_size': row['set_w_std_size'],
+                            'set_w_std_m': float(row['set_w_std_m']),
+                            'set_wo_std_size': row['set_wo_std_size'],
+                            'set_wo_std_m': float(row['set_wo_std_m']),
+                            'stand_base': row['stand_base']
+                        })
+                    except Exception as e:
+                        pass
+        except Exception as e:
+            print(f"Error loading reference models from CSV: {e}")
+    
+    if not models:
+        # Fallback to hardcoded list if CSV is missing or empty
+        models = [
+            {'name': 'S95F(OLED)', 'inch': 55, 'pkg_size': '1625 x 935 x 170', 'pkg_m': 39.8, 'set_w_std_size': '1444 x 894 x 268', 'set_w_std_m': 29.0, 'set_wo_std_size': '1444 x 829 x 11.0', 'set_wo_std_m': 18.9, 'stand_base': '360 x 268'},
+            {'name': 'S95F(OLED)', 'inch': 77, 'pkg_size': '1893 x 1153 x 185', 'pkg_m': 54.0, 'set_w_std_size': '1717 x 1048 x 286', 'set_w_std_m': 10.0, 'set_wo_std_size': '1717 x 984 x 11.2', 'set_wo_std_m': 20.2, 'stand_base': '360 x 286'},
+            {'name': 'S90F(OLED)', 'inch': 48, 'pkg_size': '1197 x 770 x 143', 'pkg_m': 17.8, 'set_w_std_size': '1069 x 683 x 210', 'set_w_std_m': 13.2, 'set_wo_std_size': '1069 x 620 x 39.6', 'set_wo_std_m': 12.3, 'stand_base': '584 x 210'},
+            {'name': 'S90F(OLED)', 'inch': 55, 'pkg_size': '1385 x 832 x 153', 'pkg_m': 22.9, 'set_w_std_size': '1225 x 774 x 265', 'set_w_std_m': 17.3, 'set_wo_std_size': '1225 x 709 x 39.9', 'set_wo_std_m': 16.0, 'stand_base': '366 x 265'},
+            {'name': 'S90F(OLED)', 'inch': 65, 'pkg_size': '1617 x 950 x 160', 'pkg_m': 29.9, 'set_w_std_size': '1444 x 897 x 265', 'set_w_std_m': 22.5, 'set_wo_std_size': '1444 x 832 x 39.9', 'set_wo_std_m': 21.2, 'stand_base': '366 x 265'},
+            {'name': 'S90F(OLED)', 'inch': 77, 'pkg_size': '1885 x 1154 x 180', 'pkg_m': 45.9, 'set_w_std_size': '1719 x 1059 x 359', 'set_w_std_m': 36.6, 'set_wo_std_size': '1719 x 988 x 44.9', 'set_wo_std_m': 34.8, 'stand_base': '366 x 359'},
+            {'name': 'S85F(OLED)', 'inch': 55, 'pkg_size': '1383 x 832 x 147', 'pkg_m': 17.0, 'set_w_std_size': '1225 x 765 x 235', 'set_w_std_m': 12.6, 'set_wo_std_size': '1225 x 706 x 33.9', 'set_wo_std_m': 12.2, 'stand_base': '897 x 235'},
+            {'name': 'S85F(OLED)', 'inch': 65, 'pkg_size': '1617 x 950 x 160', 'pkg_m': 22.7, 'set_w_std_size': '1444 x 897 x 263', 'set_w_std_m': 16.5, 'set_wo_std_size': '1444 x 829 x 33.9', 'set_wo_std_m': 16.1, 'stand_base': '953 x 263'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 43, 'pkg_size': '1163 x 668 x 140', 'pkg_m': 17.5, 'set_w_std_size': '960 x 620 x 221', 'set_w_std_m': 13.4, 'set_wo_std_size': '960 x 559 x 28', 'set_wo_std_m': 9.4, 'stand_base': '518 x 221'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 50, 'pkg_size': '1318 x 767 x 140', 'pkg_m': 21.5, 'set_w_std_size': '1114 x 705 x 220', 'set_w_std_m': 17.6, 'set_wo_std_size': '1114 x 645 x 28', 'set_wo_std_m': 13.5, 'stand_base': '519 x 220'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 55, 'pkg_size': '1448 x 826 x 170', 'pkg_m': 26.2, 'set_w_std_size': '1227 x 767 x 236', 'set_w_std_m': 20.6, 'set_wo_std_size': '1227 x 706 x 28', 'set_wo_std_m': 17.7, 'stand_base': '369 x 236'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 65, 'pkg_size': '1623 x 935 x 185', 'pkg_m': 35.4, 'set_w_std_size': '1445 x 892 x 272', 'set_w_std_m': 27.5, 'set_wo_std_size': '1445 x 828 x 28', 'set_wo_std_m': 24.2, 'stand_base': '391 x 272'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 75, 'pkg_size': '1885 x 1118 x 191', 'pkg_m': 50.2, 'set_w_std_size': '1669 x 1016 x 302', 'set_w_std_m': 39.7, 'set_wo_std_size': '1669 x 958 x 28', 'set_wo_std_m': 34.1, 'stand_base': '417 x 302'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 85, 'pkg_size': '2141 x 1245 x 231', 'pkg_m': 63.3, 'set_w_std_size': '1892 x 1143 x 320', 'set_w_std_m': 49.9, 'set_wo_std_size': '1892 x 1082 x 28', 'set_wo_std_m': 43.5, 'stand_base': '417 x 320'},
+            {'name': 'QN90F(Neo QLED)', 'inch': 98, 'pkg_size': '2370 x 1420 x 274', 'pkg_m': 92.7, 'set_w_std_size': '2185 x 1306 x 365', 'set_w_std_m': 70.6, 'set_wo_std_size': '2185 x 1249 x 31', 'set_wo_std_m': 61.4, 'stand_base': '479 x 365'},
+            {'name': 'QN80F(Neo QLED)', 'inch': 50, 'pkg_size': '1241 x 744 x 142', 'pkg_m': 17.0, 'set_w_std_size': '1114 x 699 x 239', 'set_w_std_m': 13.3, 'set_wo_std_size': '1114 x 644 x 48', 'set_wo_std_m': 12.9, 'stand_base': '967 x 239'},
+            {'name': 'QN80F(Neo QLED)', 'inch': 55, 'pkg_size': '1352 x 813 x 148', 'pkg_m': 22.0, 'set_w_std_size': '1228 x 764 x 247', 'set_w_std_m': 17.2, 'set_wo_std_size': '1228 x 706 x 47', 'set_wo_std_m': 16.4, 'stand_base': '264 x 247'},
+            {'name': 'QN80F(Neo QLED)', 'inch': 65, 'pkg_size': '1593 x 930 x 158', 'pkg_m': 30.9, 'set_w_std_size': '1447 x 886 x 279', 'set_w_std_m': 23.7, 'set_wo_std_size': '1447 x 829 x 47', 'set_wo_std_m': 22.7, 'stand_base': '314 x 279'},
+            {'name': 'QN80F(Neo QLED)', 'inch': 75, 'pkg_size': '1822 x 1075 x 169', 'pkg_m': 42.2, 'set_w_std_size': '1671 x 1016 x 332', 'set_w_std_m': 33.5, 'set_wo_std_size': '1671 x 958 x 47', 'set_wo_std_m': 32.2, 'stand_base': '355 x 332'},
+            {'name': 'QN80F(Neo QLED)', 'inch': 85, 'pkg_size': '2056 x 1200 x 178', 'pkg_m': 54.1, 'set_w_std_size': '1893 x 1138 x 367', 'set_w_std_m': 42.2, 'set_wo_std_size': '1893 x 1083 x 48', 'set_wo_std_m': 40.6, 'stand_base': '375 x 367'},
+            {'name': 'QN70F(Neo QLED)', 'inch': 55, 'pkg_size': '1369 x 819 x 142', 'pkg_m': 19.7, 'set_w_std_size': '1233 x 766 x 247', 'set_w_std_m': 15.0, 'set_wo_std_size': '1233 x 709 x 26', 'set_wo_std_m': 14.2, 'stand_base': '264 x 247'},
+            {'name': 'QN70F(Neo QLED)', 'inch': 65, 'pkg_size': '1597 x 933 x 148', 'pkg_m': 29.1, 'set_w_std_size': '1452 x 890 x 279', 'set_w_std_m': 21.8, 'set_wo_std_size': '1452 x 832 x 26', 'set_wo_std_m': 20.8, 'stand_base': '314 x 279'},
+            {'name': 'QN70F(Neo QLED)', 'inch': 75, 'pkg_size': '1815 x 1080 x 164', 'pkg_m': 40.3, 'set_w_std_size': '1678 x 1016 x 332', 'set_w_std_m': 30.9, 'set_wo_std_size': '1678 x 961 x 27', 'set_wo_std_m': 29.6, 'stand_base': '355 x 332'},
+            {'name': 'QN70F(Neo QLED)', 'inch': 85, 'pkg_size': '2059 x 1200 x 171', 'pkg_m': 53.9, 'set_w_std_size': '1902 x 1144 x 367', 'set_w_std_m': 42.3, 'set_wo_std_size': '1902 x 1087 x 27', 'set_wo_std_m': 40.7, 'stand_base': '375 x 367'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 43, 'pkg_size': '1070 x 650 x 123', 'pkg_m': 9.0, 'set_w_std_size': '958 x 609 x 157', 'set_w_std_m': 6.6, 'set_wo_std_size': '958 x 559 x 76', 'set_wo_std_m': 6.4, 'stand_base': '613 x 157'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 50, 'pkg_size': '1228 x 743 x 127', 'pkg_m': 12.0, 'set_w_std_size': '1111 x 695 x 199', 'set_w_std_m': 8.3, 'set_wo_std_size': '1111 x 644 x 76', 'set_wo_std_m': 8.0, 'stand_base': '747 x 199'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 55, 'pkg_size': '1354 x 810 x 127', 'pkg_m': 14.4, 'set_w_std_size': '1225 x 759 x 199', 'set_w_std_m': 9.9, 'set_wo_std_size': '1225 x 708 x 77', 'set_wo_std_m': 9.6, 'stand_base': '813 x 199'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 58, 'pkg_size': '1421 x 846 x 135', 'pkg_m': 17.5, 'set_w_std_size': '1286 x 800 x 222', 'set_w_std_m': 12.3, 'set_wo_std_size': '1286 x 749 x 77', 'set_wo_std_m': 12.0, 'stand_base': '883 x 222'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 65, 'pkg_size': '1578 x 930 x 142', 'pkg_m': 21.0, 'set_w_std_size': '1444 x 882 x 222', 'set_w_std_m': 14.5, 'set_wo_std_size': '1444 x 831 x 77', 'set_wo_std_m': 14.2, 'stand_base': '1005 x 222'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 70, 'pkg_size': '1755 x 1056 x 164', 'pkg_m': 28.5, 'set_w_std_size': '1567 x 926 x 280', 'set_w_std_m': 19.4, 'set_wo_std_size': '1567 x 876 x 77', 'set_wo_std_m': 19.0, 'stand_base': '1123 x 280'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 75, 'pkg_size': '1820 x 1100 x 164', 'pkg_m': 31.0, 'set_w_std_size': '1668 x 1006 x 280', 'set_w_std_m': 22.8, 'set_wo_std_size': '1668 x 958 x 77', 'set_wo_std_m': 22.4, 'stand_base': '1250 x 280'},
+            {'name': 'U8000F(Crystal UHD)', 'inch': 85, 'pkg_size': '2075 x 1200 x 171', 'pkg_m': 40.7, 'set_w_std_size': '1890 x 1133 x 326', 'set_w_std_m': 29.2, 'set_wo_std_size': '1890 x 1084 x 77', 'set_wo_std_m': 28.7, 'stand_base': '1411 x 326'},
+            {'name': 'Frame Pro(LS03FW)', 'inch': 65, 'pkg_size': '1598 x 933 x 164', 'pkg_m': 32.3, 'set_w_std_size': '1457 x 867 x 257', 'set_w_std_m': 22.0, 'set_wo_std_size': '1457 x 837 x 25', 'set_wo_std_m': 21.8, 'stand_base': '1042 x 257'},
+            {'name': 'Frame Pro(LS03FW)', 'inch': 75, 'pkg_size': '1834 x 1082 x 171', 'pkg_m': 40.5, 'set_w_std_size': '1685 x 995 x 320', 'set_w_std_m': 30.9, 'set_wo_std_size': '1685 x 965 x 27', 'set_wo_std_m': 30.7, 'stand_base': '1244 x 320'},
+            {'name': 'Frame Pro(LS03FW)', 'inch': 85, 'pkg_size': '2068 x 1200 x 178', 'pkg_m': 53.7, 'set_w_std_size': '1904 x 1127 x 369', 'set_w_std_m': 41.1, 'set_wo_std_size': '1904 x 1091 x 27', 'set_wo_std_m': 40.8, 'stand_base': '1410 x 369'}
+        ]
+    return models
+
+REFERENCE_MODELS = _load_reference_models()
 
 def run_ista_6a_test_suite():
     """

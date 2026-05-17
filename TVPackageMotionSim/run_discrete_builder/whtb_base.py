@@ -228,10 +228,10 @@ class BaseDiscreteBody:
                     this_body_parallel_correction[0] += blk.mass * (d[1]**2 + d[2]**2)
                     this_body_parallel_correction[1] += blk.mass * (d[0]**2 + d[2]**2)
                     this_body_parallel_correction[2] += blk.mass * (d[0]**2 + d[1]**2)
-                    # Products of inertia (관성 승적) - Parallel Axis Theorem (Assuming block's own products are 0)
-                    this_body_parallel_correction[3] += blk.mass * (d[0] * d[1])
-                    this_body_parallel_correction[4] += blk.mass * (d[0] * d[2])
-                    this_body_parallel_correction[5] += blk.mass * (d[1] * d[2])
+                    # Products of inertia — MuJoCo tensor convention: Ixy = -Σm·xi·yi
+                    this_body_parallel_correction[3] -= blk.mass * (d[0] * d[1])
+                    this_body_parallel_correction[4] -= blk.mass * (d[0] * d[2])
+                    this_body_parallel_correction[5] -= blk.mass * (d[1] * d[2])
                 
                 this_body_final_moi = np.zeros(6)
                 this_body_final_moi[:3] = this_body_local_moi_sum + this_body_parallel_correction[:3]
@@ -260,10 +260,10 @@ class BaseDiscreteBody:
                 total_parallel_moI_correction[0] += blk.mass * (d[1]**2 + d[2]**2)
                 total_parallel_moI_correction[1] += blk.mass * (d[0]**2 + d[2]**2)
                 total_parallel_moI_correction[2] += blk.mass * (d[0]**2 + d[1]**2)
-                # Products of inertia
-                total_parallel_moI_correction[3] += blk.mass * (d[0] * d[1])
-                total_parallel_moI_correction[4] += blk.mass * (d[0] * d[2])
-                total_parallel_moI_correction[5] += blk.mass * (d[1] * d[2])
+                # Products of inertia — MuJoCo tensor convention: Ixy = -Σm·xi·yi
+                total_parallel_moI_correction[3] -= blk.mass * (d[0] * d[1])
+                total_parallel_moI_correction[4] -= blk.mass * (d[0] * d[2])
+                total_parallel_moI_correction[5] -= blk.mass * (d[1] * d[2])
             
             final_total_moi = np.zeros(6)
             final_total_moi[:3] = total_pure_local_moi_sum + total_parallel_moI_correction[:3]

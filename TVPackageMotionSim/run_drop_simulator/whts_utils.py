@@ -1,7 +1,6 @@
 import numpy as np
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
-from run_discrete_builder import create_model
 
 def compute_corner_kinematics(
     center_pos: np.ndarray, 
@@ -95,12 +94,11 @@ def calculate_required_aux_masses(
         
     # 보정 질량계의 평균 중심 좌표 (M_total * C_total = M_base * C_base + M_aux * C_aux)
     pos_aux = (t_cog * t_mass - m_base * c_base) / (m_aux if m_aux > 0 else 1e-6)
-    
-    # 박스 바운딩 박스 제한 (내부 안착 유도, 90% 마진)
+
     bw, bh, bd = config.get('box_w', 2.0), config.get('box_h', 1.4), config.get('box_d', 0.25)
-    limit_x, limit_y, limit_z = bw/2.0 * 0.9, bh/2.0 * 0.9, bd/2.0 * 0.9
-    
-    def clip_pos(p):
+    limit_x, limit_y, limit_z = bw/2.0 * 2.0, bh/2.0 * 2.0, bd/2.0 * 2.0
+
+    def to_pos(p):
         return [
             float(np.clip(p[0], -limit_x, limit_x)),
             float(np.clip(p[1], -limit_y, limit_y)),
@@ -108,12 +106,12 @@ def calculate_required_aux_masses(
         ]
 
     aux_masses = []
-    
+
     # 배치 로직: 보충 질량 개수에 따라 기하학적으로 배분
     if num_masses <= 1 or t_moi is None:
         aux_masses.append({
             "name" : "AutoBalance_Single",
-            "pos"  : clip_pos(pos_aux),
+            "pos"  : to_pos(pos_aux),
             "mass" : float(m_aux),
             "size" : [0.01, 0.01, 0.01]
         })
@@ -123,7 +121,7 @@ def calculate_required_aux_masses(
         dx = math.sqrt(max(0.005, i_needed / (2.0 * m_each)))
         for sx in [-1, 1]:
             p = [pos_aux[0] + sx * dx, pos_aux[1], pos_aux[2]]
-            aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": clip_pos(p), "mass": m_each, "size": [0.01]*3})
+            aux_masses.append({"name": f"AutoBalance_{len(aux_masses)+1}", "pos": to_pos(p), "mass": m_each, "size": [0.01]*3})
             
     else: 
         m_each = m_aux / 8.0
@@ -136,7 +134,7 @@ def calculate_required_aux_masses(
         i_at_t = np.zeros(6)
         i_at_t[:3] = i_base[:3] + m_base * np.array([d[1]**2 + d[2]**2, d[0]**2 + d[2]**2, d[0]**2 + d[1]**2])
         if len(i_base) >= 6:
-            i_at_t[3:6] = i_base[3:6] + m_base * np.array([d[0]*d[1], d[0]*d[2], d[1]*d[2]])
+            i_at_t[3:6] = i_base[3:6] - m_base * np.array([d[0]*d[1], d[0]*d[2], d[1]*d[2]])
         
         di_target = t_moi - i_at_t
 
@@ -146,10 +144,10 @@ def calculate_required_aux_masses(
             ixx = m_aux * (dy**2 + dz**2)
             iyy = m_aux * (dx**2 + dz**2)
             izz = m_aux * (dx**2 + dy**2)
-            # Products
-            ixy = m_aux * dx * dy * a
-            ixz = m_aux * dx * dz * b
-            iyz = m_aux * dy * dz * g
+            # Products — MuJoCo tensor convention: Ixy = -Σm·xi·yi
+            ixy = -m_aux * dx * dy * a
+            ixz = -m_aux * dx * dz * b
+            iyz = -m_aux * dy * dz * g
             return np.array([ixx, iyy, izz, ixy, ixz, iyz])
 
         def objective(p):
@@ -176,10 +174,13 @@ def calculate_required_aux_masses(
         dz_init = math.sqrt(max(0.001, (di_target[0] + di_target[1] - di_target[2]) / (2.0 * m_aux))) if m_aux > 0 else 0.1
         p0 = [dx_init, dy_init, dz_init, 0.0, 0.0, 0.0]
         
-        bounds = [(0.001, 1.0), (0.001, 1.0), (0.001, 1.0), (-0.95, 0.95), (-0.95, 0.95), (-0.95, 0.95)]
+        bounds = [(0.001, limit_x), (0.001, limit_y), (0.001, limit_z), (-0.95, 0.95), (-0.95, 0.95), (-0.95, 0.95)]
         cons = {'type': 'ineq', 'fun': constraint_mass}
 
-        res = minimize(objective, p0, bounds=bounds, constraints=cons, method='SLSQP', options={'maxiter': 100})
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*Values in x were outside bounds.*")
+            res = minimize(objective, p0, bounds=bounds, constraints=cons, method='SLSQP', options={'maxiter': 100})
         
         dx_f, dy_f, dz_f, a_f, b_f, g_f = res.x
         
@@ -201,9 +202,9 @@ def calculate_required_aux_masses(
                     m_final = m_list[idx] * scale
                     p = [pos_aux[0] + sx * dx_f, pos_aux[1] + sy * dy_f, pos_aux[2] + sz * dz_f]
                     aux_masses.append({
-                        "name": f"AutoBalance_{len(aux_masses)+1}", 
-                        "pos": clip_pos(p), 
-                        "mass": float(m_final), 
+                        "name": f"AutoBalance_{len(aux_masses)+1}",
+                        "pos": to_pos(p),
+                        "mass": float(m_final),
                         "size": [0.01, 0.01, 0.01]
                     })
                     idx += 1

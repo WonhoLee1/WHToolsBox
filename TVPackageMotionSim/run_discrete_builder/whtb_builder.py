@@ -366,7 +366,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     
     # 7. XML 파일 작성
     xml_str_io = io.StringIO()
-    xml_str_io.write('<mujoco model="discrete_custom_box">\n  <size memory="512M"/>\n')
+    xml_str_io.write('<mujoco model="discrete_custom_box">\n  <compiler balanceinertia="true"/>\n  <size memory="512M"/>\n')
     xml_str_io.write(f'  <option integrator="{config["sim_integrator"]}" timestep="{config["sim_timestep"]}" iterations="{config["sim_iterations"]}" noslip_iterations="{config["sim_noslip_iterations"]}" tolerance="{config["sim_tolerance"]}" impratio="{config["sim_impratio"]}" gravity="{config["sim_gravity"][0]} {config["sim_gravity"][1]} {config["sim_gravity"][2]}" density="{config.get("air_density", 1.225)}" viscosity="{config.get("air_viscosity", 1.81e-5)}">\n    <flag contact="enable"/>\n  </option>\n')
     # [WHTOOLS] 시각적 설정 일반화 (Fog & Skybox)
     visual_cfg = config.get("visual", {})
@@ -463,26 +463,31 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         pair_classes_xml += f'    <default class="{cls_name}">\n      <pair friction="{f_str}" solref="{sr_str}" solimp="{si_str}" condim="4"/>\n    </default>\n'
         
         # 실제 조합 검색 및 Pair 추가
+        pair_count = 0
+        aabb_filtered = 0
         for i in range(len(all_geoms)):
             for j in range(i+1, len(all_geoms)):
                 gn1, gt1, gi1, p1, s1 = all_geoms[i]
                 gn2, gt2, gi2, p2, s2 = all_geoms[j]
-                
+
                 # Rule 1: Exclusion (Same instance, unless one is floor)
                 if gi1 == gi2 and gi1 != -1: continue
-                
+
                 # Rule 2: Type Match
                 if (gt1 == t1 and gt2 == t2) or (gt1 == t2 and gt2 == t1):
                     if gt1 != "ground" and gt2 != "ground":
-                        # [V5.11.3] AABB-Based Proximity Filter (Precise)
-                        # 각 축 방향으로 두 블록의 절반 크기 합 + 마진(1cm) 보다 멀면 접촉 불가
+                        # [V5.11.3] AABB-Based Proximity Filter
+                        # 각 축 방향으로 두 블록의 절반 크기 합 + 마진(5cm) 보다 멀면 접촉 불가
                         p1_arr, p2_arr = np.array(p1), np.array(p2)
                         s1_arr, s2_arr = np.array(s1), np.array(s2)
                         dist_vec = np.abs(p1_arr - p2_arr)
-                        if np.any(dist_vec > (s1_arr + s2_arr + 0.01)):
+                        if np.any(dist_vec > (s1_arr + s2_arr + 0.05)):
+                            aabb_filtered += 1
                             continue
 
                     contact_pairs_xml += f'    <pair class="{cls_name}" geom1="{gn1}" geom2="{gn2}"/>\n'
+                    pair_count += 1
+        logger(f"  [Contact Pairs] ({t1}, {t2}): {pair_count} pairs generated, {aabb_filtered} filtered by AABB")
 
     xml_str_io.write(pair_classes_xml)
     xml_str_io.write('  </default>\n')
@@ -517,6 +522,24 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
 
     xml_str_io.write(f'    <body name="BPackagingBox" pos="{wx:.5f} {wy:.5f} {wz:.5f}" axisangle="{rot_str}">\n      <freejoint/>\n      <geom type="box" size="0.001 0.001 0.001" mass="0.000021" rgba="0 0 0 0"/>\n')
     for line in root_container.get_worldbody_xml_strings(indent_level=3): xml_str_io.write(line + "\n")
+    ic = config.get("inertia_correction")
+    if ic and abs(ic.get("m_delta", 0.0)) > 1e-9:
+        pd = ic["pos_delta"]; Id = ic["I_delta"]
+        xml_str_io.write(
+            f'      <body name="InertiaCorrection" pos="0 0 0">\n'
+            f'        <inertial mass="{ic["m_delta"]:.6f}"'
+            f' pos="{pd[0]:.5f} {pd[1]:.5f} {pd[2]:.5f}"'
+            f' fullinertia="{Id[0]:.6f} {Id[1]:.6f} {Id[2]:.6f} {Id[3]:.6f} {Id[4]:.6f} {Id[5]:.6f}"/>\n'
+            f'      </body>\n'
+        )
+        # chassis body name (use_internal_weld 여부에 따라 결정)
+        chassis_body_name = b_chassis.name if not b_chassis.use_internal_weld else f"b_{b_chassis.name.lower()}_0_0_0"
+        w_prop = config["welds"].get("auxboxmass", {"torquescale": 1.0})
+        ts_ic = w_prop.get("torquescale", 1.0)
+        inter_weld_xml.append(
+            f'        <weld class="weld_bauxboxmass" body1="InertiaCorrection" body2="{chassis_body_name}" torquescale="{ts_ic}"/>'
+        )
+        logger(f"  [InertiaCorrection] Virtual body injected & welded to '{chassis_body_name}': m_delta={ic['m_delta']:.4f} kg")
     xml_str_io.write('    </body>\n  </worldbody>\n')
     xml_str_io.write(f'  <contact>\n{contact_pairs_xml}  </contact>\n')
     xml_str_io.write('  <equality>\n')

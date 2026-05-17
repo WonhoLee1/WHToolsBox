@@ -6,6 +6,7 @@
 
 import sys
 import numpy as np
+from .whts_theme import MONITOR_WINDOW_QSS, C_BTN_BLUE, C_TEXT_MUTED, C_BG_BTN_HOV, C_BG_DARK, C_BORDER_IN
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, 
     QRadioButton, QButtonGroup, QPushButton, QLabel, 
@@ -143,7 +144,7 @@ class MonitorConfigDialog(QDialog):
         
         win_layout.addWidget(QLabel("<b>Active Monitor Windows:</b>"))
         self.win_list = QLabel("None")
-        self.win_list.setStyleSheet("color: #888; font-style: italic; background: #222; padding: 5px;")
+        self.win_list.setStyleSheet(f"color: {C_TEXT_MUTED}; font-style: italic; background: {C_BG_DARK}; padding: 5px;")
         win_layout.addWidget(self.win_list)
         
         # Update window list if parent has them
@@ -152,7 +153,7 @@ class MonitorConfigDialog(QDialog):
             if wins:
                 titles = [w.windowTitle() for w in wins]
                 self.win_list.setText("\n".join(titles))
-                self.win_list.setStyleSheet("color: #ccc; background: #222; padding: 5px;")
+                self.win_list.setStyleSheet(f"color: {C_BG_BTN_HOV}; background: {C_BG_DARK}; padding: 5px;")
 
         win_layout.addWidget(self._create_separator())
         win_layout.addWidget(QLabel("<b>Grid Layout (Top-Right Aligned):</b>"))
@@ -181,7 +182,7 @@ class MonitorConfigDialog(QDialog):
         # Action Buttons
         btn_layout = QHBoxLayout()
         self.btn_ok = QPushButton("Launch Monitor")
-        self.btn_ok.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold; padding: 10px;")
+        self.btn_ok.setStyleSheet(f"background-color: {C_BTN_BLUE}; color: white; font-weight: bold; padding: 10px;")
         self.btn_ok.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_ok)
         layout.addLayout(btn_layout)
@@ -225,7 +226,7 @@ class MonitorConfigDialog(QDialog):
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("background-color: #444;")
+        line.setStyleSheet(f"background-color: {C_BORDER_IN};")
         return line
 
     def get_config(self):
@@ -278,7 +279,7 @@ class RealTimeMonitorWindow(QWidget):
         self.timer.start(50) # 20 FPS
         
     def _init_ui(self):
-        self.setStyleSheet("background-color: #121212; color: #e0e0e0;")
+        self.setStyleSheet(MONITOR_WINDOW_QSS)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 

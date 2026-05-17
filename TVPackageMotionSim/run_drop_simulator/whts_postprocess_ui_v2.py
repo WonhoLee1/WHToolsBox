@@ -32,11 +32,9 @@ if parent_dir not in sys.path:
 from whts_postprocess_engine_v2 import SimulationControlEngine
 from run_discrete_builder import get_default_config
 
-# 전역 스타일 설정
-GLOBAL_FONT = "D2Coding"
-BG_COLOR = "#1e1e1e"
-ACCENT_COLOR = "#00d2ff"
-SECONDARY_COLOR = "#333333"
+from .whts_theme import (POSTPROC_BG as BG_COLOR, POSTPROC_ACCENT as ACCENT_COLOR,
+                           POSTPROC_SIDEBAR as SECONDARY_COLOR, POSTPROC_FONT as GLOBAL_FONT,
+                           C_TEXT_DIM, C_BORDER_IN, C_BG_CONSOLE, C_TEXT_CONSOLE, C_BTN_RED2)
 
 class LogEmitter(QObject):
     """표준 출력을 UI로 전달하는 시그널 객체"""
@@ -82,7 +80,7 @@ class WHToolsControlCenter(QMainWindow):
 
         self.setWindowTitle("WHTOOLS Integrated Control Center v2.0")
         self.resize(1200, 850)
-        self.setStyleSheet(f"background-color: {BG_COLOR}; color: #e0e0e0; font-family: '{GLOBAL_FONT}';")
+        self.setStyleSheet(f"background-color: {BG_COLOR}; color: {C_TEXT_DIM}; font-family: '{GLOBAL_FONT}';")
         
         self._setup_ui()
         self._load_config_to_ui()
@@ -96,7 +94,7 @@ class WHToolsControlCenter(QMainWindow):
         # 1. 사이드 바
         self.sidebar = QFrame()
         self.sidebar.setFixedWidth(240)
-        self.sidebar.setStyleSheet(f"background-color: {SECONDARY_COLOR}; border-right: 1px solid #444;")
+        self.sidebar.setStyleSheet(f"background-color: {SECONDARY_COLOR}; border-right: 1px solid {C_BORDER_IN};")
         side_layout = QVBoxLayout(self.sidebar)
         
         logo = QLabel("WHTOOLS\nControl Center")
@@ -183,7 +181,7 @@ class WHToolsControlCenter(QMainWindow):
         return w
 
     def _create_group(self, title, items):
-        box = QGroupBox(title); box.setStyleSheet("font-weight: bold; color: #00d2ff; padding-top: 20px;")
+        box = QGroupBox(title); box.setStyleSheet(f"font-weight: bold; color: {ACCENT_COLOR}; padding-top: 20px;")
         f = QFormLayout(box)
         for key, default, dtype in items:
             if dtype == "bool":
@@ -202,7 +200,7 @@ class WHToolsControlCenter(QMainWindow):
         layout.addWidget(QLabel("Simulation Console", font=QFont(GLOBAL_FONT, 18, QFont.Bold)))
         
         self.console = QPlainTextEdit()
-        self.console.setReadOnly(True); self.console.setStyleSheet("background: black; color: #00ff00; font-family: 'Consolas';")
+        self.console.setReadOnly(True); self.console.setStyleSheet(f"background: {C_BG_CONSOLE}; color: {C_TEXT_CONSOLE}; font-family: 'Consolas';")
         layout.addWidget(self.console)
         
         self.prog = QProgressBar(); layout.addWidget(self.prog)
@@ -213,7 +211,7 @@ class WHToolsControlCenter(QMainWindow):
         self.run_btn.clicked.connect(self._run_sim)
         
         self.stop_btn = QPushButton("🛑 STOP"); self.stop_btn.setEnabled(False); self.stop_btn.setFixedHeight(50)
-        self.stop_btn.setStyleSheet("background: #ff4444; color: white; font-weight: bold;")
+        self.stop_btn.setStyleSheet(f"background: {C_BTN_RED2}; color: white; font-weight: bold;")
         self.stop_btn.clicked.connect(self._stop_sim)
         
         btns.addWidget(self.run_btn); btns.addWidget(self.stop_btn)

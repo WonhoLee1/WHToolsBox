@@ -175,6 +175,8 @@ def test_case_1_setup():
     가장 안정적인 물리 계수와 형상 정보를 포함하는 기준 케이스입니다.
 
     심플모드로 openchell, chassis 변형 미고려하고, cushion은 이산화 최소화 한다.
+
+    Conrner 2-3-5
     """
     print("\n" + "="*85)
     print("🚀 Running Case 1: Standard Corner 2-3-5 (0.5m)")
@@ -199,6 +201,8 @@ def test_case_1_setup():
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
+    #cfg["drop_direction"] = "Corner 3-4-5"
+    cfg["drop_direction"] = "Face 4"
     cfg["drop_height"] = 0.3      # 자유 낙하 높이 [m]
     cfg["use_postprocess_ui"] = False  # 엔진 내부의 구버전 UI 실행 여부
     cfg["use_viewer"] = True          # MuJoCo Viewer(GUI) 실행 여부
@@ -240,7 +244,7 @@ def test_case_1_setup():
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # fast mode
-    #'''
+    '''
     cfg["components"] = {
         "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
         "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
@@ -250,7 +254,7 @@ def test_case_1_setup():
     }
     cfg["sim_integrator"] = "implicitfast"
     cfg["sim_iterations"] = 30
-    #'''
+    '''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]
@@ -261,7 +265,9 @@ def test_case_1_setup():
         ("ground", "cushion_edge")  : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
         ("ground", "paper")         : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
         ("cushion", "opencell")     : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
-        ("cushion", "chassis")      : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},        
+        ("cushion_edge", "opencell"): {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
+        ("cushion", "chassis")      : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
+        ("cushion_edge", "chassis") : {"friction": common_friction, "solref": p_solref, "solimp": p_solimp},
         ("cushion", "paper")        : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
     }
     
@@ -306,15 +312,14 @@ def test_case_1_setup():
     cfg["cush_yield_pressure"]  = 5000.0
     cfg["plastic_hardening_modulus"] = 300000.0
     
-    # [6. MASS TOTALS] : (전체 합계: 25.0kg)
-    # [6. MASS TOTALS & AUTO BALANCING]
+    # [6. MASS TOTALS & INERTIA CORRECTION]
+    # target_mass / target_cog / target_inertia 를 지정하면 analyze_and_balance_components가
+    # delta-inertia를 자동 계산하여 MuJoCo XML에 <InertiaCorrection> 가상 바디로 삽입합니다.
     cfg["components_balance"] = {
-        "target_mass": 42.2,
-        "target_inertia": [3.0, 8.0, 14.0, 0.1, 0.1, 0.1 ],
-        "target_cog": [0.001, 0.007, 0.010],  # 10cm 편심 배치 시도
-        "count": 8
+        "target_mass"   : 42.2,
+        "target_inertia": [3.0, 7.0, 11.0, -0.1, 0.1, 0.1],  # [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] kg·m²
+        "target_cog"    : [0.001, 0.007, 0.010],              # [x, y, z] m
     }
-    # analyze_and_balance_components가 실행되면, 위 설정을 바탕으로 aux 질량이 생성되어 component_aux에 추가됩니다.
 
     # [7. GROUND PROPERTIES]
     # (Unused legacy keys removed)
