@@ -200,9 +200,11 @@ def test_case_1_setup():
     cfg["occ_ithick"] = 0.030        # 인터페이스 두께 관련 변수로 추정
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
+    cfg["drop_mode"] = "GENERAL"
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
     #cfg["drop_direction"] = "Corner 3-4-5"
-    cfg["drop_direction"] = "Face 4"
+    #cfg["drop_direction"] = "Face 4"
+    cfg["drop_direction"] = "back-right"
     cfg["drop_height"] = 0.3      # 자유 낙하 높이 [m]
     cfg["use_postprocess_ui"] = False  # 엔진 내부의 구버전 UI 실행 여부
     cfg["use_viewer"] = True          # MuJoCo Viewer(GUI) 실행 여부
@@ -244,7 +246,7 @@ def test_case_1_setup():
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # fast mode
-    '''
+    #'''
     cfg["components"] = {
         "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
         "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
@@ -254,7 +256,7 @@ def test_case_1_setup():
     }
     cfg["sim_integrator"] = "implicitfast"
     cfg["sim_iterations"] = 30
-    '''
+    #'''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]
@@ -301,7 +303,7 @@ def test_case_1_setup():
         "cushion"        : {"solref": p_solref, "solimp": p_solimp},
         "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
         "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
-        "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
+        "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
         "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},
         "auxboxmass"     : {"solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.001, 0.5, 2], "torquescale": 100.0},
     }

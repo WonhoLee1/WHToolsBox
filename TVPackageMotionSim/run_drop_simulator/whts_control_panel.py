@@ -16,7 +16,7 @@ from pathlib import Path
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox,
+    QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox, QAbstractSpinBox,
     QPlainTextEdit, QDialog, QMessageBox, QSplitter, QTreeWidget, QTreeWidgetItem
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
@@ -133,7 +133,7 @@ class VisualSchematicWidget(QtWidgets.QWidget):
     """[WHTOOLS] 박스 및 부품 크기 비율을 가시화하는 2D 스키매틱 위젯"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(250, 200)
+        self.setMinimumSize(250, 110)  # [WHTOOLS] 박스와 SET 크기 preview 영역 높이를 200 -> 110으로 대폭 축소
         self.config = {}
 
     def update_config(self, config):
@@ -155,7 +155,7 @@ class VisualSchematicWidget(QtWidgets.QWidget):
         ah = self.config.get("assy_h", 0.6)
         
         # 캔버스 매핑
-        rect = self.rect().adjusted(20, 20, -20, -20)
+        rect = self.rect().adjusted(20, 16, -20, -16)  # 높이 축소에 따른 세로 여백 마진 피팅
         max_dim = max(bw, bh)
         scale = min(rect.width() / bw, rect.height() / bh) if max_dim > 0 else 1.0
         
@@ -595,8 +595,8 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
     """
     def __init__(self, current_config, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ISTA 6-Amazon Test Setup Helper")
-        self.setFixedSize(540, 720)  # 창의 폭을 2/3 수준(540px)으로 대폭 줄이고 크기 변화가 없도록 사이즈 완전 고정
+        self.setWindowTitle("Size and ISTA 6-Amazon Setup Helper")
+        self.setFixedSize(540, 680)  # SET 치수 입력부 추가에 따른 높이 정밀 확장
         self.parent_dialog = parent
         self.config = current_config.copy()
         
@@ -612,47 +612,93 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         
         # 1. 스펙 입력 영역
-        input_group = QtWidgets.QGroupBox("Package Spec & Shipment Method")
+        input_group = QtWidgets.QGroupBox("Package & SET Spec & Shipment Method")
         input_layout = QtWidgets.QGridLayout(input_group)
         input_layout.setSpacing(6)
         input_layout.setContentsMargins(8, 8, 8, 8)
         
-        input_layout.addWidget(QtWidgets.QLabel("Width (m):"), 0, 0)
+        # [Row 0] Package Dimensions
+        lbl_pkg_w = QtWidgets.QLabel("Pkg W (m):")
+        input_layout.addWidget(lbl_pkg_w, 0, 0)
         self.spin_w = QtWidgets.QDoubleSpinBox()
         self.spin_w.setDecimals(3)
         self.spin_w.setRange(0.01, 5.0)
         self.spin_w.setSingleStep(0.05)
         self.spin_w.setValue(self.config.get("box_w", 1.4))
         self.spin_w.valueChanged.connect(self._on_input_changed)
-        self.spin_w.setFixedWidth(115)  # 스타일시트 패딩 때문에 글자가 잘려 보이던 문제를 해결하기 위해 너비를 90 -> 115로 대폭 확장
+        self.spin_w.setFixedWidth(115)  # 스타일시트 패딩 대응 너비 확보
         input_layout.addWidget(self.spin_w, 0, 1)
         
-        input_layout.addWidget(QtWidgets.QLabel("Height (m):"), 0, 2)
+        lbl_pkg_h = QtWidgets.QLabel("Pkg H (m):")
+        input_layout.addWidget(lbl_pkg_h, 0, 2)
         self.spin_h = QtWidgets.QDoubleSpinBox()
         self.spin_h.setDecimals(3)
         self.spin_h.setRange(0.01, 5.0)
         self.spin_h.setSingleStep(0.05)
         self.spin_h.setValue(self.config.get("box_h", 0.85))
         self.spin_h.valueChanged.connect(self._on_input_changed)
-        self.spin_h.setFixedWidth(115)  # 90 -> 115 확장
+        self.spin_h.setFixedWidth(115)
         input_layout.addWidget(self.spin_h, 0, 3)
         
-        input_layout.addWidget(QtWidgets.QLabel("Depth (m):"), 0, 4)
+        lbl_pkg_d = QtWidgets.QLabel("Pkg D (m):")
+        input_layout.addWidget(lbl_pkg_d, 0, 4)
         self.spin_d = QtWidgets.QDoubleSpinBox()
         self.spin_d.setDecimals(3)
         self.spin_d.setRange(0.01, 5.0)
         self.spin_d.setSingleStep(0.05)
         self.spin_d.setValue(self.config.get("box_d", 0.15))
         self.spin_d.valueChanged.connect(self._on_input_changed)
-        self.spin_d.setFixedWidth(115)  # 90 -> 115 확장
+        self.spin_d.setFixedWidth(115)
         input_layout.addWidget(self.spin_d, 0, 5)
         
+        # [Row 1] SET (Chassis/OpenCell) Dimensions
+        lbl_set_w = QtWidgets.QLabel("SET W (m):")
+        input_layout.addWidget(lbl_set_w, 1, 0)
+        self.spin_set_w = QtWidgets.QDoubleSpinBox()
+        self.spin_set_w.setDecimals(3)
+        self.spin_set_w.setRange(0.01, 5.0)
+        self.spin_set_w.setSingleStep(0.05)
+        self.spin_set_w.setValue(self.config.get("assy_w", 1.23))
+        self.spin_set_w.valueChanged.connect(self._on_input_changed)
+        self.spin_set_w.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_w, 1, 1)
+        
+        lbl_set_h = QtWidgets.QLabel("SET H (m):")
+        input_layout.addWidget(lbl_set_h, 1, 2)
+        self.spin_set_h = QtWidgets.QDoubleSpinBox()
+        self.spin_set_h.setDecimals(3)
+        self.spin_set_h.setRange(0.01, 5.0)
+        self.spin_set_h.setSingleStep(0.05)
+        self.spin_set_h.setValue(self.config.get("assy_h", 0.71))
+        self.spin_set_h.valueChanged.connect(self._on_input_changed)
+        self.spin_set_h.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_h, 1, 3)
+        
+        # SET Depth 초기값 계산: chassis_d + opencell_d + opencellcoh_d + cush_gap
+        init_set_d = (
+            self.config.get("chassis_d", 0.05) + 
+            self.config.get("opencell_d", 0.005) + 
+            self.config.get("opencellcoh_d", 0.002) + 
+            self.config.get("cush_gap", 0.003)
+        )
+        lbl_set_d = QtWidgets.QLabel("SET D (m):")
+        input_layout.addWidget(lbl_set_d, 1, 4)
+        self.spin_set_d = QtWidgets.QDoubleSpinBox()
+        self.spin_set_d.setDecimals(3)
+        self.spin_set_d.setRange(0.01, 5.0)
+        self.spin_set_d.setSingleStep(0.005)
+        self.spin_set_d.setValue(init_set_d)
+        self.spin_set_d.valueChanged.connect(self._on_input_changed)
+        self.spin_set_d.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_d, 1, 5)
+        
+        # [Row 2] Actions & Drop Mode
         self.btn_ref_model = QtWidgets.QPushButton("💾 Select Ref. Model")
         self.btn_ref_model.setStyleSheet(f"background-color: {C_BTN_BLUE}; color: white;")
         self.btn_ref_model.clicked.connect(self._on_select_ref_model)
-        input_layout.addWidget(self.btn_ref_model, 1, 0, 1, 2)
+        input_layout.addWidget(self.btn_ref_model, 2, 0, 1, 2)
         
-        input_layout.addWidget(QtWidgets.QLabel("Mode:"), 1, 2)
+        input_layout.addWidget(QtWidgets.QLabel("Mode:"), 2, 2)
         self.btn_group_mode = QtWidgets.QButtonGroup(self)
         self.radio_parcel = QtWidgets.QRadioButton("Parcel")
         self.radio_ltl = QtWidgets.QRadioButton("LTL")
@@ -666,32 +712,13 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         mode_lay.addWidget(self.radio_parcel)
         mode_lay.addWidget(self.radio_ltl)
         mode_lay.addWidget(self.radio_custom)
-        input_layout.addLayout(mode_lay, 1, 3, 1, 3)
+        input_layout.addLayout(mode_lay, 2, 3, 1, 3)
         
         self.radio_parcel.toggled.connect(self._on_input_changed)
         self.radio_ltl.toggled.connect(self._on_input_changed)
         self.radio_custom.toggled.connect(self._on_input_changed)
         
         layout.addWidget(input_group)
-        
-        # 1-1. Mass, CoG, MoI 통합 배치 영역
-        mass_group = QtWidgets.QGroupBox("Mass, CoG, MoI")
-        mass_layout = QtWidgets.QHBoxLayout(mass_group)
-        mass_layout.setContentsMargins(8, 8, 8, 8)
-        
-        self.report_label = QtWidgets.QLabel("Total Mass: - kg | CoG: -\nMoI: -")
-        self.report_label.setFont(QFont("Consolas", 10))
-        self.report_label.setStyleSheet(f"color: {C_TEXT_DIM};")
-        
-        self.btn_balance = QtWidgets.QPushButton("⚖️ Balance")
-        self.btn_balance.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
-        self.btn_balance.clicked.connect(self._on_balance_clicked)
-        
-        mass_layout.addWidget(self.report_label)
-        mass_layout.addStretch()
-        mass_layout.addWidget(self.btn_balance)
-        
-        layout.addWidget(mass_group)
         
         # 2-1. Custom Mode Drop Setup (중간 영역 배치)
         self.custom_setup_group = QtWidgets.QGroupBox("Drop Direction Custom")
@@ -860,11 +887,20 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         dlg = SelectTVModelDialog(self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted and dlg.selected_model:
             m = dlg.selected_model
+            # 1) Package 치수 파싱 및 반영
             w_mm, h_mm, d_mm = parse_size_str(m['pkg_size'])
             if w_mm > 0:
                 self.spin_w.setValue(w_mm / 1000.0)
                 self.spin_h.setValue(h_mm / 1000.0)
                 self.spin_d.setValue(d_mm / 1000.0)
+                
+            # 2) SET 치수 파싱 및 반영 (Stand 제외 순수 SET 크기)
+            set_w_mm, set_h_mm, set_d_mm = parse_size_str(m['set_wo_std_size'])
+            if set_w_mm > 0:
+                self.spin_set_w.setValue(set_w_mm / 1000.0)
+                self.spin_set_h.setValue(set_h_mm / 1000.0)
+                self.spin_set_d.setValue(set_d_mm / 1000.0)
+                
             self.temp_selected_ref_model = m
             self._update_all()
 
@@ -905,12 +941,6 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.combo_custom_direction.addItems(items)
         self.combo_custom_direction.blockSignals(False)
 
-    def _on_balance_clicked(self):
-        dlg = ComponentBalanceDialog(self, self.config)
-        if dlg.exec_() == QtWidgets.QDialog.Accepted:
-            self.config = dlg.config.copy()
-            self._update_all()
-
     def _update_reporting(self) -> float:
         """create_model을 사용하여 예상 질량 정보를 리포팅하고 총 질량을 반환합니다."""
         try:
@@ -930,18 +960,25 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
             self.config["box_h"] = self.spin_h.value()
             self.config["box_d"] = self.spin_d.value()
 
+            # [WHTOOLS] SET 치수 반영 및 Chassis Thickness(chassis_d) 계산 공식 연동
+            self.config["assy_w"] = self.spin_set_w.value()
+            self.config["assy_h"] = self.spin_set_h.value()
+            
+            opencell_d = self.config.get("opencell_d", 0.005)
+            opencellcoh_d = self.config.get("opencellcoh_d", 0.002)
+            cush_gap = self.config.get("cush_gap", 0.003)
+            
+            calculated_chassis_d = self.spin_set_d.value() - (opencell_d + opencellcoh_d + cush_gap)
+            self.config["chassis_d"] = max(0.001, calculated_chassis_d)
+
             with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as tmp:
                 tmp_path = tmp.name
             
             _, mass, cog, moi, details = create_model(tmp_path, config=self.config, logger=lambda x: None)
             os.unlink(tmp_path)
             
-            report = f"Total Mass: {mass:.2f} kg | CoG: [{cog[0]:.3f}, {cog[1]:.3f}, {cog[2]:.3f}]<br/>"
-            report += f"MoI: [{moi[0]:.4f}, {moi[1]:.4f}, {moi[2]:.4f}]"
-            self.report_label.setText(report)
             return mass
         except Exception as e:
-            self.report_label.setText(f"Reporting Error: {e}")
             return self.config.get("total_mass", 12.0)
 
     def _update_all(self):
@@ -1047,12 +1084,16 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.config["box_h"] = self.spin_h.value()
         self.config["box_d"] = self.spin_d.value()
         
-        if hasattr(self, 'temp_selected_ref_model') and self.temp_selected_ref_model:
-            m = self.temp_selected_ref_model
-            set_w_mm, set_h_mm, _ = parse_size_str(m['set_wo_std_size'])
-            if set_w_mm > 0:
-                self.config["assy_w"] = set_w_mm / 1000.0
-                self.config["assy_h"] = set_h_mm / 1000.0
+        # [WHTOOLS] SET 치수 및 chassis_d 계산 공식 적용하여 config 갱신
+        self.config["assy_w"] = self.spin_set_w.value()
+        self.config["assy_h"] = self.spin_set_h.value()
+        
+        opencell_d = self.config.get("opencell_d", 0.005)
+        opencellcoh_d = self.config.get("opencellcoh_d", 0.002)
+        cush_gap = self.config.get("cush_gap", 0.003)
+        
+        calculated_chassis_d = self.spin_set_d.value() - (opencell_d + opencellcoh_d + cush_gap)
+        self.config["chassis_d"] = max(0.001, calculated_chassis_d)
                 
         if self.parent_dialog:
             self.parent_dialog.config.update(self.config)
@@ -1139,6 +1180,56 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         self.spin_moi_yz = QtWidgets.QDoubleSpinBox(); self.spin_moi_yz.setRange(-100.0, 100.0); self.spin_moi_yz.setDecimals(4); self.spin_moi_yz.setValue(moi_vals[5])
         moi_prod_lay.addWidget(self.spin_moi_xy); moi_prod_lay.addWidget(self.spin_moi_xz); moi_prod_lay.addWidget(self.spin_moi_yz)
         specs_grid.addLayout(moi_prod_lay, 3, 1)
+
+        # 4) Component Masses (Cushion, Opencell, Chassis) 추가
+        specs_grid.addWidget(QtWidgets.QLabel("📦 Component Masses (kg):"), 4, 0)
+        comp_mass_lay = QtWidgets.QHBoxLayout()
+        comp_mass_lay.setSpacing(8)
+        
+        lbl_cush = QtWidgets.QLabel("Cushion:")
+        lbl_cush.setFont(QFont("Consolas", 9))
+        self.spin_cushion_mass = QtWidgets.QDoubleSpinBox()
+        self.spin_cushion_mass.setRange(0.01, 100.0)
+        self.spin_cushion_mass.setSingleStep(0.1)
+        self.spin_cushion_mass.setDecimals(2)
+        self.spin_cushion_mass.setFixedWidth(80)
+        self.spin_cushion_mass.setAlignment(Qt.AlignRight)
+        
+        lbl_open = QtWidgets.QLabel("Opencell:")
+        lbl_open.setFont(QFont("Consolas", 9))
+        self.spin_opencell_mass = QtWidgets.QDoubleSpinBox()
+        self.spin_opencell_mass.setRange(0.01, 100.0)
+        self.spin_opencell_mass.setSingleStep(0.1)
+        self.spin_opencell_mass.setDecimals(2)
+        self.spin_opencell_mass.setFixedWidth(80)
+        self.spin_opencell_mass.setAlignment(Qt.AlignRight)
+        
+        lbl_chas = QtWidgets.QLabel("Chassis:")
+        lbl_chas.setFont(QFont("Consolas", 9))
+        self.spin_chassis_mass = QtWidgets.QDoubleSpinBox()
+        self.spin_chassis_mass.setRange(0.01, 200.0)
+        self.spin_chassis_mass.setSingleStep(0.1)
+        self.spin_chassis_mass.setDecimals(2)
+        self.spin_chassis_mass.setFixedWidth(80)
+        self.spin_chassis_mass.setAlignment(Qt.AlignRight)
+        
+        # 초기값 동기화
+        comp_cfg = self.config.get("components", {})
+        self.spin_cushion_mass.setValue(comp_cfg.get("cushion", {}).get("mass", 3.0))
+        self.spin_opencell_mass.setValue(comp_cfg.get("opencell", {}).get("mass", 5.0))
+        self.spin_chassis_mass.setValue(comp_cfg.get("chassis", {}).get("mass", 10.0))
+        
+        comp_mass_lay.addWidget(lbl_cush)
+        comp_mass_lay.addWidget(self.spin_cushion_mass)
+        comp_mass_lay.addSpacing(10)
+        comp_mass_lay.addWidget(lbl_open)
+        comp_mass_lay.addWidget(self.spin_opencell_mass)
+        comp_mass_lay.addSpacing(10)
+        comp_mass_lay.addWidget(lbl_chas)
+        comp_mass_lay.addWidget(self.spin_chassis_mass)
+        comp_mass_lay.addStretch()
+        
+        specs_grid.addLayout(comp_mass_lay, 4, 1)
 
         main_layout.addWidget(specs_group)
 
@@ -1467,6 +1558,17 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
             }
             self.config["inertia_correction"] = self.inertia_correction
 
+            # [WHTOOLS] 입력받은 부품 무게(cushion, opencell, chassis)를 components 설정에 실시간 적용
+            if "components" not in self.config:
+                self.config["components"] = {}
+            comp = self.config["components"]
+            for key, val in [("cushion", self.spin_cushion_mass.value()),
+                             ("opencell", self.spin_opencell_mass.value()),
+                             ("chassis", self.spin_chassis_mass.value())]:
+                if key not in comp:
+                    comp[key] = {}
+                comp[key]["mass"] = val
+
             if self.parent_dialog:
                 self.parent_dialog.config = self.config
                 self.parent_dialog._populate_config_tree()
@@ -1502,8 +1604,8 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.sim = simulator
         self.config = simulator.config.copy() if simulator else {}
         self.setWindowTitle("🛠️ [WHTOOLS] Model Configuration & Setup")
-        self.setMinimumSize(750, 780)
-        self.resize(800, 800)
+        self.setMinimumSize(750, 690)  # [WHTOOLS] 프리뷰 컴팩트 슬림화에 따른 세로 최소 높이 축소 (780 -> 690)
+        self.resize(800, 700)          # 기본 열림 세로 크기도 800 -> 700 으로 슬림화
         
         self.setStyleSheet(GLOBAL_QSS)
         
@@ -1511,88 +1613,118 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self._on_ista_changed(self.combo_ista.currentText())
 
     def _init_ui(self):
+        # [WHTOOLS] 레거시 호환용 shadow 위젯 생성 및 숨김 처리 (combo_ista AttributeError 원천 방지)
+        self.combo_ista = QtWidgets.QComboBox()
+        self.combo_ista.addItems(["PARCEL", "LTL", "GENERAL"])
+        self.combo_ista.setCurrentText(self.config.get("drop_mode", "PARCEL"))
+        self.combo_ista.hide()
+
+        self.combo_preset = QtWidgets.QComboBox()
+        self.combo_preset.hide()
+
+        self.combo_gen_type = QtWidgets.QComboBox()
+        self.combo_gen_type.hide()
+
+        self.combo_gen_p1 = QtWidgets.QComboBox()
+        self.combo_gen_p1.hide()
+
+        self.combo_gen_p2 = QtWidgets.QComboBox()
+        self.combo_gen_p2.hide()
+
+        self.combo_gen_p3 = QtWidgets.QComboBox()
+        self.combo_gen_p3.hide()
+
+        self.edit_direction = QtWidgets.QLineEdit()
+        self.edit_direction.hide()
+
+        self.spin_height = QtWidgets.QDoubleSpinBox()
+        self.spin_height.setValue(self.config.get("drop_height", 0.5))
+        self.spin_height.hide()
+
+        self.spin_azimuth = QtWidgets.QDoubleSpinBox()
+        self.spin_azimuth.setValue(self.config.get("initial_tilt_azimuth_deg", 0.0))
+        self.spin_azimuth.hide()
+
+        self.spin_lat = QtWidgets.QDoubleSpinBox()
+        self.spin_lat.setValue(self.config.get("initial_tilt_deg", 0.0))
+        self.spin_lat.hide()
+
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
         
         # 1. 상단 섹션: Preset & Drop Setup + Visual Schematic
         top_splitter = QtWidgets.QSplitter(Qt.Horizontal)
         
         # 1-1. 왼쪽: Preset & Drop Controls
-        setup_group = QtWidgets.QGroupBox("Presets & Drop Setup")
+        setup_group = QtWidgets.QGroupBox("Setup")
         setup_vlay = QtWidgets.QVBoxLayout(setup_group)
-        setup_vlay.setSpacing(12)
+        setup_vlay.setSpacing(6)
         setup_vlay.setContentsMargins(12, 16, 12, 12)
         
         # 1) Setup 버튼
-        self.btn_select_ref_model_direct = QtWidgets.QPushButton("🔍 Setup")
-        self.btn_select_ref_model_direct.setStyleSheet(f"background-color: {C_BTN_TEAL}; color: white; font-weight: bold; font-size: 10pt;")
-        self.btn_select_ref_model_direct.setFixedHeight(38)
+        self.btn_select_ref_model_direct = QtWidgets.QPushButton("🔍 Size and ISTA")        
+        self.btn_select_ref_model_direct.setFixedHeight(30)
         self.btn_select_ref_model_direct.clicked.connect(self._on_select_sequence)
         setup_vlay.addWidget(self.btn_select_ref_model_direct)
         
         # 2) Mass, CoG, MoI 버튼 (Balance Optimizer UI 호출)
         self.btn_mass_cog_moi = QtWidgets.QPushButton("⚖️ Mass, CoG, MoI")
-        self.btn_mass_cog_moi.setStyleSheet(f"background-color: {C_BTN_BLUE2}; color: white; font-weight: bold; font-size: 10pt;")
-        self.btn_mass_cog_moi.setFixedHeight(38)
+        self.btn_mass_cog_moi.setFixedHeight(30)
         self.btn_mass_cog_moi.clicked.connect(self._on_balance_clicked)
         setup_vlay.addWidget(self.btn_mass_cog_moi)
         
+        # 3) Blocks (Mesh Resolution Preset) 추가
+        blocks_group = QtWidgets.QGroupBox("Blocks (Mesh Preset)")
+        blocks_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        blocks_vlay = QtWidgets.QVBoxLayout(blocks_group)
+        blocks_vlay.setSpacing(6)
+        blocks_vlay.setContentsMargins(8, 10, 8, 8)
+        
+        # Normal
+        lay_normal = QtWidgets.QHBoxLayout()
+        self.btn_normal = QtWidgets.QPushButton("Normal")
+        self.btn_normal.setCheckable(True)        
+        lbl_normal_desc = QtWidgets.QLabel("5x5x3, 4x4x1 (Weld)")        
+        lbl_normal_desc.setStyleSheet(f"color: {C_TEXT_DIM};")
+        lay_normal.addWidget(self.btn_normal)
+        lay_normal.addWidget(lbl_normal_desc)
+        lay_normal.addStretch()
+        blocks_vlay.addLayout(lay_normal)
+        
+        # Fast
+        lay_fast = QtWidgets.QHBoxLayout()
+        self.btn_fast = QtWidgets.QPushButton("Fast")
+        self.btn_fast.setCheckable(True)        
+        lbl_fast_desc = QtWidgets.QLabel("3x3x3, 3x3x1 (Full Rigid)")        
+        lbl_fast_desc.setStyleSheet(f"color: {C_TEXT_DIM};")
+        lay_fast.addWidget(self.btn_fast)
+        lay_fast.addWidget(lbl_fast_desc)
+        lay_fast.addStretch()
+        blocks_vlay.addLayout(lay_fast)
+        
+        setup_vlay.addWidget(blocks_group)
+        
+        self.block_group = QtWidgets.QButtonGroup(self)
+        self.block_group.addButton(self.btn_normal)
+        self.block_group.addButton(self.btn_fast)
+        
+        # 초기 활성 Preset 판정 및 스타일 적용
+        comp = self.config.get("components", {})
+        paper_div = comp.get("paper", {}).get("div", [5, 5, 3])
+        if paper_div == [3, 3, 3]:
+            self.btn_fast.setChecked(True)
+            self.btn_fast.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
+        else:
+            self.btn_normal.setChecked(True)
+            self.btn_normal.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
+            
+        # 클릭 이벤트 연결
+        self.btn_normal.clicked.connect(lambda: self._on_block_preset_changed("Normal"))
+        self.btn_fast.clicked.connect(lambda: self._on_block_preset_changed("Fast"))
+        
         setup_vlay.addStretch()
         
-        # [Shadow Widgets] 레이아웃에 배치하지 않으므로 반드시 hide() 처리
-        self.combo_preset = QtWidgets.QComboBox(self)
-        self.combo_preset.addItems(["Custom", "55 inch", "65 inch", "75 inch", "85 inch", "98 inch"])
-        self.combo_preset.currentTextChanged.connect(self._on_preset_changed)
-        self.combo_preset.hide()
-
-        self.combo_ista = QtWidgets.QComboBox(self)
-        self.combo_ista.addItems(["GENERAL", "PARCEL", "LTL"])
-        self.combo_ista.currentTextChanged.connect(self._on_ista_changed)
-        self.combo_ista.hide()
-
-        self.direction_container_widget = QtWidgets.QWidget(self)
-        self.direction_container_widget.hide()
-        self.edit_direction = QtWidgets.QLineEdit(self.config.get("drop_direction", "Bottom"), self)
-        self.edit_direction.setReadOnly(True)
-        self.edit_direction.hide()
-
-        self.btn_select_sequence = QtWidgets.QPushButton("🔍 Select Sequence & Setup Posture", self)
-        self.btn_select_sequence.clicked.connect(self._on_select_sequence)
-        self.btn_select_sequence.hide()
-
-        self.general_dropdowns_container = QtWidgets.QWidget(self)
-        gen_drop_lay = QtWidgets.QHBoxLayout(self.general_dropdowns_container)
-        self.combo_gen_type = QtWidgets.QComboBox(self)
-        self.combo_gen_type.addItems(["Face", "Edge", "Corner"])
-        self.combo_gen_type.currentTextChanged.connect(self._on_general_dropdowns_changed)
-        gen_drop_lay.addWidget(self.combo_gen_type)
-        self.combo_gen_p1 = QtWidgets.QComboBox(self)
-        self.combo_gen_p2 = QtWidgets.QComboBox(self)
-        self.combo_gen_p3 = QtWidgets.QComboBox(self)
-        self.combo_gen_p1.currentTextChanged.connect(self._on_general_dropdowns_changed)
-        self.combo_gen_p2.currentTextChanged.connect(self._on_general_dropdowns_changed)
-        self.combo_gen_p3.currentTextChanged.connect(self._on_general_dropdowns_changed)
-        gen_drop_lay.addWidget(self.combo_gen_p1)
-        gen_drop_lay.addWidget(self.combo_gen_p2)
-        gen_drop_lay.addWidget(self.combo_gen_p3)
-        self.general_dropdowns_container.hide()
-
-        self.spin_height = QtWidgets.QDoubleSpinBox(self)
-        self.spin_height.setRange(0.0, 5.0); self.spin_height.setSingleStep(0.1)
-        self.spin_height.setValue(self.config.get("drop_height", 0.5))
-        self.spin_height.valueChanged.connect(self._on_numeric_ui_changed)
-        self.spin_height.hide()
-
-        self.spin_azimuth = QtWidgets.QSpinBox(self)
-        self.spin_azimuth.setRange(-180, 180); self.spin_azimuth.setValue(self.config.get("initial_tilt_azimuth_deg", 0))
-        self.spin_azimuth.valueChanged.connect(self._on_numeric_ui_changed)
-        self.spin_azimuth.hide()
-
-        self.spin_lat = QtWidgets.QSpinBox(self)
-        self.spin_lat.setRange(-180, 180); self.spin_lat.setValue(self.config.get("initial_tilt_deg", 0))
-        self.spin_lat.valueChanged.connect(self._on_numeric_ui_changed)
-        self.spin_lat.hide()
-        
+                
         top_splitter.addWidget(setup_group)
         
         # 1-2. 오른쪽: Visual Schematic
@@ -1608,9 +1740,10 @@ class ModelSetupDialog(QtWidgets.QDialog):
         # 3-1. 위쪽: Config Tree & Category
         self.config_tree = QtWidgets.QTreeWidget()
         self.config_tree.setColumnCount(3)
-        self.config_tree.setHeaderLabels(["Configuration Key", "Description", "Value"])
-        self.config_tree.setColumnWidth(0, 260)
-        self.config_tree.setColumnWidth(1, 280)
+        self.config_tree.setHeaderLabels(["Configuration Key", "Value", "Description"])
+        self.config_tree.setColumnWidth(0, 200)
+        self.config_tree.setColumnWidth(1, 250)  # Value 열 폭
+        self.config_tree.setColumnWidth(2, 250)  # Description 열 폭
         self.config_tree.itemClicked.connect(self._on_config_item_clicked)
         self.config_tree.itemChanged.connect(self._on_tree_item_changed)
         self.config_tree.setStyleSheet(TREE_QSS)
@@ -1626,7 +1759,6 @@ class ModelSetupDialog(QtWidgets.QDialog):
         editor_layout.addWidget(self.lbl_editor_title)
         
         self.py_editor = QtWidgets.QPlainTextEdit()
-        self.py_editor.setFont(QtGui.QFont("Consolas", 10))
         self.py_editor.setStyleSheet(f"background-color: {C_BG_EDITOR}; color: {C_STATUS_TEXT_OK}; border: 1px solid {C_BORDER};")
         editor_layout.addWidget(self.py_editor)
         
@@ -1647,9 +1779,8 @@ class ModelSetupDialog(QtWidgets.QDialog):
         
         # 4. 버튼 영역
         btn_box = QtWidgets.QHBoxLayout()
-        self.btn_create = QtWidgets.QPushButton("🚀 Create & Reload Model")
-        self.btn_create.setMinimumHeight(45)
-        self.btn_create.setStyleSheet(f"background-color: {C_BTN_GREEN}; font-weight: bold; font-size: 11pt;")
+        self.btn_create = QtWidgets.QPushButton("🚀 Create && Reload Model")
+        self.btn_create.setMinimumHeight(30)                
         self.btn_create.clicked.connect(self._on_create_and_reload)
         
         self.btn_close = QtWidgets.QPushButton("Close")
@@ -1661,6 +1792,12 @@ class ModelSetupDialog(QtWidgets.QDialog):
         btn_box.addWidget(self.btn_create)
         layout.addLayout(btn_box)
         
+        # [WHTOOLS] 레거시 호환용 속성 바인딩 매핑 (AttributeError 원천 방지)
+        self.btn_select_sequence = self.btn_select_ref_model_direct
+        self.general_dropdowns_container = QtWidgets.QWidget(self) # 다이얼로그 자식으로 소속시켜 독립 top-level 창 격발 오작동 차단
+        self.general_dropdowns_container.setGeometry(0, 0, 0, 0)
+        self.general_dropdowns_container.hide()
+
         # 초기 트리 채우기
         self._populate_config_tree()
 
@@ -1673,11 +1810,11 @@ class ModelSetupDialog(QtWidgets.QDialog):
             
             # 값이 dict인 경우 재귀적으로 하위 노드 생성
             if isinstance(v, dict):
-                child_item.setText(2, "(dictionary)") # col=2가 Value 열
+                child_item.setText(1, "(dictionary)") # col=1이 Value 열
                 child_item.setData(0, Qt.UserRole, item_path) # UserRole은 0번째 열에 귀속
                 self._add_dict_items(child_item, v, item_path)
             else:
-                child_item.setText(2, repr(v)) # col=2가 Value 열
+                child_item.setText(1, repr(v)) # col=1이 Value 열
                 child_item.setData(0, Qt.UserRole, item_path) # UserRole은 0번째 열에 귀속
                 # Leaf 노드인 경우 Value 열 편집 가능 지정
                 child_item.setFlags(child_item.flags() | QtCore.Qt.ItemIsEditable)
@@ -1707,15 +1844,15 @@ class ModelSetupDialog(QtWidgets.QDialog):
                 self._add_dict_items(categories[cat], val, (key,))
             else:
                 key_item = QtWidgets.QTreeWidgetItem(categories[cat])
-                key_item.setText(0, key) # 1번째 열 대신 0번째 열(Configuration Key)에 주입하여 완벽한 트리 들여쓰기 렌더링 실현!
-                key_item.setText(1, meta["desc"]) # 2번째 열 대신 1번째 열(Description)에 설명 주입!
+                key_item.setText(0, key) # 0번째 열(Configuration Key)에 주입하여 완벽한 트리 들여쓰기 렌더링 실현!
+                key_item.setText(2, meta["desc"]) # col=2가 Description 열
                 
                 if isinstance(val, dict):
-                    key_item.setText(2, "(dictionary)") # col=2가 Value 열
+                    key_item.setText(1, "(dictionary)") # col=1이 Value 열
                     key_item.setData(0, Qt.UserRole, (key,))
                     self._add_dict_items(key_item, val, (key,))
                 else:
-                    key_item.setText(2, repr(val)) # col=2가 Value 열
+                    key_item.setText(1, repr(val)) # col=1이 Value 열
                     key_item.setData(0, Qt.UserRole, (key,))
                     # Leaf 노드인 경우 Value 열 편집 가능 지정
                     key_item.setFlags(key_item.flags() | QtCore.Qt.ItemIsEditable)
@@ -1729,15 +1866,15 @@ class ModelSetupDialog(QtWidgets.QDialog):
                     misc_cat.setText(0, "Miscellaneous")
                     misc_cat.setExpanded(True)
                 key_item = QtWidgets.QTreeWidgetItem(misc_cat)
-                key_item.setText(0, key) # 1번째 열 대신 0번째 열(Configuration Key)에 키 주입!
+                key_item.setText(0, key) # 0번째 열(Configuration Key)에 키 주입!
                 
                 val = self.config.get(key)
                 if isinstance(val, dict):
-                    key_item.setText(2, "(dictionary)")
+                    key_item.setText(1, "(dictionary)") # col=1이 Value 열
                     key_item.setData(0, Qt.UserRole, (key,))
                     self._add_dict_items(key_item, val, (key,))
                 else:
-                    key_item.setText(2, repr(val))
+                    key_item.setText(1, repr(val)) # col=1이 Value 열
                     key_item.setData(0, Qt.UserRole, (key,))
                     # Leaf 노드인 경우 Value 열 편집 가능 지정
                     key_item.setFlags(key_item.flags() | QtCore.Qt.ItemIsEditable)
@@ -1762,8 +1899,8 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.current_editing_key = key_path
 
     def _on_tree_item_changed(self, item, column):
-        """트리 테이블의 Value 열(column = 2)에서 직접 값을 수정한 경우 config에 즉시 동기화합니다."""
-        if column != 2: return # col=2가 Value 열
+        """트리 테이블의 Value 열(column = 1)에서 직접 값을 수정한 경우 config에 즉시 동기화합니다."""
+        if column != 1: return # col=1이 Value 열
         
         key_path = item.data(0, Qt.UserRole) # 0번째 열(Configuration Key)에서 UserRole 경로 획득!
         if not key_path: return
@@ -1771,7 +1908,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
         if isinstance(key_path, str):
             key_path = (key_path,)
             
-        code = item.text(2).strip() # col=2에서 수정된 텍스트 획득!
+        code = item.text(1).strip() # col=1에서 수정된 텍스트 획득!
         try:
             # 안전하게 파싱 시도 (ast.literal_eval)
             try:
@@ -1932,7 +2069,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
     def _on_ista_changed(self, text):
         self.config["drop_mode"] = text
         if text == "GENERAL":
-            self.btn_select_sequence.setVisible(False)
+            self.btn_select_sequence.setVisible(True) # GENERAL 모드에서도 항상 버튼 노출하여 치수/ISTA 설정 가이드 확보
             self.general_dropdowns_container.setVisible(True)
             self.edit_direction.setReadOnly(True)
             self._update_general_combos()
@@ -1967,6 +2104,121 @@ class ModelSetupDialog(QtWidgets.QDialog):
             self.accept()
         else:
             self.accept()
+
+    def _on_block_preset_changed(self, mode):
+        """[WHTOOLS] Blocks 프리셋 변경에 따라 components의 div 및 weld 속성을 정교하게 리매핑합니다."""
+        if "components" not in self.config:
+            self.config["components"] = {}
+            
+        comp = self.config["components"]
+        
+        # UI 스타일 피드백 업데이트 (눌린 버튼 하이라이트)
+        for mode_name, btn in [("Normal", self.btn_normal), ("Fast", self.btn_fast)]:
+            if mode_name == mode:
+                btn.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
+            else:
+                btn.setStyleSheet("")
+                
+        # 기본 rgba 폴백 매핑
+        fallback_rgba = {
+            "paper": "1.0 0.85 0.7 1.0",
+            "cushion": "0.8 0.8 0.8 0.6",
+            "opencell": "0.1 0.1 0.1 1.0",
+            "opencellcoh": "1.0 0.0 0.0 0.4",
+            "chassis": "0.0 0.2 0.4 1.0"
+        }
+        
+        # 1. Normal Mode
+        if mode == "Normal":
+            # paper
+            if "paper" not in comp: comp["paper"] = {}
+            comp["paper"].update({
+                "div": [5, 5, 3],
+                "use_weld": True,
+                "mass": comp["paper"].get("mass", 4.0),
+                "rgba": comp["paper"].get("rgba", fallback_rgba["paper"])
+            })
+            # cushion
+            if "cushion" not in comp: comp["cushion"] = {}
+            comp["cushion"].update({
+                "div": [5, 5, 3],
+                "use_weld": True,
+                "mass": comp["cushion"].get("mass", 3.0),
+                "rgba": comp["cushion"].get("rgba", fallback_rgba["cushion"])
+            })
+            # opencell
+            if "opencell" not in comp: comp["opencell"] = {}
+            comp["opencell"].update({
+                "div": [4, 4, 1],
+                "use_weld": True,
+                "mass": comp["opencell"].get("mass", 5.0),
+                "rgba": comp["opencell"].get("rgba", fallback_rgba["opencell"])
+            })
+            # opencellcoh
+            if "opencellcoh" not in comp: comp["opencellcoh"] = {}
+            comp["opencellcoh"].update({
+                "div": [4, 4, 1],
+                "use_weld": True,
+                "mass": comp["opencellcoh"].get("mass", 0.1),
+                "rgba": comp["opencellcoh"].get("rgba", fallback_rgba["opencellcoh"]),
+                "enable_btm_weld": False
+            })
+            # chassis
+            if "chassis" not in comp: comp["chassis"] = {}
+            comp["chassis"].update({
+                "div": [4, 4, 1],
+                "use_weld": True,
+                "mass": comp["chassis"].get("mass", 10.0),
+                "rgba": comp["chassis"].get("rgba", fallback_rgba["chassis"])
+            })
+            
+        # 2. Fast Mode
+        elif mode == "Fast":
+            # paper
+            if "paper" not in comp: comp["paper"] = {}
+            comp["paper"].update({
+                "div": [3, 3, 3],
+                "use_weld": True,
+                "mass": comp["paper"].get("mass", 4.0),
+                "rgba": comp["paper"].get("rgba", fallback_rgba["paper"])
+            })
+            # cushion
+            if "cushion" not in comp: comp["cushion"] = {}
+            comp["cushion"].update({
+                "div": [3, 3, 3],
+                "use_weld": True,
+                "mass": comp["cushion"].get("mass", 3.0),
+                "rgba": comp["cushion"].get("rgba", fallback_rgba["cushion"])
+            })
+            # opencell
+            if "opencell" not in comp: comp["opencell"] = {}
+            comp["opencell"].update({
+                "div": [3, 3, 1],
+                "use_weld": False,
+                "mass": comp["opencell"].get("mass", 5.0),
+                "rgba": comp["opencell"].get("rgba", fallback_rgba["opencell"])
+            })
+            # opencellcoh
+            if "opencellcoh" not in comp: comp["opencellcoh"] = {}
+            comp["opencellcoh"].update({
+                "div": [3, 3, 1],
+                "use_weld": False,
+                "mass": comp["opencellcoh"].get("mass", 0.1),
+                "rgba": comp["opencellcoh"].get("rgba", fallback_rgba["opencellcoh"]),
+                "enable_btm_weld": True
+            })
+            # chassis
+            if "chassis" not in comp: comp["chassis"] = {}
+            comp["chassis"].update({
+                "div": [3, 3, 1],
+                "use_weld": False,
+                "mass": comp["chassis"].get("mass", 10.0),
+                "rgba": comp["chassis"].get("rgba", fallback_rgba["chassis"])
+            })
+            
+        # 변경 사항 실시간 UI 동기화
+        self._populate_config_tree()
+        self.schematic.update_config(self.config)
 
     def done(self, result):
         super().done(result)
@@ -2212,13 +2464,40 @@ class ControlPanel(QMainWindow):
         # 1. 상태 표시 그룹
         status_group = QGroupBox("Simulation Status")
         status_layout = QVBoxLayout(status_group)
-        self.lbl_time = QLabel("Time: 0.000 / 0.000 s")
+        
+        # [WHTOOLS] 목표 시간 스핀박스 및 현재 시간 표시 레이아웃 변경 (초슬림 내장 화살표 단일 QDoubleSpinBox 적용)
+        time_layout = QHBoxLayout()        
+        self.lbl_time = QLabel("Time: 0.000 s")        
+        
+        # [WHTOOLS] Target 라벨 폰트 통일
+        self.lbl_target = QLabel(" / ")
+                
+        self.spin_duration = QDoubleSpinBox()
+        self.spin_duration.setRange(0.1, 100.0)
+        self.spin_duration.setSingleStep(0.5)
+        self.spin_duration.setDecimals(3)
+        self.spin_duration.setSuffix(" s")
+        self.spin_duration.setFixedWidth(90) # 내장 버튼 공간 고려 90px로 최적 세팅
+        self.spin_duration.setFixedHeight(20) # 20px로 초슬림 다이어트!
+        self.spin_duration.setButtonSymbols(QAbstractSpinBox.UpDownArrows) # 내장 콤팩트 화살표 사용!!
+        self.spin_duration.setAlignment(Qt.AlignCenter) # 텍스트 중앙 정렬
+        
+        # 초기값 설정
+        init_dur = self.sim.config.get("sim_duration", 1.0) if self.sim else 1.0
+        self.spin_duration.setValue(init_dur)
+        self.spin_duration.valueChanged.connect(self._on_duration_changed)
+        
+        time_layout.addWidget(self.lbl_time)
+        time_layout.addWidget(self.lbl_target)
+        time_layout.addWidget(self.spin_duration)
+        
+        status_layout.addLayout(time_layout)
+        
         self.lbl_status = QLabel("Status: Ready")
         self.lbl_step = QLabel("Step: 0")
         self.lbl_snapshots = QLabel("Snapshots: 0")
         
-        for lbl in [self.lbl_time, self.lbl_status, self.lbl_step, self.lbl_snapshots]:
-            lbl.setFont(QFont("Consolas", 10))
+        for lbl in [self.lbl_status, self.lbl_step, self.lbl_snapshots]:            
             status_layout.addWidget(lbl)
         
         header_layout.addWidget(status_group, 1) # Status group expands
@@ -2227,15 +2506,13 @@ class ControlPanel(QMainWindow):
         # 1-1. 카메라 시점 제어 그룹 (NEW)
         from functools import partial
         cam_group = QGroupBox("Camera Orientation (MuJoCo View)")
-        cam_layout = QHBoxLayout(cam_group)
-        cam_layout.setSpacing(5)
+        cam_layout = QHBoxLayout(cam_group)        
         
         views = ["+X", "-X", "+Y", "-Y", "+Z", "-Z", "+ISO", "-ISO"]
         for v in views:
             btn = QPushButton(v)
             btn.setMinimumHeight(22)
-            btn.setMinimumWidth(42)
-            btn.setFont(QFont("Consolas", 8, QFont.Bold)) # User requested 8pt
+            btn.setMinimumWidth(42)            
             btn.clicked.connect(partial(self._on_cam_view, v))
             cam_layout.addWidget(btn)
             
@@ -2251,8 +2528,7 @@ class ControlPanel(QMainWindow):
         self.btn_forward = QPushButton("⏩ Forward")
         
         for btn in [self.btn_reset, self.btn_back, self.btn_play, self.btn_forward]:
-            btn.setFixedHeight(30)
-            btn.setFont(QFont("Segoe UI Emoji", 10)) # 이모지 폰트 명시
+            btn.setFixedHeight(30)            
             playback_layout.addWidget(btn)
             
         self.btn_reset.clicked.connect(self._on_reset)
@@ -2270,14 +2546,14 @@ class ControlPanel(QMainWindow):
         self.btn_slow.setCheckable(True)
         self.btn_slow.clicked.connect(self._on_slow_motion)
         
-        self.btn_rec = QPushButton("⏺️ Record History")
+        self.btn_rec = QPushButton("⏺️ Rec.Hist.")
         self.btn_rec.setCheckable(True)
         self.btn_rec.clicked.connect(self._on_record)
         
         self.btn_monitor = QPushButton("📈 Monitor")
         self.btn_monitor.clicked.connect(self._on_monitor)
         
-        self.btn_struct = QPushButton("🏗️ Structural Dynamics")
+        self.btn_struct = QPushButton("🏗️ Dyn.Loads")
         self.btn_struct.clicked.connect(self._on_structural_dynamics)
         
         for btn in [self.btn_slow, self.btn_rec, self.btn_monitor, self.btn_struct]:
@@ -2290,29 +2566,35 @@ class ControlPanel(QMainWindow):
         slider_group = QGroupBox("Timeline Navigation")
         slider_layout = QVBoxLayout(slider_group)
         
-        info_layout = QHBoxLayout()
-        info_layout.addWidget(QLabel("Snapshot History:"))
+        info_layout = QHBoxLayout()        
         self.lbl_frame_info = QLabel("Frame: 0 / 0")
-        self.lbl_frame_info.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.lbl_frame_info.setFont(QFont("Consolas", 10))
+        self.lbl_frame_info.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)        
         info_layout.addWidget(self.lbl_frame_info)
+        
+        # [WHTOOLS] Speed Multiplier와 spinbox를 lbl_frame_info 우측에 나란히 배치하여 공간 극강 압축
+        info_layout.addStretch()
+        lbl_speed = QLabel("Speed Multiplier:")
+        info_layout.addWidget(lbl_speed)
+        
+        self.spin_speed = QDoubleSpinBox()
+        self.spin_speed.setRange(0.1, 10.0)
+        self.spin_speed.setSingleStep(0.1)
+        self.spin_speed.setValue(1.0)
+        self.spin_speed.setDecimals(1)
+        self.spin_speed.setSuffix("x")
+        self.spin_speed.setFixedWidth(85) # 글자 잘림 방지 및 우측 가용 공간 활용을 위해 너비를 85px로 확장
+        self.spin_speed.setFixedHeight(20) # 20px 초슬림 피팅
+        self.spin_speed.setButtonSymbols(QAbstractSpinBox.UpDownArrows) # 내장 화살표 상속
+        self.spin_speed.setAlignment(Qt.AlignCenter)
+        self.spin_speed.valueChanged.connect(self._on_speed_changed)
+        info_layout.addWidget(self.spin_speed)
+        
         slider_layout.addLayout(info_layout)
 
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 0)
         self.slider.valueChanged.connect(self._on_slider_moved)
         slider_layout.addWidget(self.slider)
-
-        # 재생 속도 설정을 슬라이더 바로 아래에 배치
-        speed_layout = QHBoxLayout()
-        speed_layout.addWidget(QLabel("Speed Multiplier:"))
-        self.spin_speed = QDoubleSpinBox()
-        self.spin_speed.setRange(0.1, 10.0)
-        self.spin_speed.setSingleStep(0.1)
-        self.spin_speed.setValue(1.0)
-        self.spin_speed.valueChanged.connect(self._on_speed_changed)
-        speed_layout.addWidget(self.spin_speed)
-        slider_layout.addLayout(speed_layout)
 
         main_layout.addWidget(slider_group)
 
@@ -2367,7 +2649,13 @@ class ControlPanel(QMainWindow):
             curr_time = self.sim.data.time
             target_time = self.sim.config.get("sim_duration", 1.0)
             
-            self.lbl_time.setText(f"Time: {curr_time:.3f} / {target_time:.3f} s")
+            self.lbl_time.setText(f"Time: {curr_time:.3f} s")
+            
+            # [WHTOOLS] 스핀박스 활성 포커스 없을 때 외부 최신 값 동기화
+            if not self.spin_duration.hasFocus():
+                self.spin_duration.blockSignals(True)
+                self.spin_duration.setValue(target_time)
+                self.spin_duration.blockSignals(False)
             self.lbl_step.setText(f"Step: {self.sim.step_idx}")
             snap_count = len(self.sim.snapshots)
             self.lbl_snapshots.setText(f"Snapshots: {snap_count}")
@@ -2546,6 +2834,19 @@ class ControlPanel(QMainWindow):
 
     def _on_speed_changed(self, value):
         self.sim.ctrl_speed_multiplier = value
+
+    def _on_duration_changed(self, value):
+        """
+        사용자가 Target Duration 스핀 박스를 수정했을 때 호출되어
+        시뮬레이션 설정의 sim_duration을 실시간으로 업데이트합니다.
+
+        Parameters
+        ----------
+        value : float
+            스핀 박스를 통해 수정된 새로운 시뮬레이션 목표 시간 (초 단위)
+        """
+        if self.sim and self.sim.config:
+            self.sim.config["sim_duration"] = value
 
     def _on_slow_motion(self, checked):
         self.sim.ctrl_slow_motion = checked
