@@ -45,3 +45,8 @@ TVPackageMotionSim/results/
 **/*.vtu
 **/*.pvd
 **/*.glb
+
+# Backups
+*_backup.py
+*_backup_*.py
+
