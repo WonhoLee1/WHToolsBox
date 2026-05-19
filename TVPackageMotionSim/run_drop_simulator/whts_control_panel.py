@@ -605,6 +605,23 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self._init_ui()
         self._load_config_values()
         self._update_all()
+        
+        # 부모 창의 정중앙에 배치하되, 화면 상단을 이탈하여 제목 표시줄이 숨겨지는 현상 예방
+        if parent:
+            parent_geo = parent.geometry()
+            cx = parent_geo.x() + parent_geo.width() // 2
+            cy = parent_geo.y() + parent_geo.height() // 2
+            
+            new_x = cx - self.width() // 2
+            new_y = cy - self.height() // 2
+            
+            # 상단 제목 표시줄(Title bar) 가려짐 예방을 위해 Y축 최소값 45픽셀 보장 및 음수 방지
+            if new_y < 45:
+                new_y = 45
+            if new_x < 10:
+                new_x = 10
+                
+            self.move(new_x, new_y)
 
     def _init_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -617,88 +634,13 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         input_layout.setSpacing(6)
         input_layout.setContentsMargins(8, 8, 8, 8)
         
-        # [Row 0] Package Dimensions
-        lbl_pkg_w = QtWidgets.QLabel("Pkg W (m):")
-        input_layout.addWidget(lbl_pkg_w, 0, 0)
-        self.spin_w = QtWidgets.QDoubleSpinBox()
-        self.spin_w.setDecimals(3)
-        self.spin_w.setRange(0.01, 5.0)
-        self.spin_w.setSingleStep(0.05)
-        self.spin_w.setValue(self.config.get("box_w", 1.4))
-        self.spin_w.valueChanged.connect(self._on_input_changed)
-        self.spin_w.setFixedWidth(115)  # 스타일시트 패딩 대응 너비 확보
-        input_layout.addWidget(self.spin_w, 0, 1)
-        
-        lbl_pkg_h = QtWidgets.QLabel("Pkg H (m):")
-        input_layout.addWidget(lbl_pkg_h, 0, 2)
-        self.spin_h = QtWidgets.QDoubleSpinBox()
-        self.spin_h.setDecimals(3)
-        self.spin_h.setRange(0.01, 5.0)
-        self.spin_h.setSingleStep(0.05)
-        self.spin_h.setValue(self.config.get("box_h", 0.85))
-        self.spin_h.valueChanged.connect(self._on_input_changed)
-        self.spin_h.setFixedWidth(115)
-        input_layout.addWidget(self.spin_h, 0, 3)
-        
-        lbl_pkg_d = QtWidgets.QLabel("Pkg D (m):")
-        input_layout.addWidget(lbl_pkg_d, 0, 4)
-        self.spin_d = QtWidgets.QDoubleSpinBox()
-        self.spin_d.setDecimals(3)
-        self.spin_d.setRange(0.01, 5.0)
-        self.spin_d.setSingleStep(0.05)
-        self.spin_d.setValue(self.config.get("box_d", 0.15))
-        self.spin_d.valueChanged.connect(self._on_input_changed)
-        self.spin_d.setFixedWidth(115)
-        input_layout.addWidget(self.spin_d, 0, 5)
-        
-        # [Row 1] SET (Chassis/OpenCell) Dimensions
-        lbl_set_w = QtWidgets.QLabel("SET W (m):")
-        input_layout.addWidget(lbl_set_w, 1, 0)
-        self.spin_set_w = QtWidgets.QDoubleSpinBox()
-        self.spin_set_w.setDecimals(3)
-        self.spin_set_w.setRange(0.01, 5.0)
-        self.spin_set_w.setSingleStep(0.05)
-        self.spin_set_w.setValue(self.config.get("assy_w", 1.23))
-        self.spin_set_w.valueChanged.connect(self._on_input_changed)
-        self.spin_set_w.setFixedWidth(115)
-        input_layout.addWidget(self.spin_set_w, 1, 1)
-        
-        lbl_set_h = QtWidgets.QLabel("SET H (m):")
-        input_layout.addWidget(lbl_set_h, 1, 2)
-        self.spin_set_h = QtWidgets.QDoubleSpinBox()
-        self.spin_set_h.setDecimals(3)
-        self.spin_set_h.setRange(0.01, 5.0)
-        self.spin_set_h.setSingleStep(0.05)
-        self.spin_set_h.setValue(self.config.get("assy_h", 0.71))
-        self.spin_set_h.valueChanged.connect(self._on_input_changed)
-        self.spin_set_h.setFixedWidth(115)
-        input_layout.addWidget(self.spin_set_h, 1, 3)
-        
-        # SET Depth 초기값 계산: chassis_d + opencell_d + opencellcoh_d + cush_gap
-        init_set_d = (
-            self.config.get("chassis_d", 0.05) + 
-            self.config.get("opencell_d", 0.005) + 
-            self.config.get("opencellcoh_d", 0.002) + 
-            self.config.get("cush_gap", 0.003)
-        )
-        lbl_set_d = QtWidgets.QLabel("SET D (m):")
-        input_layout.addWidget(lbl_set_d, 1, 4)
-        self.spin_set_d = QtWidgets.QDoubleSpinBox()
-        self.spin_set_d.setDecimals(3)
-        self.spin_set_d.setRange(0.01, 5.0)
-        self.spin_set_d.setSingleStep(0.005)
-        self.spin_set_d.setValue(init_set_d)
-        self.spin_set_d.valueChanged.connect(self._on_input_changed)
-        self.spin_set_d.setFixedWidth(115)
-        input_layout.addWidget(self.spin_set_d, 1, 5)
-        
-        # [Row 2] Actions & Drop Mode
+        # [Row 0] Actions & Drop Mode (Pkg W 보다 위로 위치 상향 조정)
         self.btn_ref_model = QtWidgets.QPushButton("💾 Select Ref. Model")
         self.btn_ref_model.setStyleSheet(f"background-color: {C_BTN_BLUE}; color: white;")
         self.btn_ref_model.clicked.connect(self._on_select_ref_model)
-        input_layout.addWidget(self.btn_ref_model, 2, 0, 1, 2)
+        input_layout.addWidget(self.btn_ref_model, 0, 0, 1, 2)
         
-        input_layout.addWidget(QtWidgets.QLabel("Mode:"), 2, 2)
+        input_layout.addWidget(QtWidgets.QLabel("Mode:"), 0, 2)
         self.btn_group_mode = QtWidgets.QButtonGroup(self)
         self.radio_parcel = QtWidgets.QRadioButton("Parcel")
         self.radio_ltl = QtWidgets.QRadioButton("LTL")
@@ -712,11 +654,86 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         mode_lay.addWidget(self.radio_parcel)
         mode_lay.addWidget(self.radio_ltl)
         mode_lay.addWidget(self.radio_custom)
-        input_layout.addLayout(mode_lay, 2, 3, 1, 3)
+        input_layout.addLayout(mode_lay, 0, 3, 1, 3)
         
         self.radio_parcel.toggled.connect(self._on_input_changed)
         self.radio_ltl.toggled.connect(self._on_input_changed)
         self.radio_custom.toggled.connect(self._on_input_changed)
+
+        # [Row 1] Package Dimensions (기존 Row 0에서 Row 1로 이동)
+        lbl_pkg_w = QtWidgets.QLabel("Pkg W (m):")
+        input_layout.addWidget(lbl_pkg_w, 1, 0)
+        self.spin_w = QtWidgets.QDoubleSpinBox()
+        self.spin_w.setDecimals(3)
+        self.spin_w.setRange(0.01, 5.0)
+        self.spin_w.setSingleStep(0.05)
+        self.spin_w.setValue(self.config.get("box_w", 1.4))
+        self.spin_w.valueChanged.connect(self._on_input_changed)
+        self.spin_w.setFixedWidth(115)  # 스타일시트 패딩 대응 너비 확보
+        input_layout.addWidget(self.spin_w, 1, 1)
+        
+        lbl_pkg_h = QtWidgets.QLabel("Pkg H (m):")
+        input_layout.addWidget(lbl_pkg_h, 1, 2)
+        self.spin_h = QtWidgets.QDoubleSpinBox()
+        self.spin_h.setDecimals(3)
+        self.spin_h.setRange(0.01, 5.0)
+        self.spin_h.setSingleStep(0.05)
+        self.spin_h.setValue(self.config.get("box_h", 0.85))
+        self.spin_h.valueChanged.connect(self._on_input_changed)
+        self.spin_h.setFixedWidth(115)
+        input_layout.addWidget(self.spin_h, 1, 3)
+        
+        lbl_pkg_d = QtWidgets.QLabel("Pkg D (m):")
+        input_layout.addWidget(lbl_pkg_d, 1, 4)
+        self.spin_d = QtWidgets.QDoubleSpinBox()
+        self.spin_d.setDecimals(3)
+        self.spin_d.setRange(0.01, 5.0)
+        self.spin_d.setSingleStep(0.05)
+        self.spin_d.setValue(self.config.get("box_d", 0.15))
+        self.spin_d.valueChanged.connect(self._on_input_changed)
+        self.spin_d.setFixedWidth(115)
+        input_layout.addWidget(self.spin_d, 1, 5)
+        
+        # [Row 2] SET (Chassis/OpenCell) Dimensions (기존 Row 1에서 Row 2로 이동)
+        lbl_set_w = QtWidgets.QLabel("SET W (m):")
+        input_layout.addWidget(lbl_set_w, 2, 0)
+        self.spin_set_w = QtWidgets.QDoubleSpinBox()
+        self.spin_set_w.setDecimals(3)
+        self.spin_set_w.setRange(0.01, 5.0)
+        self.spin_set_w.setSingleStep(0.05)
+        self.spin_set_w.setValue(self.config.get("assy_w", 1.23))
+        self.spin_set_w.valueChanged.connect(self._on_input_changed)
+        self.spin_set_w.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_w, 2, 1)
+        
+        lbl_set_h = QtWidgets.QLabel("SET H (m):")
+        input_layout.addWidget(lbl_set_h, 2, 2)
+        self.spin_set_h = QtWidgets.QDoubleSpinBox()
+        self.spin_set_h.setDecimals(3)
+        self.spin_set_h.setRange(0.01, 5.0)
+        self.spin_set_h.setSingleStep(0.05)
+        self.spin_set_h.setValue(self.config.get("assy_h", 0.71))
+        self.spin_set_h.valueChanged.connect(self._on_input_changed)
+        self.spin_set_h.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_h, 2, 3)
+        
+        # SET Depth 초기값 계산: chassis_d + opencell_d + opencellcoh_d + cush_gap
+        init_set_d = (
+            self.config.get("chassis_d", 0.05) + 
+            self.config.get("opencell_d", 0.005) + 
+            self.config.get("opencellcoh_d", 0.002) + 
+            self.config.get("cush_gap", 0.003)
+        )
+        lbl_set_d = QtWidgets.QLabel("SET D (m):")
+        input_layout.addWidget(lbl_set_d, 2, 4)
+        self.spin_set_d = QtWidgets.QDoubleSpinBox()
+        self.spin_set_d.setDecimals(3)
+        self.spin_set_d.setRange(0.01, 5.0)
+        self.spin_set_d.setSingleStep(0.005)
+        self.spin_set_d.setValue(init_set_d)
+        self.spin_set_d.valueChanged.connect(self._on_input_changed)
+        self.spin_set_d.setFixedWidth(115)
+        input_layout.addWidget(self.spin_set_d, 2, 5)
         
         layout.addWidget(input_group)
         
@@ -757,32 +774,32 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         ista_lay = QtWidgets.QVBoxLayout(self.page_ista)
         ista_lay.setContentsMargins(0, 0, 0, 0)
         ista_lay.setSpacing(8)
+        # LTL / Parcel 전용 정보 뷰 메인 레이아웃 여백 설정
+        ista_lay.setContentsMargins(6, 6, 6, 6)
+        ista_lay.setSpacing(10)
         
-        # 2. 자가 진단 결과
-        self.diag_group = QtWidgets.QGroupBox("ISTA Type Diagnosis & Recommendations")
-        diag_layout = QtWidgets.QVBoxLayout(self.diag_group)
-        diag_layout.setContentsMargins(8, 8, 8, 8)
+        # 2. 자가 진단 결과 (QGroupBox 제거 -> QLabel 소제목 및 알짜 위젯 직접 배치)
+        self.diag_group = QtWidgets.QLabel("📝 ISTA Type Diagnosis & Recommendations")
+        self.diag_group.setStyleSheet("font-weight: bold; color: #eceff4; font-size: 9.5pt; margin-top: 4px;")
         self.lbl_diag_result = QtWidgets.QLabel("Diagnosing...")
         self.lbl_diag_result.setFont(QFont("Consolas", 10))
         self.lbl_diag_result.setStyleSheet(f"color: {C_STATUS_TEXT_WARN}; background-color: {C_BG_INPUT}; padding: 8px; border-radius: 4px; border: 1px solid {C_BORDER_IN};")
         self.lbl_diag_result.setWordWrap(True)
-        diag_layout.addWidget(self.lbl_diag_result)
         ista_lay.addWidget(self.diag_group)
+        ista_lay.addWidget(self.lbl_diag_result)
         
-        # 3. 면 번호 가이드
-        self.face_desc_box = QtWidgets.QGroupBox("ISTA Standard Face Numbering Reference")
-        face_desc_layout = QtWidgets.QVBoxLayout(self.face_desc_box)
-        face_desc_layout.setContentsMargins(8, 8, 8, 8)
+        # 3. 면 번호 가이드 (QGroupBox 제거 -> QLabel 소제목 및 알짜 위젯 직접 배치)
+        self.face_desc_box = QtWidgets.QLabel("📐 ISTA Standard Face Numbering Reference")
+        self.face_desc_box.setStyleSheet("font-weight: bold; color: #eceff4; font-size: 9.5pt; margin-top: 4px;")
         self.lbl_face_desc = QtWidgets.QLabel("Loading Face mapping reference...")
         self.lbl_face_desc.setWordWrap(True)
         self.lbl_face_desc.setStyleSheet(f"color: {C_STATUS_TEXT_OK}; font-size: 9.5pt; font-family: Consolas; background-color: {C_BG_INPUT}; padding: 8px; border-radius: 4px; border: 1px solid {C_BORDER_IN};")
-        face_desc_layout.addWidget(self.lbl_face_desc)
         ista_lay.addWidget(self.face_desc_box)
+        ista_lay.addWidget(self.lbl_face_desc)
         
-        # 4. 시퀀스 테이블
-        self.seq_group = QtWidgets.QGroupBox("ISTA 6-Amazon Test Sequence Table")
-        seq_layout = QtWidgets.QVBoxLayout(self.seq_group)
-        seq_layout.setContentsMargins(8, 8, 8, 8)
+        # 4. 시퀀스 테이블 (QGroupBox 제거 -> QLabel 소제목 및 알짜 위젯 직접 배치)
+        self.seq_group = QtWidgets.QLabel("📋 ISTA 6-Amazon Test Sequence Table")
+        self.seq_group.setStyleSheet("font-weight: bold; color: #eceff4; font-size: 9.5pt; margin-top: 4px;")
         
         self.table_seq = QtWidgets.QTableWidget()
         self.table_seq.setColumnCount(4)
@@ -793,8 +810,9 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.table_seq.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table_seq.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.table_seq.doubleClicked.connect(self._on_apply_and_sync)
-        seq_layout.addWidget(self.table_seq)
+        
         ista_lay.addWidget(self.seq_group)
+        ista_lay.addWidget(self.table_seq)
         
         self.stacked_widget.addWidget(self.page_ista)
         
@@ -827,12 +845,10 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         # 5. 하단 액션 버튼 영역
         btn_box = QtWidgets.QHBoxLayout()
         btn_box.setSpacing(10)
-        self.btn_apply = QtWidgets.QPushButton("🎯 Apply Selected Drop Posture to Main Panel")
-        self.btn_apply.setStyleSheet(f"background-color: {C_BTN_GREEN}; color: white; padding: 6px 12px;")
+        self.btn_apply = QtWidgets.QPushButton("🎯 Apply Selected Drop Posture to Main Panel")        
         self.btn_apply.clicked.connect(self._on_apply_and_sync)
         
-        btn_cancel = QtWidgets.QPushButton("Cancel")
-        btn_cancel.setStyleSheet(f"background-color: {C_BTN_RED}; color: white; padding: 6px 12px;")
+        btn_cancel = QtWidgets.QPushButton("Cancel")        
         btn_cancel.clicked.connect(self.reject)
         
         btn_box.addWidget(btn_cancel)
@@ -1052,11 +1068,59 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.table_seq.resizeColumnsToContents()
         self.current_generated_seq = seq
 
+    def _convert_to_ista_direction_name(self, direction_str, is_ltl):
+        """
+        기존 방향 좌표계 문자열(예: 'front-bottom-left', 'front-bottom', 'bottom')을
+        ISTA 면 번호 맵핑 시스템(예: 'Corner 3-4-6', 'Edge 2-3', 'Face 3') 포맷으로 정확하게 변환합니다.
+        """
+        if not direction_str:
+            return direction_str
+            
+        # LTL 및 Parcel 면 번호 규격 가이드 맵핑
+        if is_ltl:
+            mapping = {
+                "top": 1,
+                "back": 2,
+                "bottom": 3,
+                "front": 4,
+                "right": 5,
+                "left": 6
+            }
+        else:
+            mapping = {
+                "top": 1,
+                "bottom": 2,
+                "right": 3,
+                "left": 4,
+                "front": 5,
+                "back": 6
+            }
+            
+        parts = direction_str.lower().split('-')
+        nums = []
+        for p in parts:
+            if p in mapping:
+                nums.append(mapping[p])
+                
+        nums.sort()
+        
+        if len(nums) == 1:
+            return f"Face {nums[0]}"
+        elif len(nums) == 2:
+            return f"Edge {nums[0]}-{nums[1]}"
+        elif len(nums) == 3:
+            return f"Corner {nums[0]}-{nums[1]}-{nums[2]}"
+            
+        return direction_str  # 맵핑 매칭 불가 시 fallback
+
     def _on_apply_and_sync(self):
+        is_ltl = self.radio_ltl.isChecked()
         if self.radio_custom.isChecked():
             direction_str = self.combo_custom_direction.currentText()
+            # Custom일지라도 맵핑 가능한 좌표 조합명이면 LTL/Parcel 표준 넘버링 명칭으로 통일
+            mapped_direction = self._convert_to_ista_direction_name(direction_str, is_ltl)
             
-            self.config["drop_direction"] = direction_str
+            self.config["drop_direction"] = mapped_direction
             self.config["drop_height"] = self.spin_custom_height.value()
             self.config["drop_mode"] = "GENERAL"
             self.config["initial_tilt_deg"] = 0.0
@@ -1068,8 +1132,11 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
                 return
                 
             step = self.current_generated_seq[row]
-            self.config["drop_mode"] = "LTL" if self.radio_ltl.isChecked() else "PARCEL"
-            self.config["drop_direction"] = step['direction']
+            self.config["drop_mode"] = "LTL" if is_ltl else "PARCEL"
+            
+            # [WHTOOLS] step['direction']을 LTL/Parcel 모드에 맞춰 Face 3, Edge 2-3, Corner 3-4-6 등으로 정확히 변환하여 전달
+            mapped_direction = self._convert_to_ista_direction_name(step['direction'], is_ltl)
+            self.config["drop_direction"] = mapped_direction
             
             h_val = step['height']
             if step['type'] in ['rot_edge', 'rot_corner']:
@@ -1243,10 +1310,19 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         self.table_results.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         results_vlay.addWidget(self.table_results)
 
+        # [WHTOOLS] 물리적 관성 성립 가능성 진단 및 실시간 보정 필요성 가이드 안내창 신설
+        self.lbl_guide = QtWidgets.QLabel()
+        self.lbl_guide.setTextFormat(QtCore.Qt.RichText)
+        self.lbl_guide.setWordWrap(True)
+        self.lbl_guide.setFont(QtGui.QFont("Segoe UI", 9))
+        self.lbl_guide.setStyleSheet("background-color: #242424; border: 1px solid #444444; border-radius: 4px; padding: 10px;")
+        self.lbl_guide.setText("💡 <b style='color: #ffd866;'>안내:</b> Calculate 버튼을 클릭하시면 보정 관성 텐서의 고유치(Eigenvalues) 분석을 거쳐 물리적 실현 가능성 및 보정 가이드가 여기에 친절하게 출력됩니다.")
+        results_vlay.addWidget(self.lbl_guide)
+
         btn_calc_lay = QtWidgets.QHBoxLayout()
         self.btn_calc = QtWidgets.QPushButton("⚡ Calculate Inertia Correction")
         self.btn_calc.setStyleSheet(f"background-color: {C_BTN_GREEN2}; color: white; font-weight: bold;")
-        self.btn_calc.clicked.connect(self._calculate_delta_inertia)
+        self.btn_calc.clicked.connect(lambda: self._calculate_delta_inertia(show_popup=True))
         btn_calc_lay.addStretch()
         btn_calc_lay.addWidget(self.btn_calc)
         results_vlay.addLayout(btn_calc_lay)
@@ -1264,7 +1340,7 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         bottom_btn_lay.addWidget(self.btn_apply)
         main_layout.addLayout(bottom_btn_lay)
 
-    def _calculate_delta_inertia(self):
+    def _calculate_delta_inertia(self, show_popup=False):
         """Analytic delta-inertia computation. No optimization needed — result is exact."""
         try:
             t_mass = self.spin_target_mass.value()
@@ -1289,30 +1365,97 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
             i_base_at_tcog[:3] = i_base[:3] + m_base * np.array([d[1]**2+d[2]**2, d[0]**2+d[2]**2, d[0]**2+d[1]**2])
             i_base_at_tcog[3:6] = i_base[3:6] - m_base * np.array([d[0]*d[1], d[0]*d[2], d[1]*d[2]])
 
-            i_delta = t_moi - i_base_at_tcog
+            i_delta_at_tcog = t_moi - i_base_at_tcog
+            i_delta = i_delta_at_tcog.copy()
+            if abs(m_delta) > 1e-9:
+                dp = pos_delta - t_cog
+                i_delta[0] -= m_delta * (dp[1]**2 + dp[2]**2)
+                i_delta[1] -= m_delta * (dp[0]**2 + dp[2]**2)
+                i_delta[2] -= m_delta * (dp[0]**2 + dp[1]**2)
+                i_delta[3] += m_delta * dp[0] * dp[1]
+                i_delta[4] += m_delta * dp[0] * dp[2]
+                i_delta[5] += m_delta * dp[1] * dp[2]
+
+            # [WHTOOLS] whtb_physics와 동일한 삼각부등식 및 고유치 보정 필터 실행
+            from run_discrete_builder.whtb_physics import _clamp_inertia_triangle, _ensure_positive_eigenvalues
+            i_delta_clamped = _clamp_inertia_triangle(i_delta, label="I_delta (UI Dialog)")
+            i_delta_valid = _ensure_positive_eigenvalues(i_delta_clamped, label="I_delta (UI Dialog)")
+
+            # 보정 전/후 고유치 정밀 진단
+            I_mat_raw = np.array([
+                [i_delta[0], -i_delta[3], -i_delta[4]],
+                [-i_delta[3], i_delta[1], -i_delta[5]],
+                [-i_delta[4], -i_delta[5], i_delta[2]]
+            ])
+            raw_eigs = np.linalg.eigvalsh(I_mat_raw)
+
+            I_mat_valid = np.array([
+                [i_delta_valid[0], -i_delta_valid[3], -i_delta_valid[4]],
+                [-i_delta_valid[3], i_delta_valid[1], -i_delta_valid[5]],
+                [-i_delta_valid[4], -i_delta_valid[5], i_delta_valid[2]]
+            ])
+            valid_eigs = np.linalg.eigvalsh(I_mat_valid)
 
             self.inertia_correction = {
                 "m_delta": float(m_delta),
                 "pos_delta": [float(pos_delta[0]), float(pos_delta[1]), float(pos_delta[2])],
-                "I_delta": [float(v) for v in i_delta],
+                "I_delta": [float(v) for v in i_delta_valid],
             }
 
-            self.update_table(m_base, c_base, i_base, t_mass, t_cog, t_moi, m_delta, pos_delta, i_delta)
+            # 테이블 결과 갱신 (고유치 분석 포함)
+            self.update_table(m_base, c_base, i_base, t_mass, t_cog, t_moi, m_delta, pos_delta, i_delta_valid, raw_eigs, valid_eigs)
+
+            # 실시간 물리 가이드 가시화 및 피드백 갱신
+            has_raw_invalid = any(ev <= 1e-4 for ev in raw_eigs)
+            if has_raw_invalid:
+                guide_text = (
+                    "⚠️ <b style='color: #ff5555;'>물리적 관성 한계 초과 감지 (보정 필요):</b><br/>"
+                    "입력한 목표 관성(Target MoI)이 패키지 기본 형태 대비 너무 작거나 곱관성이 지나치게 큽니다.<br/>"
+                    f"• <b>보정 전 고유치:</b> λ1={raw_eigs[0]:.5f}, λ2={raw_eigs[1]:.5f}, λ3={raw_eigs[2]:.5f} <span style='color: #ff5555;'>(0 이하 존재로 MuJoCo 충돌 유발)</span><br/>"
+                    "⚡ <b>[시스템 자가 치유 조치 완료]:</b><br/>"
+                    "시뮬레이터 크래시를 전면 방지하기 위해 <b>대각 관성 모멘트(Ixx, Iyy, Izz) 성분을 자동으로 안전선까지 Compensation(보정)</b> 하였습니다.<br/>"
+                    f"• <b>보정 후 고유치:</b> λ1={valid_eigs[0]:.5f}, λ2={valid_eigs[1]:.5f}, λ3={valid_eigs[2]:.5f} <span style='color: #a9dc76;'>(안전하게 양의 고유치 충족)</span><br/>"
+                    "💡 <b>가이드:</b> 자동 보정량을 최소화하고 싶으시다면 Target Specifications of MoI 대각성분(Ixx, Iyy, Izz)을 다소 늘리거나, "
+                    "곱관성 모멘트(Ixy, Ixz, Iyz) 성분의 절대값을 0에 가깝게 조절해 주시기 바랍니다."
+                )
+                self.lbl_guide.setStyleSheet("background-color: #2b1f1f; border: 1px solid #ff5555; border-radius: 4px; padding: 10px;")
+            else:
+                guide_text = (
+                    "✅ <b style='color: #a9dc76;'>물리적 관성 타당성 통과 (안정적인 상태):</b><br/>"
+                    "계산된 보정 관성 텐서의 고유치가 모두 양수 조건을 충족합니다.<br/>"
+                    f"• <b>현재 고유치:</b> λ1={valid_eigs[0]:.5f}, λ2={valid_eigs[1]:.5f}, λ3={valid_eigs[2]:.5f}<br/>"
+                    "• 가상 바디 `<InertiaCorrection>`가 무조코 엔진에 정상 로딩되며, 보정 필요성 없이 목표 사양을 대변합니다."
+                )
+                self.lbl_guide.setStyleSheet("background-color: #1e261f; border: 1px solid #a9dc76; border-radius: 4px; padding: 10px;")
+
+            self.lbl_guide.setText(guide_text)
+
+            # [WHTOOLS] 사용자가 Calculate 버튼을 클릭하여 명시적으로 계산을 가동했을 때 결과 팝업을 제공 (오직 실패 시에만 경고 출력)
+            if show_popup:
+                if has_raw_invalid:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "⚠️ 물리적 관성 한계 초과 (보정 완료)",
+                        "목표 사양으로 계산된 보정 관성 텐서가 물리적으로 성립할 수 없어 자동 보정이 수행되었습니다!\n\n"
+                        f"• 보정 전 최소 고유치: {raw_eigs[0]:.5f}\n"
+                        f"• 보정 후 최소 고유치: {valid_eigs[0]:.5f} (물리적 안전 확보)\n\n"
+                        "시뮬레이션 크래시를 차단하기 위해 가상 바디의 대각 성분이 자동 보정되었습니다. 보정량을 줄이고자 하실 경우 MoI Diagonal 수치를 상승시키거나 MoI Product(곱관성) 수치를 0에 가깝게 조절하시는 것을 권장합니다."
+                    )
 
             sep = "─" * 72
             print(f"\n{sep}")
             print(f"  [WHTOOLS] Inertia Correction (Delta-Inertia Approach)")
             print(sep)
             print(f"  m_delta   : {m_delta:+.6f} kg  at pos ({pos_delta[0]:.5f}, {pos_delta[1]:.5f}, {pos_delta[2]:.5f}) m")
-            print(f"  I_delta   : Ixx={i_delta[0]:+.6f}  Iyy={i_delta[1]:+.6f}  Izz={i_delta[2]:+.6f}")
-            print(f"              Ixy={i_delta[3]:+.6f}  Ixz={i_delta[4]:+.6f}  Iyz={i_delta[5]:+.6f}")
-            neg_diag = [i_delta[k] for k in range(3) if i_delta[k] < 0]
-            if neg_diag:
-                print(f"  ⚠ Warning: negative diagonal I_delta {neg_diag} — MuJoCo may reject this inertia.")
+            print(f"  I_delta   : Ixx={i_delta_valid[0]:+.6f}  Iyy={i_delta_valid[1]:+.6f}  Izz={i_delta_valid[2]:+.6f}")
+            print(f"              Ixy={i_delta_valid[3]:+.6f}  Ixz={i_delta_valid[4]:+.6f}  Iyz={i_delta_valid[5]:+.6f}")
+            print(f"  Eigenvals : λ1={valid_eigs[0]:.6f}  λ2={valid_eigs[1]:.6f}  λ3={valid_eigs[2]:.6f}")
+            if has_raw_invalid:
+                print(f"  ⚠ Auto-compensated by eigenvalues correction (Raw min eig: {raw_eigs[0]:.6f})")
             print(sep + "\n")
         except Exception as e:
             import traceback; traceback.print_exc()
-            QMessageBox.critical(self, "Calculation Error", f"Failed to compute inertia correction:\n{e}")
+            QtWidgets.QMessageBox.critical(self, "Calculation Error", f"Failed to compute inertia correction:\n{e}")
 
     def _unused_optimization_engine_legacy(self):
         t_mass = self.spin_target_mass.value()
@@ -1493,16 +1636,16 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
 
         return m_base, c_base, i_base, t_mass, t_cog, t_moi, mf, cf, ifi
 
-    def update_table(self, m0, c0, i0, tm, tc, ti, m_delta, pos_delta, i_delta):
-        self.table_results.setRowCount(4)
+    def update_table(self, m0, c0, i0, tm, tc, ti, m_delta, pos_delta, i_delta, raw_eigs, valid_eigs):
+        self.table_results.setRowCount(5)
 
         def make_item(text, color=None, mono=True):
             item = QtWidgets.QTableWidgetItem(text)
-            item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-            item.setFont(QFont("Consolas", 9) if mono else QFont("Segoe UI", 9))
+            item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+            item.setFont(QtGui.QFont("Consolas", 9) if mono else QtGui.QFont("Segoe UI", 9))
             if color:
                 item.setForeground(QtGui.QBrush(QtGui.QColor(color)))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(QtCore.Qt.AlignCenter)
             return item
 
         # Row 0: Mass
@@ -1537,6 +1680,18 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         self.table_results.setItem(3, 2, make_item(f"({ti[3]:.4f}, {ti[4]:.4f}, {ti[5]:.4f})"))
         self.table_results.setItem(3, 3, make_item(f"({i_delta[3]:+.4f}, {i_delta[4]:+.4f}, {i_delta[5]:+.4f})"))
         self.table_results.setItem(3, 4, make_item("✅ Exact", color="#a9dc76", mono=False))
+
+        # Row 4: MoI Eigenvalues (신설 - 고유치 물리 타당성 리포트)
+        self.table_results.setItem(4, 0, make_item("Eigenvalues", mono=False))
+        self.table_results.setItem(4, 1, make_item("N/A"))
+        self.table_results.setItem(4, 2, make_item("N/A"))
+        self.table_results.setItem(4, 3, make_item(f"λ=({valid_eigs[0]:.4f}, {valid_eigs[1]:.4f}, {valid_eigs[2]:.4f})"))
+        
+        has_raw_invalid = any(ev <= 1e-4 for ev in raw_eigs)
+        if has_raw_invalid:
+            self.table_results.setItem(4, 4, make_item("⚠️ Auto-Comp", color="#ffd866", mono=False))
+        else:
+            self.table_results.setItem(4, 4, make_item("✅ Valid", color="#a9dc76", mono=False))
 
         self.table_results.resizeRowsToContents()
         self.table_results.resizeColumnsToContents()
@@ -2490,15 +2645,23 @@ class ControlPanel(QMainWindow):
         time_layout.addWidget(self.lbl_time)
         time_layout.addWidget(self.lbl_target)
         time_layout.addWidget(self.spin_duration)
+        time_layout.addStretch()  # [WHTOOLS] 스핀박스가 우측으로 밀리지 않고 / 바로 옆에 붙도록 밀착 정렬 적용
         
         status_layout.addLayout(time_layout)
         
         self.lbl_status = QLabel("Status: Ready")
+        
+        # [WHTOOLS] Step:과 Snapshots를 수직이 아닌 수평(가로) 1행에 나란히 배치하도록 개선
+        step_snap_layout = QHBoxLayout()
+        step_snap_layout.setSpacing(15)  # 적정 가로 여백 부여
         self.lbl_step = QLabel("Step: 0")
         self.lbl_snapshots = QLabel("Snapshots: 0")
+        step_snap_layout.addWidget(self.lbl_step)
+        step_snap_layout.addWidget(self.lbl_snapshots)
+        step_snap_layout.addStretch()  # 왼쪽 밀착 정렬
         
-        for lbl in [self.lbl_status, self.lbl_step, self.lbl_snapshots]:            
-            status_layout.addWidget(lbl)
+        status_layout.addWidget(self.lbl_status)
+        status_layout.addLayout(step_snap_layout)
         
         header_layout.addWidget(status_group, 1) # Status group expands
         main_layout.addLayout(header_layout)

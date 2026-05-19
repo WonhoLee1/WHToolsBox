@@ -200,11 +200,11 @@ def test_case_1_setup():
     cfg["occ_ithick"] = 0.030        # 인터페이스 두께 관련 변수로 추정
     # [2. DROP ENV] : 낙하 시나리오 및 환경 설정
     cfg["drop_mode"] = "LTL"      # 낙하 테스트 모드 (LTL: Less than Truckload)
-    cfg["drop_mode"] = "GENERAL"
+    #cfg["drop_mode"] = "GENERAL"
     cfg["drop_direction"] = "Corner 2-3-5" # 낙하시 지향 방향 (코너 낙하)
     #cfg["drop_direction"] = "Corner 3-4-5"
     #cfg["drop_direction"] = "Face 4"
-    cfg["drop_direction"] = "back-right"
+    #cfg["drop_direction"] = "back-right"
     cfg["drop_height"] = 0.3      # 자유 낙하 높이 [m]
     cfg["use_postprocess_ui"] = False  # 엔진 내부의 구버전 UI 실행 여부
     cfg["use_viewer"] = True          # MuJoCo Viewer(GUI) 실행 여부

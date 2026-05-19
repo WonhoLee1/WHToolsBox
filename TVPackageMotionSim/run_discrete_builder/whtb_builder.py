@@ -160,7 +160,9 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     
     # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 최적화 수행
     from run_discrete_builder.whtb_physics import analyze_and_balance_components
-    config = analyze_and_balance_components(config, verbose=True)
+    # logger가 기본 print인 경우에만 상세 터미널 리포팅 테이블을 허용 (무음 logger 시 출력 차단)
+    is_verbose = (logger == print)
+    config = analyze_and_balance_components(config, verbose=is_verbose)
     
     drop_mode = config["drop_mode"]; drop_height = config["drop_height"]
     include_paperbox = config["include_paperbox"]; include_cushion = config["include_cushion"]

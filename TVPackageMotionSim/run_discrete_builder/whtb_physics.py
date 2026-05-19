@@ -45,14 +45,32 @@ def analyze_and_balance_components(config: Dict[str, Any], verbose: bool = True)
         i_base_at_tcog = np.zeros(6)
         i_base_at_tcog[:3] = i_base[:3] + m_base * np.array([d[1]**2+d[2]**2, d[0]**2+d[2]**2, d[0]**2+d[1]**2])
         i_base_at_tcog[3:6] = i_base[3:6] - m_base * np.array([d[0]*d[1], d[0]*d[2], d[1]*d[2]])
-        i_delta = t_moi - i_base_at_tcog
-        i_delta = _clamp_inertia_triangle(i_delta, label="I_delta")
+        
+        i_delta_at_tcog = t_moi - i_base_at_tcog
+        i_delta = i_delta_at_tcog.copy()
+        if abs(m_delta) > 1e-9:
+            dp = pos_delta - t_cog
+            i_delta[0] -= m_delta * (dp[1]**2 + dp[2]**2)
+            i_delta[1] -= m_delta * (dp[0]**2 + dp[2]**2)
+            i_delta[2] -= m_delta * (dp[0]**2 + dp[1]**2)
+            i_delta[3] += m_delta * dp[0] * dp[1]
+            i_delta[4] += m_delta * dp[0] * dp[2]
+            i_delta[5] += m_delta * dp[1] * dp[2]
+
+        i_delta = _clamp_inertia_triangle(i_delta, label="I_delta", verbose=verbose)
+        i_delta = _ensure_positive_eigenvalues(i_delta, label="I_delta", verbose=verbose)
         ic = {
             "m_delta": float(m_delta),
             "pos_delta": [float(v) for v in pos_delta],
             "I_delta": [float(v) for v in i_delta],
         }
         config["inertia_correction"] = ic
+    elif ic and "I_delta" in ic:
+        # 이미 존재하여 로드된 inertia_correction에 대해서도 물리적 타당성 검사 및 보정 적용
+        i_delta_arr = np.array(ic["I_delta"])
+        i_delta_clamped = _clamp_inertia_triangle(i_delta_arr, label="I_delta (Loaded)", verbose=verbose)
+        i_delta_valid = _ensure_positive_eigenvalues(i_delta_clamped, label="I_delta (Loaded)", verbose=verbose)
+        ic["I_delta"] = [float(v) for v in i_delta_valid]
 
     if ic and abs(ic.get("m_delta", 0.0)) > 1e-9:
         m_final = m_base + ic["m_delta"]
@@ -80,7 +98,7 @@ def analyze_and_balance_components(config: Dict[str, Any], verbose: bool = True)
 
     return config
 
-def _clamp_inertia_triangle(i6: np.ndarray, label: str = "") -> np.ndarray:
+def _clamp_inertia_triangle(i6: np.ndarray, label: str = "", verbose: bool = True) -> np.ndarray:
     """
     MuJoCo 삼각 부등식 A + B >= C 를 만족하도록 대각 성분을 최소한으로 올립니다.
     off-diagonal(product) 성분은 그대로 유지합니다.
@@ -102,13 +120,49 @@ def _clamp_inertia_triangle(i6: np.ndarray, label: str = "") -> np.ndarray:
         violations.append(f"Iyy+Izz({iyy:.4f}+{izz:.4f}={iyy+izz:.4f}) < Ixx({ixx:.4f})")
         deficit = ixx - (iyy + izz)
         iyy += deficit / 2; izz += deficit / 2
-    if violations:
+    if violations and verbose:
         tag = f"[{label}] " if label else ""
         print(f"  ⚠  {tag}Inertia triangle violation — diagonal clamped to satisfy A+B≥C:")
         for v in violations:
             print(f"     {v}")
         print(f"     → clamped to Ixx={ixx:.6f}  Iyy={iyy:.6f}  Izz={izz:.6f}")
     i[0], i[1], i[2] = ixx, iyy, izz
+    return i
+
+def _ensure_positive_eigenvalues(i6: np.ndarray, label: str = "", min_eig: float = 1e-4, verbose: bool = True) -> np.ndarray:
+    """
+    [WHTOOLS] 관성 텐서의 고유치(Eigenvalues)가 모두 양수가 되도록 대각 성분을 최소한으로 올립니다.
+    off-diagonal(product) 성분은 그대로 유지합니다.
+    """
+    i = i6.copy()
+    
+    # 3x3 대칭 관성 텐서 행렬 구성 (MuJoCo fullinertia 형식: [Ixx, Iyy, Izz, Ixy, Ixz, Iyz])
+    # off-diagonal 성분의 부호는 관성 모멘트 공식의 관례(음의 곱관성)에 따라 마이너스 적용
+    I_matrix = np.array([
+        [i[0], -i[3], -i[4]],
+        [-i[3], i[1], -i[5]],
+        [-i[4], -i[5], i[2]]
+    ])
+    
+    # 대칭 행렬 전용 고유치 계산 (오름차순 정렬되어 반환됨)
+    eigenvalues = np.linalg.eigvalsh(I_matrix)
+    min_eig_val = eigenvalues[0]
+    
+    if min_eig_val < min_eig:
+        # 고유치가 최소 min_eig가 되도록 대각 성분에 더해줄 부족분 계산
+        deficit = min_eig - min_eig_val
+        i[0] += deficit
+        i[1] += deficit
+        i[2] += deficit
+        
+        if verbose:
+            tag = f"[{label}] " if label else ""
+            print(f"  ⚠  {tag}Inertia eigenvalues violation:")
+            print(f"     Current eigenvalues: λ1={eigenvalues[0]:.6f}, λ2={eigenvalues[1]:.6f}, λ3={eigenvalues[2]:.6f}")
+            print(f"     Minimum allowed eigenvalue: {min_eig}")
+            print(f"     Deficit: {deficit:.6f} -> Auto-compensated by adding {deficit:.6f} to diagonals.")
+            print(f"     → Clamped Diagonals: Ixx={i[0]:.6f}  Iyy={i[1]:.6f}  Izz={i[2]:.6f}")
+        
     return i
 
 def _get_assembly_inertia_base(config: Dict[str, Any]) -> Tuple[float, np.ndarray, np.ndarray, List[Dict[str, Any]]]:
@@ -201,8 +255,21 @@ def _print_physics_report(console, details, m0, c0, i0, tm, tc, ti, mf, cf, ifi,
         ic_table.add_row("pos_delta (m)",  f"({pd[0]:.5f}, {pd[1]:.5f}, {pd[2]:.5f})")
         ic_table.add_row("I_delta diag",   f"Ixx={Id[0]:+.6f}  Iyy={Id[1]:+.6f}  Izz={Id[2]:+.6f}")
         ic_table.add_row("I_delta prod",   f"Ixy={Id[3]:+.6f}  Ixz={Id[4]:+.6f}  Iyz={Id[5]:+.6f}")
-        neg_diag = [["Ixx","Iyy","Izz"][k] for k in range(3) if Id[k] < 0]
-        feas = "[green]✅ Physically valid[/green]" if not neg_diag else f"[yellow]⚠️  Negative diagonal: {', '.join(neg_diag)} — MuJoCo may reject[/yellow]"
+        
+        # 3x3 관성 텐서 행렬 구성 및 고윳값 계산
+        I_mat = np.array([
+            [Id[0], -Id[3], -Id[4]],
+            [-Id[3], Id[1], -Id[5]],
+            [-Id[4], -Id[5], Id[2]]
+        ])
+        eigs = np.linalg.eigvalsh(I_mat)
+        ic_table.add_row("Eigenvalues",     f"λ1={eigs[0]:.6f}  λ2={eigs[1]:.6f}  λ3={eigs[2]:.6f}")
+        
+        neg_eigs = [ev for ev in eigs if ev <= 1e-6]
+        if neg_eigs:
+            feas = f"[red]❌ Invalid: Non-positive eigenvalues ({', '.join(f'{v:.6f}' for v in neg_eigs)}) — MuJoCo WILL reject[/red]"
+        else:
+            feas = "[green]✅ Physically valid (all eigenvalues > 0)[/green]"
         ic_table.add_row("Feasibility", feas)
         console.print(ic_table)
 
