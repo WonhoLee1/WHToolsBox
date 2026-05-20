@@ -368,7 +368,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     
     # 7. XML 파일 작성
     xml_str_io = io.StringIO()
-    xml_str_io.write('<mujoco model="discrete_custom_box">\n  <compiler balanceinertia="true"/>\n  <size memory="512M"/>\n')
+    xml_str_io.write('<mujoco model="Samsung Electronics TV Package Drop Motion Simulation">\n  <compiler balanceinertia="true"/>\n  <size memory="512M"/>\n')
     xml_str_io.write(f'  <option integrator="{config["sim_integrator"]}" timestep="{config["sim_timestep"]}" iterations="{config["sim_iterations"]}" noslip_iterations="{config["sim_noslip_iterations"]}" tolerance="{config["sim_tolerance"]}" impratio="{config["sim_impratio"]}" gravity="{config["sim_gravity"][0]} {config["sim_gravity"][1]} {config["sim_gravity"][2]}" density="{config.get("air_density", 1.225)}" viscosity="{config.get("air_viscosity", 1.81e-5)}">\n    <flag contact="enable"/>\n  </option>\n')
     # [WHTOOLS] 시각적 설정 일반화 (Fog & Skybox)
     visual_cfg = config.get("visual", {})

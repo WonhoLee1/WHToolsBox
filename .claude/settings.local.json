@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile whts_control_panel.py)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(python -)",
+      "Bash(python -c ' *)",
+      "Bash(cd /c/Users/GOODMAN/WHToolsBox/TVPackageMotionSim && find . -type f -name \"*.csv\" | head -20)",
+      "Read(//c/c/Users/GOODMAN/WHToolsBox/**)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" status)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" diff)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" log --oneline -5)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" add TVPackageMotionSim/resources/tv_ref_model_info.csv TVPackageMotionSim/run_drop_simulator/whts_control_panel.py TVPackageMotionSim/run_discrete_builder/whtb_config.py)",
+      "Bash(git -C 'c:\\\\Users\\\\GOODMAN\\\\WHToolsBox' commit -m ' *)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" status --short)",
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" add -A)"
+    ]
+  }
+}

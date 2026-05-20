@@ -81,7 +81,7 @@ class MonitorConfigDialog(QDialog):
         
         for i, info in enumerate(self.corner_info):
             cb = QCheckBox(f"{info['id']}: {info['name']}")
-            if info['id'] == "C1": cb.setChecked(True)
+            cb.setChecked(True)  # [WHTOOLS] C1~C8 기본값: 모두 체크
             cb.setProperty("info", info)
             self.corner_checks.append(cb)
             corner_grid.addWidget(cb, i // 2, i % 2)
@@ -109,7 +109,11 @@ class MonitorConfigDialog(QDialog):
         axis_layout = QHBoxLayout()
         self.check_x = QCheckBox("X"); self.check_y = QCheckBox("Y"); self.check_z = QCheckBox("Z")
         self.check_res = QCheckBox("Resultant") # [WHTOOLS] Resultant 추가
+        # [WHTOOLS] Select Axes 기본값: 모두 체크
+        self.check_x.setChecked(True)
+        self.check_y.setChecked(True)
         self.check_z.setChecked(True)
+        self.check_res.setChecked(True)
         for c in [self.check_x, self.check_y, self.check_z, self.check_res]: axis_layout.addWidget(c)
         kin_layout.addLayout(axis_layout)
         
@@ -259,14 +263,15 @@ class RealTimeMonitorWindow(QWidget):
         self.config = config
         self.setWindowTitle(f"📈 WHTS Real-Time Monitor - {config['data_type'].upper()}")
         self.resize(600, 450)
-        # Remove Window Icon using Flags (Safe Version)
+        # [WHTOOLS] 커브 창 항상 위 + 표준 윈도우 버튼
         self.setWindowFlags(
             Qt.Window | 
             Qt.WindowTitleHint | 
             Qt.WindowSystemMenuHint | 
             Qt.WindowMinimizeButtonHint | 
             Qt.WindowMaximizeButtonHint | 
-            Qt.WindowCloseButtonHint
+            Qt.WindowCloseButtonHint |
+            Qt.WindowStaysOnTopHint   # [WHTOOLS] 항상 위에 표시
         )
         self.setWindowIcon(QIcon())
         
@@ -343,7 +348,8 @@ class RealTimeMonitorWindow(QWidget):
         self.act_pan.triggered.connect(self.nav_toolbar.pan)
         self.act_zoom.triggered.connect(self.nav_toolbar.zoom)
         self.act_config.triggered.connect(self.nav_toolbar.configure_subplots)
-        self.act_tight.triggered.connect(lambda: (self.fig.tight_layout(), self.canvas.draw()))
+        # [WHTOOLS] Tight Layout 후 subplots_adjust 재적용 (legend 우측 외부 배치 유지)
+        self.act_tight.triggered.connect(lambda: (self.fig.tight_layout(), self.fig.subplots_adjust(right=0.78), self.canvas.draw()))
         
         self.view_menu.addAction(self.act_home)
         self.view_menu.addAction(self.act_back)
@@ -403,21 +409,18 @@ class RealTimeMonitorWindow(QWidget):
                     c_id = c_info['id']
                     line, = ax.plot([], [], label=c_id, linewidth=1.2)
                     lines[c_id] = line
-                if i == 0:
-                    ax.legend(loc='upper right', fontsize=6, facecolor='#121212', labelcolor='white')
+                # legend는 _init_ui 하단의 통합 외부 배치 블록에서 일괄 처리
             elif plot_info['type'] == "rot_axis":
                 line_azi, = ax.plot([], [], label="Azimuth", color="orange", linewidth=1.2)
                 line_ele, = ax.plot([], [], label="Elevation", color="magenta", linewidth=1.2)
                 lines["azi"] = line_azi
                 lines["ele"] = line_ele
-                ax.legend(loc='upper right', fontsize=6, facecolor='#121212', labelcolor='white')
                 ax.set_ylabel("Degree (°)", color='gray', fontsize=8)
             elif plot_info['type'] == "trans_vel_xyz":
                 line_x, = ax.plot([], [], label="VX", color="#ff4444", linewidth=1.2)
                 line_y, = ax.plot([], [], label="VY", color="#44ff44", linewidth=1.2)
                 line_z, = ax.plot([], [], label="VZ", color="#4444ff", linewidth=1.2)
                 lines["x"] = line_x; lines["y"] = line_y; lines["z"] = line_z
-                ax.legend(loc='upper right', fontsize=6, facecolor='#121212', labelcolor='white')
             else: # Global scalars (Drag, Squeeze, RotSpeed, TransVelRes)
                 line, = ax.plot([], [], color='cyan', linewidth=1.5)
                 lines["total"] = line
@@ -430,6 +433,29 @@ class RealTimeMonitorWindow(QWidget):
             plot_info['marker'] = marker
             
         self.fig.tight_layout()
+        # [WHTOOLS] Legend를 플롯 우측 바깥에 배치 - 겹침 방지
+        # subplots_adjust로 오른쪽 여백 확보 후 각 axes에 legend 부착
+        self.fig.subplots_adjust(right=0.78)  # 우측 22% 여백 = legend 영역
+        for plot_info in self.axes_plots:
+            ax = plot_info['ax']
+            if ax is None:
+                continue
+            handles, labels = ax.get_legend_handles_labels()
+            if not handles:
+                continue
+            # 기존 legend 제거 후 우측 밖으로 재배치
+            if ax.get_legend():
+                ax.get_legend().remove()
+            ax.legend(
+                handles, labels,
+                loc='center left',
+                bbox_to_anchor=(1.01, 0.5),  # axes 기준 우측 밖
+                fontsize=6,
+                facecolor='#121212',
+                labelcolor='white',
+                framealpha=0.85,
+                borderpad=0.5,
+            )
 
     def _update_plot(self):
         """시뮬레이터의 데이터를 가져와 그래프를 갱신합니다."""

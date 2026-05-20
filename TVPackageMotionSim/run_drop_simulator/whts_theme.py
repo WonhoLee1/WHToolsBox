@@ -227,7 +227,7 @@ QTreeWidget {{
 }}
 QTreeWidget::item {{
     min-height: 24px;
-    padding: 3px;
+    padding: 2px;
 }}
 QTreeWidget::item:hover {{ background-color: {C_BG_BTN_HOV}; }}
 QTreeWidget::item:selected {{ background-color: {C_SEL}; color: {C_TEXT}; }}

@@ -989,6 +989,7 @@ class DropSimulator:
         if 0 <= idx < len(self.snapshots):
             snapshot = self.snapshots[idx]
             mujoco.mj_setState(self.model, self.data, snapshot['state'], mujoco.mjtState.mjSTATE_PHYSICS)
+            self.data.time = snapshot['time']  # [WHTOOLS] 물리적 시간 필드 강제 복구
             mujoco.mj_forward(self.model, self.data)
             self.step_idx = snapshot['step_idx']
             
@@ -1164,6 +1165,7 @@ class DropSimulator:
         snapshot = self.snapshots[-1]
         
         mujoco.mj_setState(self.model, self.data, snapshot['state'], mujoco.mjtState.mjSTATE_PHYSICS)
+        self.data.time = snapshot['time']  # [WHTOOLS] 물리적 시간 필드 강제 복구
         mujoco.mj_forward(self.model, self.data)
         self.step_idx = snapshot['step_idx']
         
