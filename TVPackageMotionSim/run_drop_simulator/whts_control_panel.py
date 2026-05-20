@@ -487,6 +487,19 @@ def parse_size_str(size_str):
         pass
     return 0.0, 0.0, 0.0
 
+def parse_float_list(s, expected_count):
+    """쉼표 또는 공백으로 구분된 실수 목록을 파싱합니다. 실패 시 None 반환."""
+    if not s or not s.strip():
+        return None
+    try:
+        import re
+        parts = [float(x) for x in re.split(r'[,\s]+', s.strip()) if x]
+        if len(parts) == expected_count:
+            return parts
+    except Exception:
+        pass
+    return None
+
 class SelectTVModelDialog(QtWidgets.QDialog):
     """
     [WHTOOLS] 삼성 TV 참조 모델 선택 다이얼로그 (PySide6 QTableWidget 기반)
@@ -509,11 +522,13 @@ class SelectTVModelDialog(QtWidgets.QDialog):
         layout.addWidget(lbl)
         
         self.table = QtWidgets.QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(14)
         self.table.setHorizontalHeaderLabels([
             "Model Name", "Inch", "Pkg Size (mm)", "Pkg Mass (kg)",
             "Set w/ Stand Size", "Set w/ Stand Mass",
-            "Set wo/ Stand Size", "Set wo/ Stand Mass", "Stand Base"
+            "Set wo/ Stand Size", "Set wo/ Stand Mass", "Stand Base",
+            "Cushion (kg)", "Chassis (kg)", "Opencell (kg)",
+            "CoG (m)", "MoI (kg·m²)"
         ])
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -536,9 +551,12 @@ class SelectTVModelDialog(QtWidgets.QDialog):
         layout.addLayout(btn_box)
 
     def _load_data(self):
-        csv_path = "c:\\Users\\GOODMAN\\WHToolsBox\\tv_ref_model_info.csv"
+        # [WHTOOLS] __file__ 기준 상대 경로로 resources/tv_ref_model_info.csv 참조
+        # run_drop_simulator/ -> TVPackageMotionSim/ -> resources/
+        from pathlib import Path
         import csv
         import os
+        csv_path = Path(__file__).parent.parent / "resources" / "tv_ref_model_info.csv"
         
         models = []
         if os.path.exists(csv_path):
@@ -564,6 +582,11 @@ class SelectTVModelDialog(QtWidgets.QDialog):
             self.table.setItem(row_idx, 6, QtWidgets.QTableWidgetItem(m.get('set_wo_std_size', '')))
             self.table.setItem(row_idx, 7, QtWidgets.QTableWidgetItem(m.get('set_wo_std_m', '')))
             self.table.setItem(row_idx, 8, QtWidgets.QTableWidgetItem(m.get('stand_base', '')))
+            self.table.setItem(row_idx, 9, QtWidgets.QTableWidgetItem(m.get('cushion_m', '')))
+            self.table.setItem(row_idx, 10, QtWidgets.QTableWidgetItem(m.get('chassis_m', '')))
+            self.table.setItem(row_idx, 11, QtWidgets.QTableWidgetItem(m.get('opencell_m', '')))
+            self.table.setItem(row_idx, 12, QtWidgets.QTableWidgetItem(m.get('cog', '')))
+            self.table.setItem(row_idx, 13, QtWidgets.QTableWidgetItem(m.get('moi', '')))
             
         self.table.resizeColumnsToContents()
 
@@ -916,7 +939,42 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
                 self.spin_set_w.setValue(set_w_mm / 1000.0)
                 self.spin_set_h.setValue(set_h_mm / 1000.0)
                 self.spin_set_d.setValue(set_d_mm / 1000.0)
-                
+            
+            # [WHTOOLS] 가장 최근 선택된 Ref. Model의 Package 질량을 config에 저장
+            # ComponentBalanceDialog에서 "from Ref. Model" 힌트로 표시되어 편의성 제공
+            if m.get('pkg_m', 0) > 0:
+                self.config["last_ref_pkg_mass"] = float(m['pkg_m'])
+
+            # 3) 컴포넌트 질량 반영 (cushion / chassis / opencell)
+            try:
+                v = float(m.get('cushion_m', '') or '')
+                if v > 0:
+                    self.spin_cushion_mass.setValue(v)
+            except (ValueError, TypeError):
+                pass
+            try:
+                v = float(m.get('chassis_m', '') or '')
+                if v > 0:
+                    self.spin_chassis_mass.setValue(v)
+            except (ValueError, TypeError):
+                pass
+            try:
+                v = float(m.get('opencell_m', '') or '')
+                if v > 0:
+                    self.spin_opencell_mass.setValue(v)
+            except (ValueError, TypeError):
+                pass
+
+            # 4) CoG (3값: x y z, m 단위) → config["chassis_cog"]
+            cog_vals = parse_float_list(m.get('cog', ''), 3)
+            if cog_vals is not None:
+                self.config["chassis_cog"] = cog_vals
+
+            # 5) MoI (6값: Ixx Iyy Izz Ixy Ixz Iyz, kg·m²) → config["chassis_moi"]
+            moi_vals = parse_float_list(m.get('moi', ''), 6)
+            if moi_vals is not None:
+                self.config["chassis_moi"] = moi_vals
+
             self.temp_selected_ref_model = m
             self._update_all()
 
@@ -1167,11 +1225,19 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
             self.parent_dialog._populate_config_tree()
             self.parent_dialog.schematic.update_config(self.parent_dialog.config)
             
+            # [WHTOOLS BUG-FIX] combo_ista.setCurrentText() 호출 시 _on_ista_changed 시그널이 발화되어
+            # edit_direction을 기본값으로 덮어쓰는 것을 방지하기 위해 blockSignals 처리
+            self.parent_dialog.combo_ista.blockSignals(True)
             self.parent_dialog.combo_ista.setCurrentText(self.config["drop_mode"])
+            self.parent_dialog.combo_ista.blockSignals(False)
+            
+            # 시그널 차단 후 올바른 방향 값 설정 (이 순서가 보장되어야 함)
             self.parent_dialog.edit_direction.setText(self.config["drop_direction"])
+            self.parent_dialog.config["drop_direction"] = self.config["drop_direction"]
             self.parent_dialog.spin_height.setValue(self.config["drop_height"])
             self.parent_dialog.spin_lat.setValue(int(self.config["initial_tilt_deg"]))
             self.parent_dialog.spin_azimuth.setValue(int(self.config["initial_tilt_azimuth_deg"]))
+            self.parent_dialog.schematic.update_config(self.parent_dialog.config)
             
         self.accept()
 
@@ -1215,12 +1281,28 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
 
         bal_cfg = self.config["components_balance"]
 
+        # Target Mass 행: SpinBox + "from Ref. Model" 힌트 레이블
         specs_grid.addWidget(QtWidgets.QLabel("⚖️ Target Mass (kg):"), 0, 0)
+        mass_lay = QtWidgets.QHBoxLayout()
         self.spin_target_mass = QtWidgets.QDoubleSpinBox()
         self.spin_target_mass.setRange(1.0, 500.0)
         self.spin_target_mass.setSingleStep(0.1)
         self.spin_target_mass.setValue(bal_cfg.get("target_mass", 42.2))
-        specs_grid.addWidget(self.spin_target_mass, 0, 1)
+        mass_lay.addWidget(self.spin_target_mass)
+        
+        # [WHTOOLS] 가장 최근 Ref. Model의 Package 질량을 힌트로 표시
+        ref_pkg_mass = self.config.get("last_ref_pkg_mass", None)
+        self.lbl_ref_mass = QtWidgets.QLabel()
+        if ref_pkg_mass is not None:
+            self.lbl_ref_mass.setText(f"📌 from Ref. Model: <b>{ref_pkg_mass:.1f} kg</b>")
+            self.lbl_ref_mass.setTextFormat(QtCore.Qt.RichText)
+            self.lbl_ref_mass.setStyleSheet("color: #78dce8; font-size: 9pt; margin-left: 6px;")
+        else:
+            self.lbl_ref_mass.setText("📌 from Ref. Model: —")
+            self.lbl_ref_mass.setStyleSheet("color: #808080; font-size: 9pt; margin-left: 6px;")
+        mass_lay.addWidget(self.lbl_ref_mass)
+        mass_lay.addStretch()
+        specs_grid.addLayout(mass_lay, 0, 1)
 
         specs_grid.addWidget(QtWidgets.QLabel("📍 Target CoG X/Y/Z (m):"), 1, 0)
         cog_lay = QtWidgets.QHBoxLayout()
@@ -1238,6 +1320,17 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         self.spin_moi_yy = QtWidgets.QDoubleSpinBox(); self.spin_moi_yy.setRange(0.01, 500.0); self.spin_moi_yy.setDecimals(4); self.spin_moi_yy.setValue(moi_vals[1])
         self.spin_moi_zz = QtWidgets.QDoubleSpinBox(); self.spin_moi_zz.setRange(0.01, 500.0); self.spin_moi_zz.setDecimals(4); self.spin_moi_zz.setValue(moi_vals[2])
         moi_diag_lay.addWidget(self.spin_moi_xx); moi_diag_lay.addWidget(self.spin_moi_yy); moi_diag_lay.addWidget(self.spin_moi_zz)
+        
+        # [WHTOOLS] 균일 직육면체 근사치 계산 버튼
+        self.btn_guess_moi = QtWidgets.QPushButton("🎲 Guess Uniform")
+        self.btn_guess_moi.setToolTip(
+            "Package 크기(W×H×D)와 SET 크기, Target Mass를 기반으로\n"
+            "균일 밀도 직육면체로 근사한 Ixx, Iyy, Izz를 자동 계산하여 적용합니다.\n"
+            "I_xx = m/12*(h²+d²), I_yy = m/12*(w²+d²), I_zz = m/12*(w²+h²)"
+        )
+        self.btn_guess_moi.setStyleSheet(f"background-color: {C_BTN_INDIGO}; color: white; padding: 3px 8px; font-size: 9pt;")
+        self.btn_guess_moi.clicked.connect(self._on_guess_uniform_moi)
+        moi_diag_lay.addWidget(self.btn_guess_moi)
         specs_grid.addLayout(moi_diag_lay, 2, 1)
 
         specs_grid.addWidget(QtWidgets.QLabel("🌀 Target MoI Product (Ixy, Ixz, Iyz):"), 3, 0)
@@ -1339,6 +1432,57 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         bottom_btn_lay.addStretch()
         bottom_btn_lay.addWidget(self.btn_apply)
         main_layout.addLayout(bottom_btn_lay)
+
+    def _on_guess_uniform_moi(self):
+        """
+        [WHTOOLS] Package/SET 크기와 Target Mass를 기반으로 균일 밀도 직육면체 MoI 대각 성분을 추정합니다.
+
+        추정 방법:
+          - Package 크기(box_w, box_h, box_d)와 SET 크기(assy_w, assy_h, chassis_d)를 동시에 고려
+          - 두 크기의 가중 평균 (Package 70%, SET 30%)으로 유효 치수 계산
+          - 균일 직육면체 관성 공식 적용:
+              I_xx = m/12 * (h² + d²)
+              I_yy = m/12 * (w² + d²)
+              I_zz = m/12 * (w² + h²)
+        """
+        m = self.spin_target_mass.value()
+
+        # Package 크기 (m 단위)
+        box_w = float(self.config.get("box_w", 1.8))
+        box_h = float(self.config.get("box_h", 0.12))
+        box_d = float(self.config.get("box_d", 1.05))
+
+        # SET 크기 (m 단위) - chassis_d 대신 box_d와 근사
+        assy_w = float(self.config.get("assy_w", box_w * 0.95))
+        assy_h = float(self.config.get("assy_h", box_h * 0.85))
+        assy_d = float(self.config.get("chassis_d", box_d * 0.90))
+
+        # 가중 평균 유효 치수 (Package 70% + SET 30%)
+        w = box_w * 0.70 + assy_w * 0.30
+        h = box_h * 0.70 + assy_h * 0.30
+        d = box_d * 0.70 + assy_d * 0.30
+
+        # 균일 직육면체 관성 모멘트 공식 (단위: kg·m²)
+        ixx = m / 12.0 * (h**2 + d**2)
+        iyy = m / 12.0 * (w**2 + d**2)
+        izz = m / 12.0 * (w**2 + h**2)
+
+        # SpinBox에 적용
+        self.spin_moi_xx.setValue(round(ixx, 4))
+        self.spin_moi_yy.setValue(round(iyy, 4))
+        self.spin_moi_zz.setValue(round(izz, 4))
+
+        # 사용자 안내 메시지
+        self.lbl_guide.setText(
+            f"🎲 <b style='color: #ffd866;'>Guess Uniform MoI 적용 완료:</b><br/>"
+            f"유효 치수 W={w*1000:.0f}mm, H={h*1000:.0f}mm, D={d*1000:.0f}mm (Pkg 70% + SET 30%)<br/>"
+            f"• Ixx = {ixx:.4f} kg·m²,  Iyy = {iyy:.4f} kg·m²,  Izz = {izz:.4f} kg·m²<br/>"
+            f"<span style='color: #aaaaaa;'>▶ 이 값은 균일 밀도 직육면체 근사입니다. "
+            f"계산 후 Calculate로 정확한 보정치를 확인하세요.</span>"
+        )
+        self.lbl_guide.setStyleSheet(
+            "background-color: #1f2230; border: 1px solid #6272a4; border-radius: 4px; padding: 10px;"
+        )
 
     def _calculate_delta_inertia(self, show_popup=False):
         """Analytic delta-inertia computation. No optimization needed — result is exact."""
@@ -1765,6 +1909,11 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.setStyleSheet(GLOBAL_QSS)
         
         self._init_ui()
+        # [WHTOOLS BUG-FIX] _on_ista_changed 호출 전에 config의 drop_direction을 edit_direction에 먼저 주입.
+        # 이렇게 해야 _on_ista_changed의 방어 로직이 기존 유효한 Edge/Corner 방향을 인식하고 보존함.
+        _saved_direction = self.config.get("drop_direction", "")
+        if _saved_direction:
+            self.edit_direction.setText(_saved_direction)
         self._on_ista_changed(self.combo_ista.currentText())
 
     def _init_ui(self):
@@ -2222,6 +2371,16 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.schematic.update_config(self.config)
 
     def _on_ista_changed(self, text):
+        """
+        [WHTOOLS] 낙하 모드(ISTA) 변경 시 UI 상태를 갱신합니다.
+        
+        핵심 방어 로직: 이미 유효한 Edge/Corner/Face 번호 방향이 설정되어 있고,
+        해당 방향이 현재 선택된 모드와 일치하는 경우에는 기본값으로 덮어쓰지 않습니다.
+        이는 Setup Helper에서 적용한 방향이 콤보박스 시그널에 의해 소거되는 버그를 방지합니다.
+        
+        Args:
+            text (str): 선택된 모드 문자열 ("PARCEL", "LTL", "GENERAL")
+        """
         self.config["drop_mode"] = text
         if text == "GENERAL":
             self.btn_select_sequence.setVisible(True) # GENERAL 모드에서도 항상 버튼 노출하여 치수/ISTA 설정 가이드 확보
@@ -2234,10 +2393,25 @@ class ModelSetupDialog(QtWidgets.QDialog):
             self.general_dropdowns_container.setVisible(False)
             self.edit_direction.setReadOnly(True)
             
-            if text == "PARCEL":
-                self.edit_direction.setText("front-bottom-right") # Mapped to Corner 2-3-5
-            elif text == "LTL":
-                self.edit_direction.setText("bottom") # Mapped to Face 3
+            # [WHTOOLS BUG-FIX] 기존에 유효한 방향이 설정되어 있으면 기본값으로 덮어쓰지 않음
+            # Setup Helper에서 Apply로 설정한 Edge/Corner/Face 방향 보존
+            current_direction = self.edit_direction.text().strip()
+            _default_parcel = "front-bottom-right"
+            _default_ltl    = "bottom"
+            
+            # 현재 방향이 비어있거나, 반대편 모드의 기본값인 경우에만 기본값으로 초기화
+            _is_empty = not current_direction
+            _is_opposite_default = (
+                (text == "LTL"    and current_direction == _default_parcel) or
+                (text == "PARCEL" and current_direction == _default_ltl)
+            )
+            
+            if _is_empty or _is_opposite_default:
+                if text == "PARCEL":
+                    self.edit_direction.setText(_default_parcel)  # Mapped to Corner 2-3-5
+                elif text == "LTL":
+                    self.edit_direction.setText(_default_ltl)     # Mapped to Face 3
+            # 그 외(유효한 Face/Edge/Corner 번호 방향 등)는 기존 값 그대로 유지
             
             self.config["drop_direction"] = self.edit_direction.text()
             self.schematic.update_config(self.config)
@@ -2562,6 +2736,8 @@ class ControlPanel(QMainWindow):
         self.monitor_windows = []
         self._mujoco_aligned = False
         self._reloading = False  # _do_reload 재진입 방지 플래그
+        self._last_mujoco_hwnd = None
+        self._last_mujoco_rect = None
 
     def showEvent(self, event):
         """창이 표시될 때 정렬을 위해 부모 이벤트를 호출합니다."""
@@ -2894,6 +3070,25 @@ class ControlPanel(QMainWindow):
 
             if found_hwnd[0]:
                 hwnd = found_hwnd[0]
+                
+                # [WHTOOLS] 새로운 MuJoCo 창 감지 시, 직전 창의 위치와 크기 복원 수행
+                if self._last_mujoco_hwnd is not None and self._last_mujoco_hwnd != hwnd:
+                    if self._last_mujoco_rect is not None:
+                        old_rect = self._last_mujoco_rect
+                        w = old_rect.right - old_rect.left
+                        h = old_rect.bottom - old_rect.top
+                        # 이전 위치와 크기로 새 창을 알아서 이동 및 조정
+                        ctypes.windll.user32.MoveWindow(hwnd, old_rect.left, old_rect.top, w, h, True)
+                        # 새 창이 정렬되었으므로 컨트롤 패널도 다시 새 위치에 맞춰 따라가도록 격발
+                        self._mujoco_aligned = False
+                
+                self._last_mujoco_hwnd = hwnd
+                
+                # 실시간으로 현재 무조코 창의 실제 윈도우 RECT 캐싱 (사용자 최신 배치 상시 반영)
+                current_rect = RECT()
+                if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(current_rect)):
+                    self._last_mujoco_rect = current_rect
+
                 rect = RECT()
                 
                 # [WHTOOLS] DWMWA_EXTENDED_FRAME_BOUNDS (9)를 사용하여 그림자 제외 실제 가시 영역 획득

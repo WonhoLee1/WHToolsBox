@@ -174,6 +174,8 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         # [Mass Totals]
         "mass_paper": 4.0, "mass_cushion": 2.0, "mass_oc": 5.0, "mass_occ": 0.1, "mass_chassis": 10.0,
         "target_mass": 25.0, "enable_target_balancing": True, "num_balancing_masses": 8,
+        # Ref. Model에서 가져온 chassis CoG [x,y,z] (m) 및 MoI [Ixx,Iyy,Izz,Ixy,Ixz,Iyz] (kg·m²)
+        "chassis_cog": None, "chassis_moi": None,
         "chassis_aux_masses": [
             {"name": "InertiaAux_Single", "size": [0.1, 0.1, 0.1], "mass": 3.9, "pos": [0, 0, 0]}
         ],
