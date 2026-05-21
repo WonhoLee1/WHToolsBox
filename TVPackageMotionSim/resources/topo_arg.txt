@@ -92,7 +92,7 @@
 # no-static    : 정적 하중 케이스 전체 비활성 (동적 ESL만 사용)
 # --dynamic-opts  CSV경로,T_START,T_END
 --add-inertia
---n-top         5
+--n-top         2
 --n-windows     10
 # --use-global-z
 --w-dynamic     1.0
@@ -102,7 +102,7 @@
 # --no-static
 --dt            0.001
 --esl-skip-tol 0.05
---parallel-scenarios
+--parallel-scenarios 4
 --modal-dynamic
 
 # ── 정적 하중 케이스 설정 ────────────────────────────────────────────────────

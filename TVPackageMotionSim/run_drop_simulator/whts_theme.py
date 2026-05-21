@@ -199,21 +199,44 @@ QTabBar::tab:selected {{
     border-color: {C_BORDER_IN};
 }}
 QScrollBar:vertical {{
-    background: {C_BG_INPUT}; 
+    background: #1a1a1a;
     width: 12px;
     margin: 0px;
 }}
 QScrollBar::handle:vertical {{
-    background: {C_BG_BTN}; 
-    border-radius: 6px; 
+    background: #606060;
+    border-radius: 6px;
     min-height: 24px;
     margin: 2px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: {C_BG_BTN_HOV}; 
+    background: #808080;
+}}
+QScrollBar::handle:vertical:pressed {{
+    background: #a0a0a0;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
+}}
+QScrollBar:horizontal {{
+    background: #1a1a1a;
+    height: 12px;
+    margin: 0px;
+}}
+QScrollBar::handle:horizontal {{
+    background: #606060;
+    border-radius: 6px;
+    min-width: 24px;
+    margin: 2px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: #808080;
+}}
+QScrollBar::handle:horizontal:pressed {{
+    background: #a0a0a0;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
 }}
 """
 

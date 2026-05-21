@@ -1,5 +1,5 @@
 ---
-trigger: always_on
+trigger: manual
 ---
 
 # JAX 기반 유한요소(FEM) 시뮬레이션 및 최적화 솔버 개발 멀티 에이전트 프레임워크
