@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox, QAbstractSpinBox,
     QPlainTextEdit, QDialog, QMessageBox, QSplitter, QTreeWidget, QTreeWidgetItem
 )
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 import ctypes
 from ctypes import wintypes
@@ -616,10 +616,18 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
     """
     [WHTOOLS] ISTA 6-Amazon 규격 자가 진단 및 물리 낙하 포스처 계산용 헬퍼 UI.
     """
-    def __init__(self, current_config, parent=None):
+    def __init__(self, current_config, parent=None, multi_select_mode=False):
         super().__init__(parent)
-        self.setWindowTitle("Size and ISTA 6-Amazon Setup Helper")
-        self.setFixedSize(540, 680)  # SET 치수 입력부 추가에 따른 높이 정밀 확장
+        self.multi_select_mode = multi_select_mode
+        self.accepted_scenarios = []  # multi_select_mode 결과 저장
+        title = "Size and ISTA 6-Amazon Setup Helper"
+        if multi_select_mode:
+            title += "  [Multi-Scenario Select]"
+        self.setWindowTitle(title)
+        if multi_select_mode:
+            self.setMinimumSize(600, 720)
+        else:
+            self.setFixedSize(540, 680)
         self.parent_dialog = parent
         self.config = current_config.copy()
         
@@ -825,14 +833,21 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.seq_group.setStyleSheet("font-weight: bold; color: #eceff4; font-size: 9.5pt; margin-top: 4px;")
         
         self.table_seq = QtWidgets.QTableWidget()
-        self.table_seq.setColumnCount(4)
-        self.table_seq.setHorizontalHeaderLabels([
-            "Step", "Drop Type", "ISTA Target Point", "Height (mm)"
-        ])
+        if self.multi_select_mode:
+            self.table_seq.setColumnCount(5)
+            self.table_seq.setHorizontalHeaderLabels([
+                "✓", "Step", "Drop Type", "ISTA Target Point", "Height (mm)"
+            ])
+            self.table_seq.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        else:
+            self.table_seq.setColumnCount(4)
+            self.table_seq.setHorizontalHeaderLabels([
+                "Step", "Drop Type", "ISTA Target Point", "Height (mm)"
+            ])
+            self.table_seq.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+            self.table_seq.doubleClicked.connect(self._on_apply_and_sync)
         self.table_seq.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table_seq.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.table_seq.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.table_seq.doubleClicked.connect(self._on_apply_and_sync)
         
         ista_lay.addWidget(self.seq_group)
         ista_lay.addWidget(self.table_seq)
@@ -868,7 +883,10 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         # 5. 하단 액션 버튼 영역
         btn_box = QtWidgets.QHBoxLayout()
         btn_box.setSpacing(10)
-        self.btn_apply = QtWidgets.QPushButton("🎯 Apply Selected Drop Posture to Main Panel")        
+        if self.multi_select_mode:
+            self.btn_apply = QtWidgets.QPushButton("✅ Apply Selected Scenarios")
+        else:
+            self.btn_apply = QtWidgets.QPushButton("🎯 Apply Selected Drop Posture to Main Panel")
         self.btn_apply.clicked.connect(self._on_apply_and_sync)
         
         btn_cancel = QtWidgets.QPushButton("Cancel")        
@@ -1110,20 +1128,28 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.lbl_face_desc.setText(face_str)
         
         self.table_seq.setRowCount(len(seq))
+        co = 1 if self.multi_select_mode else 0  # column offset
         for idx, step in enumerate(seq):
-            self.table_seq.setItem(idx, 0, QtWidgets.QTableWidgetItem(str(step['num'])))
-            self.table_seq.setItem(idx, 1, QtWidgets.QTableWidgetItem(step['type'].upper()))
-            self.table_seq.setItem(idx, 2, QtWidgets.QTableWidgetItem(step['name']))
-            
+            if self.multi_select_mode:
+                chk = QtWidgets.QTableWidgetItem()
+                chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                chk.setCheckState(Qt.Unchecked)
+                self.table_seq.setItem(idx, 0, chk)
+            self.table_seq.setItem(idx, co + 0, QtWidgets.QTableWidgetItem(str(step['num'])))
+            self.table_seq.setItem(idx, co + 1, QtWidgets.QTableWidgetItem(step['type'].upper()))
+            self.table_seq.setItem(idx, co + 2, QtWidgets.QTableWidgetItem(step['name']))
+
             h_val = step['height']
             if step['type'] in ['rot_edge', 'rot_corner']:
                 h_disp = h_val * 1000.0
             else:
                 h_disp = h_val
-            
-            self.table_seq.setItem(idx, 3, QtWidgets.QTableWidgetItem(f"{h_disp:.0f}"))
-            
+
+            self.table_seq.setItem(idx, co + 3, QtWidgets.QTableWidgetItem(f"{h_disp:.0f}"))
+
         self.table_seq.resizeColumnsToContents()
+        if self.multi_select_mode:
+            self.table_seq.setColumnWidth(0, 28)
         self.current_generated_seq = seq
 
     def _convert_to_ista_direction_name(self, direction_str, is_ltl):
@@ -1172,6 +1198,10 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         return direction_str  # 맵핑 매칭 불가 시 fallback
 
     def _on_apply_and_sync(self):
+        if self.multi_select_mode:
+            self._on_apply_multi_select()
+            return
+
         is_ltl = self.radio_ltl.isChecked()
         if self.radio_custom.isChecked():
             direction_str = self.combo_custom_direction.currentText()
@@ -1239,6 +1269,58 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
             self.parent_dialog.spin_azimuth.setValue(int(self.config["initial_tilt_azimuth_deg"]))
             self.parent_dialog.schematic.update_config(self.parent_dialog.config)
             
+        self.accept()
+
+    def _on_apply_multi_select(self):
+        """multi_select_mode 전용: 체크된 시나리오 목록을 accepted_scenarios에 저장하고 닫는다."""
+        if self.radio_custom.isChecked():
+            QtWidgets.QMessageBox.information(
+                self, "Info",
+                "멀티 선택 모드에서는 LTL 또는 Parcel 시퀀스를 사용하십시오.\nCustom 모드는 단일 선택 전용입니다."
+            )
+            return
+
+        is_ltl = self.radio_ltl.isChecked()
+        mode = "LTL" if is_ltl else "PARCEL"
+
+        opencell_d = self.config.get("opencell_d", 0.005)
+        opencellcoh_d = self.config.get("opencellcoh_d", 0.002)
+        cush_gap = self.config.get("cush_gap", 0.003)
+        calc_chassis_d = max(0.001, self.spin_set_d.value() - (opencell_d + opencellcoh_d + cush_gap))
+
+        if not hasattr(self, 'current_generated_seq') or not self.current_generated_seq:
+            QtWidgets.QMessageBox.information(
+                self, "No Sequence", "시퀀스 테이블이 아직 생성되지 않았습니다.\n"
+                "LTL 또는 Parcel 모드를 선택하면 자동 생성됩니다.")
+            return
+
+        scenarios = []
+        for row in range(self.table_seq.rowCount()):
+            chk = self.table_seq.item(row, 0)
+            if chk and chk.checkState() == Qt.Checked:
+                step = self.current_generated_seq[row]
+                mapped_dir = self._convert_to_ista_direction_name(step['direction'], is_ltl)
+                h_val = step['height']
+                scenarios.append({
+                    'label': f"Step {step['num']}: {mapped_dir} @ {h_val:.3f}m",
+                    'drop_mode': mode,
+                    'drop_direction': mapped_dir,
+                    'drop_height': h_val,
+                    'initial_tilt_deg': float(step.get('tilt_lat', 0.0)),
+                    'initial_tilt_azimuth_deg': float(step.get('tilt_az', 0.0)),
+                    'box_w': self.spin_w.value(),
+                    'box_h': self.spin_h.value(),
+                    'box_d': self.spin_d.value(),
+                    'assy_w': self.spin_set_w.value(),
+                    'assy_h': self.spin_set_h.value(),
+                    'chassis_d': calc_chassis_d,
+                })
+
+        if not scenarios:
+            QtWidgets.QMessageBox.information(self, "No Selection", "하나 이상의 시나리오를 체크하십시오.")
+            return
+
+        self.accepted_scenarios = scenarios
         self.accept()
 
 class ComponentBalanceDialog(QtWidgets.QDialog):
@@ -2552,167 +2634,514 @@ class ModelSetupDialog(QtWidgets.QDialog):
     def done(self, result):
         super().done(result)
 
+class BatchRdsWorker(QThread):
+    """
+    [WHTOOLS] ISTA-6 Amazon 멀티 낙하 시나리오 배치 시뮬레이션 워커.
+    각 시나리오를 독립 DropSimulator 인스턴스로 헤드리스 실행하고
+    Chassis / Cushion / OpenCell 코너 결과를 CSV로 저장합니다.
+    N개 시나리오를 동시에 병렬 실행할 수 있도록 외부에서 여러 워커를 생성하면 됩니다.
+    """
+    sig_progress = Signal(int, int, str)   # (완료 수, 전체 수, 현재 시나리오 이름)
+    sig_log      = Signal(str)
+    sig_finished = Signal()
+    sig_error    = Signal(str)
+
+    CORNER_DEFS = [
+        {"id": "C1", "name": "Front-Top-Right",    "s": [ 1,  1,  1]},
+        {"id": "C2", "name": "Front-Bottom-Right", "s": [ 1, -1,  1]},
+        {"id": "C3", "name": "Front-Bottom-Left",  "s": [-1, -1,  1]},
+        {"id": "C4", "name": "Front-Top-Left",     "s": [-1,  1,  1]},
+        {"id": "C5", "name": "Rear-Top-Right",     "s": [ 1,  1, -1]},
+        {"id": "C6", "name": "Rear-Bottom-Right",  "s": [ 1, -1, -1]},
+        {"id": "C7", "name": "Rear-Bottom-Left",   "s": [-1, -1, -1]},
+        {"id": "C8", "name": "Rear-Top-Left",      "s": [-1,  1, -1]},
+    ]
+
+    def __init__(self, base_config, scenarios, output_folder, auto_cutout,
+                 parallel_workers=1, parent=None):
+        import copy, threading
+        super().__init__(parent)
+        self.base_config      = copy.deepcopy(base_config)  # 병렬 시나리오 간 공유 방지
+        self.scenarios        = scenarios
+        self.output_folder    = Path(output_folder)
+        self.auto_cutout      = auto_cutout
+        self.parallel_workers = max(1, parallel_workers)
+        self._stop_event  = threading.Event()
+        self._pause_event = threading.Event()
+
+    def request_pause(self):  self._pause_event.set()
+    def request_resume(self): self._pause_event.clear()
+    def request_stop(self):   self._stop_event.set(); self._pause_event.clear()
+
+    # 기존 bool 속성으로도 접근 가능하도록 프로퍼티 유지
+    @property
+    def _stop(self):  return self._stop_event.is_set()
+    @property
+    def _pause(self): return self._pause_event.is_set()
+
+    def run(self):
+        from .whts_engine import DropSimulator
+        import concurrent.futures, threading
+
+        total = len(self.scenarios)
+        done_count = 0
+        lock = threading.Lock()
+
+        def run_one(idx_scen):
+            idx, scen = idx_scen
+            if self._stop_event.is_set():
+                return
+            while self._pause_event.is_set():
+                if self._stop_event.is_set(): return
+                time.sleep(0.05)
+
+            label = scen['label'].replace(':', '-').replace('/', '-').replace(' ', '_')
+            safe_label = f"{idx+1:02d}_{label}"
+            self.sig_log.emit(f"▶ [{idx+1}/{total}] {scen['label']}")
+
+            try:
+                import copy as _copy
+                cfg = _copy.deepcopy(self.base_config)
+                cfg["drop_direction"]           = scen["drop_direction"]
+                cfg["drop_height"]              = scen["drop_height"]
+                cfg["drop_mode"]                = scen["drop_mode"]
+                cfg["initial_tilt_deg"]         = scen["initial_tilt_deg"]
+                cfg["initial_tilt_azimuth_deg"] = scen["initial_tilt_azimuth_deg"]
+                cfg["box_w"]     = scen.get("box_w",     cfg.get("box_w", 1.6))
+                cfg["box_h"]     = scen.get("box_h",     cfg.get("box_h", 1.0))
+                cfg["box_d"]     = scen.get("box_d",     cfg.get("box_d", 0.17))
+                cfg["assy_w"]    = scen.get("assy_w",    cfg.get("assy_w", 1.45))
+                cfg["assy_h"]    = scen.get("assy_h",    cfg.get("assy_h", 0.83))
+                cfg["chassis_d"] = scen.get("chassis_d", cfg.get("chassis_d", 0.035))
+                cfg["use_viewer"]  = False
+                scen_dir = self.output_folder / safe_label
+                cfg["output_dir"] = scen_dir
+
+                sim = DropSimulator(cfg)
+                sim.ctrl_paused = False
+                sim.setup()
+                sim._main_loop()
+
+                t_hist  = sim.time_history
+                g_hist  = sim.ground_impact_hist
+
+                if self.auto_cutout and t_hist:
+                    s_i, e_i = self._detect_active_range(g_hist, sim)
+                else:
+                    s_i, e_i = 0, len(t_hist)
+
+                scen_dir.mkdir(parents=True, exist_ok=True)
+                parts = {
+                    "Chassis":  (scen.get("assy_w",    cfg["assy_w"]),
+                                 scen.get("assy_h",    cfg["assy_h"]),
+                                 scen.get("chassis_d", cfg["chassis_d"])),
+                    "Cushion":  (scen.get("box_w",     cfg["box_w"]),
+                                 scen.get("box_h",     cfg["box_h"]),
+                                 scen.get("box_d",     cfg["box_d"])),
+                    "OpenCell": (scen.get("assy_w",    cfg["assy_w"]),
+                                 scen.get("assy_h",    cfg["assy_h"]),
+                                 cfg.get("opencell_d", 0.012)),
+                }
+                for part_name, (pw, ph, pd) in parts.items():
+                    ph_data = sim.part_corner_hist.get(part_name)
+                    if ph_data is None:
+                        self.sig_log.emit(f"  ⚠ {part_name} corner history unavailable, skipping.")
+                        continue
+                    csv_path = scen_dir / f"{part_name.lower()}_corners.csv"
+                    self._write_corner_csv(
+                        csv_path, scen, part_name,
+                        pw, ph, pd,
+                        t_hist, ph_data["pos"],
+                        s_i, e_i
+                    )
+                    self.sig_log.emit(f"  💾 {part_name}: {csv_path.name}")
+
+                self._write_topo_arg(scen_dir, scen, cfg)
+                mujoco.set_mjcb_control(None)
+
+            except Exception as e:
+                self.sig_log.emit(f"  ❌ Scenario {idx+1} failed: {e}")
+
+            with lock:
+                nonlocal done_count
+                done_count += 1
+                self.sig_progress.emit(done_count, total, scen["label"])
+
+        if self.parallel_workers == 1:
+            for item in enumerate(self.scenarios):
+                run_one(item)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers) as ex:
+                futures = [ex.submit(run_one, item) for item in enumerate(self.scenarios)]
+                for f in concurrent.futures.as_completed(futures):
+                    pass  # 결과는 sig_progress 시그널로 전달
+
+        self.sig_finished.emit()
+
+    # ── helpers ───────────────────────────────────────────────────────────
+
+    def _detect_active_range(self, ground_impact_hist, sim):
+        """낙하 전(공중) 구간과 안정 후 구간을 자동 제거한 유효 구간 [start, end) 인덱스 반환."""
+        n = len(ground_impact_hist)
+        if n == 0:
+            return 0, 0
+
+        # 1) 첫 충돌 프레임 탐지 (임팩트력 > 1 N)
+        start_i = 0
+        for i, f in enumerate(ground_impact_hist):
+            if f > 1.0:
+                start_i = max(0, i - 2)
+                break
+
+        # 2) 안정 후 컷아웃: Chassis 코너 속도 resultant 가 임계값 아래로 수렴한 뒤 10 프레임 포함
+        vel_res_list = sim.part_corner_hist.get("Chassis", {}).get("vel_res", [])
+        end_i = n
+        settle_threshold = 0.05  # m/s
+        for i in range(n - 1, start_i, -1):
+            try:
+                vmax = float(np.max(vel_res_list[i])) if i < len(vel_res_list) else 0.0
+            except Exception:
+                vmax = 0.0
+            if vmax > settle_threshold:
+                end_i = min(n, i + 10)
+                break
+
+        return start_i, end_i
+
+    def _write_topo_arg(self, scen_dir, scen, cfg):
+        """
+        resources/topo_arg.txt 를 시나리오 결과 폴더에 복사하면서
+        chassis 치수 사양(tray-width/length/height)과 dynamic-opts 경로를 갱신한다.
+        """
+        import re
+        src = Path(__file__).parent.parent / "resources" / "topo_arg.txt"
+        if not src.exists():
+            self.sig_log.emit(f"  ⚠ topo_arg.txt 원본을 찾을 수 없습니다: {src}")
+            return
+
+        assy_w_mm   = scen.get("assy_w",    cfg.get("assy_w",    1.4)) * 1000.0
+        assy_h_mm   = scen.get("assy_h",    cfg.get("assy_h",    0.83)) * 1000.0
+        chassis_d_mm = scen.get("chassis_d", cfg.get("chassis_d", 0.035)) * 1000.0
+
+        chassis_csv = scen_dir / "chassis_corners.csv"
+
+        lines = src.read_text(encoding="utf-8").splitlines()
+        out = []
+        for line in lines:
+            # chassis 치수 교체
+            line = re.sub(
+                r'^(--tray-width\s+)\S+',
+                lambda m: f"{m.group(1)}{assy_w_mm:.1f}", line)
+            line = re.sub(
+                r'^(--tray-length\s+)\S+',
+                lambda m: f"{m.group(1)}{assy_h_mm:.1f}", line)
+            line = re.sub(
+                r'^(--tray-height\s+)\S+',
+                lambda m: f"{m.group(1)}{chassis_d_mm:.1f}", line)
+            # dynamic-opts: 비활성 줄을 활성화하고 chassis CSV 경로 삽입
+            if re.match(r'^#\s*--dynamic-opts\s', line):
+                csv_rel = chassis_csv.name  # 같은 폴더이므로 파일명만
+                line = f"--dynamic-opts  {csv_rel},0.0,0.0"
+            out.append(line)
+
+        dest = scen_dir / "topo_arg.txt"
+        dest.write_text("\n".join(out), encoding="utf-8")
+        self.sig_log.emit(f"  📄 topo_arg.txt → {dest.name}  "
+                          f"(W={assy_w_mm:.0f} L={assy_h_mm:.0f} H={chassis_d_mm:.1f} mm)")
+
+    def _write_corner_csv(self, csv_path, scen, part_name,
+                          pw, ph, pd,
+                          time_hist, pos_hist,
+                          start_i, end_i):
+        w_mm, h_mm, d_mm = pw * 1000.0, ph * 1000.0, pd * 1000.0
+        with open(csv_path, "w", encoding="utf-8") as f:
+            f.write(f"# part, {part_name}\n")
+            f.write(f"# scenario, {scen['label']}\n")
+            f.write(f"# drop_mode, {scen['drop_mode']}\n")
+            f.write(f"# drop_direction, {scen['drop_direction']}\n")
+            f.write(f"# drop_height_m, {scen['drop_height']:.4f}\n")
+            f.write(f"# dims_mm, {w_mm:.0f}, {h_mm:.0f}, {d_mm:.0f}\n")
+            for c in self.CORNER_DEFS:
+                sx, sy, sz = c["s"]
+                f.write(f"# {c['id']}, {sx*w_mm/2:.1f}, {sy*h_mm/2:.1f}, {sz*d_mm/2:.1f}\n")
+
+            cols = ["Frame", "Time"]
+            for c in self.CORNER_DEFS:
+                cols += [f"{c['id']}_X", f"{c['id']}_Y", f"{c['id']}_Z"]
+            f.write(",".join(cols) + "\n")
+
+            expected_corners = len(self.CORNER_DEFS)
+            for i in range(start_i, min(end_i, len(time_hist))):
+                if i >= len(pos_hist):
+                    break
+                frame_corners = pos_hist[i]  # list of 8 np.ndarray [x,y,z]
+                if len(frame_corners) != expected_corners:
+                    continue  # 불완전 프레임 스킵
+                row = [str(i - start_i), f"{time_hist[i]:.6f}"]
+                for corner_pos in frame_corners:
+                    cp = np.asarray(corner_pos).ravel()
+                    if len(cp) < 3:
+                        row += ["0.0", "0.0", "0.0"]
+                    else:
+                        row += [f"{cp[0]:.6f}", f"{cp[1]:.6f}", f"{cp[2]:.6f}"]
+                f.write(",".join(row) + "\n")
+
+
 class StructuralDynamicsDialog(QtWidgets.QDialog):
     """
-    [WHTOOLS] Structural Dynamics Data Extraction Dialog
-    근사화된 구조 해석용 하중점(Cushion Corners) 데이터를 추출하여 CSV로 저장합니다.
+    [WHTOOLS] Structural Dynamics Extraction — ISTA-6 Amazon 배치 낙하 해석.
+    멀티 낙하 자세 시나리오를 선택하고 헤드리스 배치 시뮬레이션을 수행하여
+    Chassis / Cushion / OpenCell 코너 결과를 시나리오별 CSV 파일로 저장합니다.
+    Chassis Geometry 는 config 에 설정된 값을 사용합니다.
     """
-    def __init__(self, parent=None, simulator=None):
+    def __init__(self, parent=None, simulator=None, sim_config=None):
         super().__init__(parent)
-        self.sim = simulator
-        self.setWindowTitle("🏗️ Structural Dynamics Extraction")
-        self.setMinimumWidth(500)
+        self.sim        = simulator
+        self.config     = (sim_config or (simulator.config if simulator else {})).copy()
+        self._scenarios = []   # 선택된 시나리오 리스트
+        self._worker    = None
+        self.setWindowTitle("🏗️ Structural Dynamics Extraction  [Batch RDS]")
+        self.setMinimumSize(640, 560)
+        self.resize(700, 620)
+        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinMaxButtonsHint)
+        self.setSizeGripEnabled(True)
         self._init_ui()
 
     def _init_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
 
-        # 1. 안내 메시지
-        info_label = QtWidgets.QLabel(
-            "<b>[안내]</b> 근사화된 구조 해석용 하중점 추출 프로토콜입니다.<br>"
-            "박스 모서리에 위치한 Cushion 요소들의 초기 위치와 시간에 따른 글로벌 좌표를 추출합니다."
-        )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
+        # ── 1. 시나리오 선택 섹션 ──────────────────────────────────────
+        scen_group = QtWidgets.QGroupBox("Drop Scenarios  (ISTA-6 Amazon)")
+        sg_lay = QtWidgets.QVBoxLayout(scen_group)
+        sg_lay.setSpacing(6)
 
-        # 2. 파일 저장 경로
-        path_layout = QtWidgets.QHBoxLayout()
-        self.edit_path = QtWidgets.QLineEdit()
-        default_path = str(self.sim.output_dir / "structural_dynamics.csv") if self.sim else "structural_dynamics.csv"
-        self.edit_path.setText(default_path)
-        self.btn_browse = QtWidgets.QPushButton("Browse...")
-        self.btn_browse.clicked.connect(self._on_browse)
-        path_layout.addWidget(QtWidgets.QLabel("Save Path:"))
-        path_layout.addWidget(self.edit_path)
-        path_layout.addWidget(self.btn_browse)
-        layout.addLayout(path_layout)
+        self.btn_select_scenarios = QtWidgets.QPushButton(
+            "📋  Select Multiple Scenarios  (ISTA-6 Amazon Setup Helper)")
+        self.btn_select_scenarios.clicked.connect(self._on_select_scenarios)
+        sg_lay.addWidget(self.btn_select_scenarios)
 
-        # 3. Chassis Geometry (mm 입력)
-        geo_group = QtWidgets.QGroupBox("Chassis Geometry (mm)")
-        geo_layout = QtWidgets.QGridLayout(geo_group)
-        
-        self.spin_width = QtWidgets.QDoubleSpinBox()
-        self.spin_width.setRange(0, 5000); self.spin_width.setValue(1600.0)
-        self.spin_height = QtWidgets.QDoubleSpinBox()
-        self.spin_height.setRange(0, 5000); self.spin_height.setValue(1200.0)
-        self.spin_thick = QtWidgets.QDoubleSpinBox()
-        self.spin_thick.setRange(0, 1000); self.spin_thick.setValue(120.0)
-        
-        geo_layout.addWidget(QtWidgets.QLabel("Width (mm):"), 0, 0)
-        geo_layout.addWidget(self.spin_width, 0, 1)
-        geo_layout.addWidget(QtWidgets.QLabel("Height (mm):"), 1, 0)
-        geo_layout.addWidget(self.spin_height, 1, 1)
-        geo_layout.addWidget(QtWidgets.QLabel("Depth/Thick (mm):"), 2, 0)
-        geo_layout.addWidget(self.spin_thick, 2, 1)
-        layout.addWidget(geo_group)
+        self.txt_scenarios = QtWidgets.QPlainTextEdit()
+        self.txt_scenarios.setReadOnly(True)
+        self.txt_scenarios.setFixedHeight(130)
+        self.txt_scenarios.setPlaceholderText(
+            "시나리오를 선택하면 여기에 목록이 표시됩니다.\n"
+            "Box / Chassis / Opencell 치수는 현재 config 값을 사용합니다.")
+        sg_lay.addWidget(self.txt_scenarios)
+        layout.addWidget(scen_group)
 
-        # 4. 분석 시작 시간
-        time_layout = QtWidgets.QHBoxLayout()
-        self.spin_start_time = QtWidgets.QDoubleSpinBox()
-        self.spin_start_time.setRange(0, 10.0); self.spin_start_time.setValue(0.0)
-        time_layout.addWidget(QtWidgets.QLabel("Start Time (s):"))
-        time_layout.addWidget(self.spin_start_time)
-        time_layout.addStretch()
-        layout.addLayout(time_layout)
+        # ── 2. 저장 폴더 ──────────────────────────────────────────────
+        folder_group = QtWidgets.QGroupBox("Save Folder")
+        fl = QtWidgets.QHBoxLayout(folder_group)
+        from datetime import datetime as _dt
+        default_folder = str(
+            Path("results") / f"rds-{_dt.now().strftime('%Y%m%d_%H%M%S')}")
+        self.edit_folder = QtWidgets.QLineEdit(default_folder)
+        self.btn_browse_folder = QtWidgets.QPushButton("Browse...")
+        self.btn_browse_folder.clicked.connect(self._on_browse_folder)
+        fl.addWidget(self.edit_folder)
+        fl.addWidget(self.btn_browse_folder)
+        layout.addWidget(folder_group)
 
-        # 5. 실행 버튼
-        self.btn_do = QtWidgets.QPushButton("🚀 Do it")
-        self.btn_do.clicked.connect(self._on_execute)
-        layout.addWidget(self.btn_do)
+        # ── 3. 옵션 ───────────────────────────────────────────────────
+        opt_group = QtWidgets.QGroupBox("Options")
+        ol = QtWidgets.QVBoxLayout(opt_group)
+        par_lay = QtWidgets.QHBoxLayout()
+        self.chk_auto_cutout = QtWidgets.QCheckBox(
+            "Auto time-range cutout  (공중 구간 제거 + 안정 후 트림)")
+        self.chk_auto_cutout.setChecked(True)
+        ol.addWidget(self.chk_auto_cutout)
 
-    def _on_browse(self):
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save CSV", self.edit_path.text(), "CSV Files (*.csv)")
-        if path:
-            self.edit_path.setText(path)
+        par_lay.addWidget(QtWidgets.QLabel("Parallel workers:"))
+        self.spin_workers = QtWidgets.QSpinBox()
+        self.spin_workers.setRange(1, 8)
+        self.spin_workers.setValue(1)
+        self.spin_workers.setToolTip(
+            "동시 실행 워커 수. 1 = 순차 실행.\n"
+            "N > 1 이면 N 개 시나리오를 병렬로 동시 실행합니다.\n"
+            "⚠ MuJoCo 물리 콜백이 전역 싱글톤이므로 병렬 실행 시\n"
+            "   시나리오당 독립 서브프로세스가 권장됩니다.\n"
+            "   현재 구현은 ThreadPoolExecutor 기반이며\n"
+            "   단순/가벼운 모델에서는 속도 이점을 제공합니다.")
+        par_lay.addWidget(self.spin_workers)
+        par_lay.addStretch()
+        ol.addLayout(par_lay)
+        layout.addWidget(opt_group)
 
-    def _on_execute(self):
-        """데이터 추출 및 저장 로직 수행"""
-        if not self.sim or not self.sim.snapshots:
-            QtWidgets.QMessageBox.warning(self, "Error", "No simulation snapshots available.")
+        # ── 4. 진행 표시 ──────────────────────────────────────────────
+        prog_group = QtWidgets.QGroupBox("Progress")
+        pl = QtWidgets.QVBoxLayout(prog_group)
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.lbl_status = QtWidgets.QLabel("Ready.")
+        self.lbl_status.setWordWrap(True)
+        self.log_view = QtWidgets.QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setFixedHeight(80)
+        pl.addWidget(self.progress_bar)
+        pl.addWidget(self.lbl_status)
+        pl.addWidget(self.log_view)
+        layout.addWidget(prog_group)
+
+        # ── 5. 제어 버튼 ──────────────────────────────────────────────
+        btn_lay = QtWidgets.QHBoxLayout()
+        self.btn_do = QtWidgets.QPushButton("🚀  Do It")
+        self.btn_do.setFixedHeight(36)
+        self.btn_do.clicked.connect(self._on_do_it)
+        self.btn_pause = QtWidgets.QPushButton("⏸  Pause")
+        self.btn_pause.setEnabled(False)
+        self.btn_pause.clicked.connect(self._on_pause)
+        self.btn_stop = QtWidgets.QPushButton("🛑  Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self._on_stop)
+        self.btn_close = QtWidgets.QPushButton("Close")
+        self.btn_close.clicked.connect(self.reject)
+        btn_lay.addWidget(self.btn_do)
+        btn_lay.addWidget(self.btn_pause)
+        btn_lay.addWidget(self.btn_stop)
+        btn_lay.addStretch()
+        btn_lay.addWidget(self.btn_close)
+        layout.addLayout(btn_lay)
+
+    # ── 시나리오 선택 ────────────────────────────────────────────────
+
+    def _on_select_scenarios(self):
+        dlg = IstaSetupHelperDialog(self.config, parent=self, multi_select_mode=True)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted and dlg.accepted_scenarios:
+            self._scenarios = dlg.accepted_scenarios
+            self._refresh_scenario_display()
+
+    def _refresh_scenario_display(self):
+        cfg = self.config
+        lines = [
+            f"Config geometry:",
+            f"  Box    : {cfg.get('box_w',0)*1000:.0f} × {cfg.get('box_h',0)*1000:.0f} × {cfg.get('box_d',0)*1000:.0f} mm  (W×H×D)",
+            f"  Chassis: {cfg.get('assy_w',0)*1000:.0f} × {cfg.get('assy_h',0)*1000:.0f} × {cfg.get('chassis_d',0)*1000:.0f} mm",
+            f"  Opencell depth: {cfg.get('opencell_d',0)*1000:.1f} mm",
+            f"",
+            f"Selected {len(self._scenarios)} scenario(s):",
+        ]
+        for i, s in enumerate(self._scenarios, 1):
+            lines.append(
+                f"  {i:2d}. {s['label']}"
+                f"  |  Box {s.get('box_w',0)*1000:.0f}×{s.get('box_h',0)*1000:.0f}×{s.get('box_d',0)*1000:.0f}mm"
+                f"  Chas {s.get('assy_w',0)*1000:.0f}×{s.get('assy_h',0)*1000:.0f}×{s.get('chassis_d',0)*1000:.0f}mm"
+            )
+        self.txt_scenarios.setPlainText("\n".join(lines))
+
+    # ── 폴더 선택 ────────────────────────────────────────────────────
+
+    def _on_browse_folder(self):
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Save Folder", self.edit_folder.text())
+        if folder:
+            self.edit_folder.setText(folder)
+
+    # ── 배치 실행 ────────────────────────────────────────────────────
+
+    def closeEvent(self, event):
+        """배치 실행 중 창 닫기 시 worker를 안전하게 중단한다."""
+        if self._worker and self._worker.isRunning():
+            self._worker.request_stop()
+            self._worker.wait(3000)  # 최대 3초 대기
+        event.accept()
+
+    def _on_do_it(self):
+        if not self._scenarios:
+            QtWidgets.QMessageBox.warning(
+                self, "No Scenarios", "먼저 시나리오를 선택하십시오.")
             return
 
-        save_path = self.edit_path.text()
-        start_time = self.spin_start_time.value()
-        
-        # 버튼 상태 업데이트 (시각적 피드백)
-        self.btn_do.setText("⏳ Processing...")
-        self.btn_do.setEnabled(False)
-        QtWidgets.QApplication.processEvents()
-        
-        try:
-            # [WHTOOLS] Chassis C1-C8 코너 포인트 식별 및 데이터 추출
-            # 모니터(whts_monitor)와 동일한 C1-C8 정의 및 인덱스 사용
-            w_input = self.spin_width.value() / 1000.0
-            h_input = self.spin_height.value() / 1000.0
-            d_input = self.spin_thick.value() / 1000.0
-            
-            # whts_monitor.py의 정의와 일치하는 코너 정보
-            corner_configs = [
-                {"id": "C1", "name": "Front-Top-Right",    "s": [ 1,  1,  1]},
-                {"id": "C2", "name": "Front-Bottom-Right", "s": [ 1, -1,  1]},
-                {"id": "C3", "name": "Front-Bottom-Left",  "s": [-1, -1,  1]},
-                {"id": "C4", "name": "Front-Top-Left",     "s": [-1,  1,  1]},
-                {"id": "C5", "name": "Rear-Top-Right",     "s": [ 1,  1, -1]},
-                {"id": "C6", "name": "Rear-Bottom-Right",  "s": [ 1, -1, -1]},
-                {"id": "C7", "name": "Rear-Bottom-Left",   "s": [-1, -1, -1]},
-                {"id": "C8", "name": "Rear-Top-Left",      "s": [-1,  1, -1]},
-            ]
-            
-            # 데이터 추출용 임시 mjData 생성 (스레드 안전성 확보)
-            temp_data = mujoco.MjData(self.sim.model)
-            
-            with open(save_path, "w", encoding="utf-8") as f:
-                # 헤더 정보: 사용자 요청 양식 준수
-                f.write(f"# chassis, {self.spin_width.value():.0f}, {self.spin_height.value():.0f}, {self.spin_thick.value():.0f}\n")
-                f.write(f"# start time, {start_time:.1f}\n")
-                
-                for c in corner_configs:
-                    sx, sy, sz = c["s"]
-                    # 각 값은 half값이므로 *2를 하고 mm 단위(*1000)로 변환
-                    lx_full = sx * w_input * 1000.0
-                    ly_full = sy * h_input * 1000.0
-                    lz_full = sz * d_input * 1000.0
-                    f.write(f"# {c['id']}, {lx_full:.0f}, {ly_full:.0f}, {lz_full:.0f}\n")
-                
-                # 데이터 헤더
-                cols = ["Frame", "Time"]
-                for c in corner_configs:
-                    cols.extend([f"{c['id']}_X", f"{c['id']}_Y", f"{c['id']}_Z"])
-                f.write(",".join(cols) + "\n")
-                
-                # 타임 시리즈 데이터 추출 루프 (모든 시점 기록)
-                for i, snap in enumerate(self.sim.snapshots):
-                    t = snap['time']
-                    # [WHTOOLS] start_time 필터링 제거 (0부터 전체 기록)
-                    
-                    row = [str(i), f"{t:.6f}"]
-                    # 임시 데이터 객체에 물리 상태 복구
-                    mujoco.mj_setState(self.sim.model, temp_data, snap['state'], mujoco.mjtState.mjSTATE_PHYSICS)
-                    mujoco.mj_forward(self.sim.model, temp_data)
-                    
-                    rid = self.sim.root_id
-                    base_pos = temp_data.xpos[rid]
-                    base_mat = temp_data.xmat[rid].reshape(3,3)
-                    
-                    for c in corner_configs:
-                        sx, sy, sz = c["s"]
-                        loc = np.array([sx * w_input/2.0, sy * h_input/2.0, sz * d_input/2.0])
-                        glob_pos = base_pos + base_mat @ loc
-                        row.extend([f"{glob_pos[0]:.6f}", f"{glob_pos[1]:.6f}", f"{glob_pos[2]:.6f}"])
-                    
-                    f.write(",".join(row) + "\n")
+        output_folder = self.edit_folder.text().strip()
+        if not output_folder:
+            QtWidgets.QMessageBox.warning(self, "No Folder", "저장 폴더를 지정하십시오.")
+            return
 
-            QtWidgets.QMessageBox.information(self, "Success", f"Chassis C1-C8 data exported to:\n{save_path}")
-            self.accept()
-        except Exception as e:
-            error_msg = f"Execution failed: {e}"
-            if self.sim:
-                self.sim.log(f"❌ [Structural Dynamics] {error_msg}", level="error")
-            QtWidgets.QMessageBox.warning(self, "Error", error_msg)
-        finally:
-            self.btn_do.setText("🚀 Do it")
-            self.btn_do.setEnabled(True)
+        # 이전 worker가 남아 있으면 disconnect하여 중복 시그널 방지
+        if self._worker is not None:
+            try:
+                self._worker.sig_progress.disconnect()
+                self._worker.sig_log.disconnect()
+                self._worker.sig_finished.disconnect()
+                self._worker.sig_error.disconnect()
+            except RuntimeError:
+                pass
+            self._worker = None
+
+        self.log_view.clear()
+        self.progress_bar.setRange(0, len(self._scenarios))
+        self.progress_bar.setValue(0)
+        self.lbl_status.setText("Starting batch simulation...")
+
+        self._worker = BatchRdsWorker(
+            base_config=self.config,
+            scenarios=self._scenarios,
+            output_folder=output_folder,
+            auto_cutout=self.chk_auto_cutout.isChecked(),
+            parallel_workers=self.spin_workers.value(),
+            parent=None,
+        )
+        self._worker.sig_progress.connect(self._on_worker_progress)
+        self._worker.sig_log.connect(self._on_worker_log)
+        self._worker.sig_finished.connect(self._on_worker_finished)
+        self._worker.sig_error.connect(self._on_worker_error)
+
+        self.btn_do.setEnabled(False)
+        self.btn_select_scenarios.setEnabled(False)
+        self.btn_browse_folder.setEnabled(False)
+        self.btn_pause.setEnabled(True)
+        self.btn_stop.setEnabled(True)
+        self.btn_close.setEnabled(False)
+
+        self._worker.start()
+
+    def _on_pause(self):
+        if self._worker:
+            if self._worker._pause:
+                self._worker.request_resume()
+                self.btn_pause.setText("⏸  Pause")
+                self.lbl_status.setText("Resumed.")
+            else:
+                self._worker.request_pause()
+                self.btn_pause.setText("▶  Resume")
+                self.lbl_status.setText("Paused — press Resume to continue.")
+
+    def _on_stop(self):
+        if self._worker:
+            self._worker.request_stop()
+            self.lbl_status.setText("Stop requested — waiting for current scenario to finish...")
+            self.btn_stop.setEnabled(False)
+
+    # ── 워커 시그널 핸들러 ───────────────────────────────────────────
+
+    def _on_worker_progress(self, done, total, label):
+        self.progress_bar.setValue(done)
+        self.lbl_status.setText(f"[{done}/{total}] Completed: {label}")
+
+    def _on_worker_log(self, msg):
+        self.log_view.appendPlainText(msg)
+        self.log_view.verticalScrollBar().setValue(
+            self.log_view.verticalScrollBar().maximum())
+
+    def _on_worker_finished(self):
+        self.btn_do.setEnabled(True)
+        self.btn_select_scenarios.setEnabled(True)
+        self.btn_browse_folder.setEnabled(True)
+        self.btn_pause.setEnabled(False)
+        self.btn_pause.setText("⏸  Pause")
+        self.btn_stop.setEnabled(False)
+        self.btn_close.setEnabled(True)
+        self.lbl_status.setText(
+            f"✅ Batch complete. Results saved to: {self.edit_folder.text()}")
+        QtWidgets.QMessageBox.information(
+            self, "Done",
+            f"배치 완료!\n결과 폴더: {self.edit_folder.text()}")
+
+    def _on_worker_error(self, msg):
+        self._on_worker_finished()
+        QtWidgets.QMessageBox.warning(self, "Batch Error", msg)
 
 class ControlPanel(QMainWindow):
     """
@@ -3263,8 +3692,8 @@ class ControlPanel(QMainWindow):
             win.show()
 
     def _on_structural_dynamics(self):
-        """구조 해석용 데이터 추출 다이얼로그를 실행합니다."""
-        dialog = StructuralDynamicsDialog(self, self.sim)
+        """ISTA-6 Amazon 배치 낙하 해석 다이얼로그를 실행합니다."""
+        dialog = StructuralDynamicsDialog(self, self.sim, sim_config=self.sim.config)
         dialog.exec()
 
     def _on_open_config(self):
