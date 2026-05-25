@@ -336,7 +336,9 @@ class DropSimulator:
     def _discover_components(self) -> None:
         """모델의 바디 이름을 분석하여 컴포넌트(Paper, Cushion 등) 그룹을 생성합니다."""
         self.components = {}
-        target_prefixes = ['paper', 'cushion', 'chassis', 'opencell', 'InertiaAux', 'AutoBalance']
+        # XML body names follow pattern: b_{comp}_{i}_{j}_{k}
+        # comp names include the 'b' prefix: bcushion, bchassis, bopencell, etc.
+        target_prefixes = ['bpaper', 'bcushion', 'bchassis', 'bopencell', 'inertiaaux', 'autobalance']
         
         for i in range(self.model.nbody):
             name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i)
@@ -770,11 +772,33 @@ class DropSimulator:
 
     def _launch_with_control_panel(self) -> None:
         """제어 패널과 함께 시뮬레이션을 실행합니다."""
+        import signal
+        from PySide6.QtCore import QTimer
+
         # 1. 모델 준비
         self.setup()
 
         # 2. Control Center UI 먼저 생성 (메인 스레드)
         self.app, self.panel = launch_control_panel(self)
+
+        # Ctrl+C (SIGINT) 처리: Qt는 기본적으로 Python SIGINT를 무시하므로
+        # 타이머로 주기적으로 Python 이벤트를 처리할 기회를 부여하고,
+        # SIGINT 핸들러에서 Qt 앱을 정상 종료시킵니다.
+        def _on_sigint(*_):
+            self.log("🛑 Ctrl+C received — shutting down.", level="info")
+            self.ctrl_quit_request = True
+            try: self.stop_viewer()
+            except Exception: pass
+            if hasattr(self, 'panel'):
+                self.panel.close()
+            self.app.quit()
+
+        signal.signal(signal.SIGINT, _on_sigint)
+        # Qt 이벤트 루프가 SIGINT를 받을 수 있도록 100ms마다 Python으로 제어 반환
+        _sigint_timer = QTimer()
+        _sigint_timer.setInterval(100)
+        _sigint_timer.timeout.connect(lambda: None)
+        _sigint_timer.start()
 
         # 3. Passive viewer 열기
         self.start_viewer()
@@ -785,11 +809,15 @@ class DropSimulator:
         # 5. UI 이벤트 루프 (창 닫힐 때까지 블록)
         self.app.exec()
 
-        # 6. 종료 처리
+        # 6. 종료 처리: sim_thread가 _wrap_up(build_and_save_result 포함)을 완료할 때까지 대기
         self.ctrl_quit_request = True
         self.stop_viewer()
         if hasattr(self, 'sim_thread') and self.sim_thread.isRunning():
-            self.sim_thread.wait(3000)
+            # _wrap_up + build_and_save_result 완료까지 충분히 대기 (최대 30초)
+            self.sim_thread.wait(30000)
+            if self.sim_thread.isRunning():
+                self.log("⚠️ sim_thread did not finish in time, terminating.", level="warning")
+                self.sim_thread.terminate()
 
     def _run_engine(self) -> None:
         """시뮬레이션 루프를 실행합니다. 뷰어는 이미 메인 스레드에서 실행 중입니다."""
@@ -1223,6 +1251,7 @@ class DropSimulator:
         if self.data is None:
             self.log("⚠️ _wrap_up skipped: model/data not initialized (setup failed)", level="warning")
             return
+
         self.log("🏁 Simulation Finished. Wrapping up data...", level="info")
 
         target_time = self.config.get("sim_duration", 1.0)
@@ -1234,6 +1263,23 @@ class DropSimulator:
         self.log(f"🎞️ Total Frames: {len(self.pos_hist)}")
         self._print_border()
         
+        n_bodies = sum(len(v) for v in self.components.values())
+        self.log(f"📦 Components at wrap-up: {list(self.components.keys())} | total mapped bodies: {n_bodies}", level="info")
+        try:
+            self.build_and_save_result()
+        except Exception as e:
+            self.log(f"Error during wrap-up: {e}", level="error")
+
+        # 사용자가 창을 닫아 종료한 경우 UI 후처리만 생략 (결과 저장은 완료)
+        if self.ctrl_quit_request:
+            self.log("🛑 Post-process UI skipped: quit requested by user.", level="info")
+            return
+
+    def build_and_save_result(self) -> None:
+        if self.result is not None:
+            return
+
+        self.log("🏁 Building and saving simulation results...", level="info")
         try:
             compute_batch_structural_metrics(self)
             finalize_simulation_results(self)
@@ -1270,11 +1316,7 @@ class DropSimulator:
             self.log(f"💾 Results saved to: {result_path}")
 
         except Exception as e:
-            self.log(f"Error during wrap-up: {e}", level="error")
-        finally:
-            if hasattr(self, 'panel') and self.panel:
-                try: self.panel.close()
-                except: pass
+            self.log(f"Error during result building: {e}", level="error")
 
     def _launch_postprocess(self) -> None:
         pass

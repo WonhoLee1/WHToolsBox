@@ -829,6 +829,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self._init_2d_plots()
         
         if self.mgr:
+            self._populate_category_combos()
             self._apply_initial_preset()
             # [WHTOOLS] Ensure initial font settings are applied
             self._update_vtk_font(self.v_font_size)
@@ -865,8 +866,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
             if k not in self.field_keys and p0.results[k].ndim < 3
         ] + ['Marker Local Disp. [mm]', 'Marker Global Disp. [mm]']
         
-        # [WHTOOLS] Populate Field Combos
-        self._populate_category_combos()
+        # _populate_category_combos는 _init_ui() 이후에 호출됨
 
     # --------------------------------------------------------------------------
     # --- UI Layout & Component Setup ---
@@ -1993,6 +1993,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 
             p_idx_main = cfg.part_indices[0] if (cfg.part_indices is not None and len(cfg.part_indices) > 0) else 0
             if p_idx_main < 0: p_idx_main = 0
+            if p_idx_main >= len(self.mgr.analyzers): continue
             ana = self.mgr.analyzers[p_idx_main]
             key = cfg.data_key
             

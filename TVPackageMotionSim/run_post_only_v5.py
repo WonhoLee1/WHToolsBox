@@ -43,7 +43,33 @@ if __name__ == "__main__":
     try:
         with open(pkl_path, "rb") as f:
             result = pickle.load(f)
-        
+
+        # 구버전 pkl에 components가 없으면 XML에서 복구
+        if not getattr(result, 'components', None):
+            xml_path = os.path.join(target_dir, "simulation_model.xml")
+            if os.path.exists(xml_path):
+                import mujoco as _mj
+                _model = _mj.MjModel.from_xml_path(xml_path)
+                _prefixes = ['bpaper', 'bcushion', 'bchassis', 'bopencell', 'inertiaaux', 'autobalance']
+                _comps, _extents = {}, {}
+                for _i in range(_model.nbody):
+                    _name = _mj.mj_id2name(_model, _mj.mjtObj.mjOBJ_BODY, _i)
+                    if not _name: continue
+                    for _p in _prefixes:
+                        if _p in _name.lower():
+                            _comps.setdefault(_p, {})
+                            _parts = _name.split('_')
+                            try: _idx = (int(_parts[-3]), int(_parts[-2]), int(_parts[-1])) if len(_parts) >= 4 else (0, 0, 0)
+                            except: _idx = (0, 0, 0)
+                            _comps[_p][_idx] = _i
+                            if _model.body_geomnum[_i] > 0:
+                                _extents[_i] = _model.geom_size[_model.body_geomadr[_i]].copy()
+                            break
+                result.components = _comps
+                if not getattr(result, 'block_half_extents', None):
+                    result.block_half_extents = _extents
+                print(f"  ✅ components recovered: { {k: len(v) for k,v in _comps.items()} }")
+
         # 분석 및 대시보드 실행
         run_analysis_and_dashboard(result)
         

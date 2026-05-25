@@ -28,6 +28,7 @@ if curr_dir not in sys.path: sys.path.append(curr_dir)
 
 from run_drop_simulator import DropSimulator
 from run_discrete_builder import get_default_config, get_rgba_by_name, calculate_plate_twist_weld_params
+from run_drop_simulator.whts_analysis_pipeline import run_analysis_pipeline
 from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
 from run_drop_simulator.whts_multipostprocessor_engine import (
     ShellDeformationAnalyzer, 
@@ -161,12 +162,57 @@ def run_digital_twin_pipeline_v6(case_func):
     print("="*85)
     
     sim = case_func()
-    if sim is None or sim.result is None:
-        print("❌ Simulation failed.")
+    if sim is None:
+        print("❌ Simulation failed (sim is None).")
+        return
+    
+    # pkl에서 다시 로드하여 직렬화/역직렬화 후 완전한 DropSimResult 보장
+    import pickle
+    from pathlib import Path
+    result = None
+    pkl_path = Path(sim.output_dir) / "simulation_result.pkl"
+    if pkl_path.exists():
+        print(f"  [Pipeline] Loading result from pkl: {pkl_path}")
+        with open(pkl_path, "rb") as f:
+            result = pickle.load(f)
+    elif sim.result is not None:
+        print(f"  [Pipeline] pkl not found, using sim.result directly")
+        result = sim.result
+    else:
+        print("❌ No result available (pkl missing and sim.result is None).")
         return
 
-    # [v6] 최소 정보 기반 분석 호출
-    #run_analysis_and_dashboard_minimal(sim.result)
+    # 구버전 pkl에는 components가 없을 수 있음 → XML에서 직접 복구
+    if not getattr(result, 'components', None):
+        xml_path = Path(sim.output_dir) / "simulation_model.xml"
+        if xml_path.exists():
+            import mujoco as _mj
+            _model = _mj.MjModel.from_xml_path(str(xml_path))
+            _prefixes = ['bpaper', 'bcushion', 'bchassis', 'bopencell', 'inertiaaux', 'autobalance']
+            _comps, _extents = {}, {}
+            for _i in range(_model.nbody):
+                _name = _mj.mj_id2name(_model, _mj.mjtObj.mjOBJ_BODY, _i)
+                if not _name: continue
+                for _p in _prefixes:
+                    if _p in _name.lower():
+                        _comps.setdefault(_p, {})
+                        _parts = _name.split('_')
+                        try: _idx = (int(_parts[-3]), int(_parts[-2]), int(_parts[-1])) if len(_parts) >= 4 else (0, 0, 0)
+                        except: _idx = (0, 0, 0)
+                        _comps[_p][_idx] = _i
+                        if _model.body_geomnum[_i] > 0:
+                            _extents[_i] = _model.geom_size[_model.body_geomadr[_i]].copy()
+                        break
+            result.components = _comps
+            if not getattr(result, 'block_half_extents', None):
+                result.block_half_extents = _extents
+            print(f"  [Pipeline] components recovered from XML: { {k: len(v) for k,v in _comps.items()} }")
+        elif hasattr(sim, 'components') and sim.components:
+            result.components = sim.components
+            print(f"  [Pipeline] components from sim: {list(sim.components.keys())}")
+    print(f"  [Pipeline] components: {list(result.components.keys())}")
+
+    #run_analysis_pipeline(result, curr_dir, standalone=True)
 
 def test_case_1_setup():
     """
@@ -246,7 +292,7 @@ def test_case_1_setup():
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # fast mode
-    #'''
+    '''
     cfg["components"] = {
         "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
         "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
@@ -256,7 +302,7 @@ def test_case_1_setup():
     }
     cfg["sim_integrator"] = "implicitfast"
     cfg["sim_iterations"] = 30
-    #'''
+    '''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]

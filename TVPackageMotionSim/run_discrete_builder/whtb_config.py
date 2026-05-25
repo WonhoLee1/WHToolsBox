@@ -5,7 +5,111 @@
 수치적 안정성을 보장합니다.
 """
 
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Union, List, Tuple
+
+# 현재 config 스키마 버전 — 키 구조가 바뀔 때마다 올림
+CONFIG_VERSION = 1
+
+# ─── 버전별 마이그레이션 함수 ────────────────────────────────────────────────
+# migrate_v{N}_to_v{N+1}(cfg) 형태로 추가하면 자동으로 체인 적용됨
+
+def _migrate_v0_to_v1(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """v0(버전 필드 없음) → v1: chassis_cog/chassis_moi 키 표준화"""
+    # 구버전에서 다른 이름으로 저장됐을 수 있는 키 마이그레이션 예시
+    if "cog" in cfg and "chassis_cog" not in cfg:
+        cfg["chassis_cog"] = cfg.pop("cog")
+    if "moi" in cfg and "chassis_moi" not in cfg:
+        cfg["chassis_moi"] = cfg.pop("moi")
+    return cfg
+
+_MIGRATIONS: Dict[int, Any] = {
+    0: _migrate_v0_to_v1,
+}
+
+def _apply_migrations(cfg: Dict[str, Any], from_version: int) -> Dict[str, Any]:
+    """from_version부터 CONFIG_VERSION까지 마이그레이션을 순차 적용합니다."""
+    v = from_version
+    while v < CONFIG_VERSION:
+        fn = _MIGRATIONS.get(v)
+        if fn:
+            cfg = fn(cfg)
+        v += 1
+    return cfg
+
+# ─── 직렬화 안전 변환 ────────────────────────────────────────────────────────
+
+def _make_serializable(obj: Any) -> Any:
+    """numpy / JAX 배열 등 JSON 비직렬화 타입을 Python 기본형으로 변환합니다."""
+    try:
+        import numpy as np
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+    except ImportError:
+        pass
+    if isinstance(obj, dict):
+        return {k: _make_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_serializable(v) for v in obj]
+    return obj
+
+# ─── Public API ──────────────────────────────────────────────────────────────
+
+def save_config(cfg: Dict[str, Any], path: Union[str, Path]) -> None:
+    """
+    현재 config를 버전 메타데이터와 함께 JSON으로 저장합니다.
+    numpy 배열 등 비직렬화 타입은 자동 변환합니다.
+    """
+    meta = {
+        "_version": CONFIG_VERSION,
+        "_saved_at": datetime.now().isoformat(timespec="seconds"),
+        "_app": "WHToolsBox-DropSim",
+    }
+    payload = {**meta, **_make_serializable(cfg)}
+    Path(path).write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+def load_config(path: Union[str, Path],
+                user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    JSON 파일을 읽어 버전 마이그레이션 → 기본값 머지 → 물리 동기화를 수행합니다.
+
+    누락된 키는 get_default_config() 기본값으로 채워지고,
+    파일에 없는 신규 키도 자동으로 추가됩니다.
+
+    Args:
+        path: JSON 파일 경로
+        user_config: 추가로 덮어쓸 설정 (선택)
+
+    Returns:
+        완전히 동기화된 config dict
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+
+    # 메타 필드 분리
+    file_version = int(raw.get("_version", 0))
+    saved = {k: v for k, v in raw.items() if not k.startswith("_")}
+
+    # 버전 마이그레이션
+    if file_version < CONFIG_VERSION:
+        saved = _apply_migrations(saved, file_version)
+
+    # 기본값으로 시작 → 저장된 값으로 덮어쓰기 → 추가 오버라이드
+    merged = _build_default_dict()
+    merged.update(saved)
+    if user_config:
+        merged.update(user_config)
+
+    # 물리 파라미터 동기화
+    sync_phys_config(merged)
+    return merged
 
 def sync_phys_config(config: Dict[str, Any]):
     """
@@ -120,12 +224,9 @@ def get_friction_standard(mu: Union[float, List[float], Tuple[float, ...]], dim:
             
     return result[:dim]
 
-def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    [WHTOOLS] 'test_run_case_1' 사양을 골자로 하는 기본 설정을 반환합니다.
-    """
-    # 1. 초기 기본값 설정 (Case 1 100% 반영)
-    config = {
+def _build_default_dict() -> Dict[str, Any]:
+    """sync 없이 순수 기본값 dict만 반환합니다. load_config 내부에서 사용."""
+    return {
         # [Geometry]
         "box_w": 1.841, "box_h": 1.103, "box_d": 0.170, "box_thick": 0.008,
         "assy_w": 1.670, "assy_h": 0.960, "cush_gap": 0.005,
@@ -190,11 +291,17 @@ def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str
         "enable_air_drag": True, "enable_air_squeeze": False,
     }
 
-    # 2. 사용자 설정 덮어쓰기
+def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    [WHTOOLS] 'test_run_case_1' 사양을 골자로 하는 기본 설정을 반환합니다.
+    """
+    config = _build_default_dict()
+
+    # 사용자 설정 덮어쓰기
     if user_config:
         config.update(user_config)
 
-    # 3. [CRITICAL] 물리 파라미터 동기화 (Late-Binding) 
+    # [CRITICAL] 물리 파라미터 동기화 (Late-Binding)
     sync_phys_config(config)
 
     return config

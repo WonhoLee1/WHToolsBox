@@ -44,12 +44,14 @@ def extract_face_markers(result: DropSimResult, part_name: str, p_size: Tuple[fl
     
     found_key = None
     if components is not None:
-        if comp_name in components:
+        if part_name in components:
+            found_key = part_name
+        elif comp_name in components:
             found_key = comp_name
         else:
             # Try to find a partial match (e.g., 'cushion' inside 'bcushion')
             for key in components.keys():
-                if key in comp_name or comp_name in key:
+                if key.lower() in comp_name or comp_name in key.lower():
                     found_key = key
                     break
     

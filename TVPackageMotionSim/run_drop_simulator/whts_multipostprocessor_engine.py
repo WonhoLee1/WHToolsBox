@@ -144,7 +144,6 @@ class PlateConfig:
         p_name_lower = part_name.lower()
         
         # 1. 라이브러리 기반 기본값 할당 (Heuristic Matching)
-        print(f"DEBUG: Mapping material for {part_name}...", flush=True)
         found_lib = False
         matched_key = 'default'
         for key, props in WHTOOLS_MATERIAL_LIB.items():
@@ -198,54 +197,61 @@ class RigidBodyKinematicsManager:
     [WHTOOLS] 마커 데이터로부터 강체의 운동을 추출하고 로컬 좌표계 변환을 관리합니다.
     plate_by_markers.py의 고안정성 Kabsch 알고리즘을 계승합니다.
     """
-    def __init__(self, marker_history: np.ndarray, W: float = 0, H: float = 0):
+    def __init__(self, marker_history: np.ndarray, W: float = 0, H: float = 0,
+                 assembly_center: Optional[np.ndarray] = None):
         self.raw_marker_data = jnp.array(marker_history)
         self.n_frames, self.n_markers, _ = self.raw_marker_data.shape
         self.W, self.H = W, H
-        self._initialize_local_frame()
+        self._initialize_local_frame(assembly_center)
 
-    def _initialize_local_frame(self):
+    def _initialize_local_frame(self, assembly_center: Optional[np.ndarray] = None):
         """초기 프레임(Frame 0)을 기준으로 로컬 좌표계(PCA 기반)를 수립합니다."""
         initial_markers = self.raw_marker_data[0]
         initial_centroid = jnp.mean(initial_markers, axis=0)
         centered_markers = initial_markers - initial_centroid
-        
+
         # PCA를 통한 주축(Principal Axes) 추출
         covariance_matrix = np.cov(np.array(centered_markers).T)
         eigenvalues, eigenvectors = np.linalg.eigh(covariance_matrix + np.eye(3)*1e-9)
         sort_indices = eigenvalues.argsort()[::-1]
         self.local_basis_axes = jnp.array(eigenvectors[:, sort_indices])
-        
+
         # 로컬 좌표계로 투영하여 범위 확인
         markers_local = centered_markers @ self.local_basis_axes
         p_min, p_max = markers_local.min(axis=0), markers_local.max(axis=0)
-        
-        # 수치적 안정성을 위한 여유(Margin) 설정 (5% -> 1%로 축소하여 정밀도 향상)
-        applied_margin = jnp.max(p_max - p_min) * 0.01
-        
+
+        # 수치적 안정성을 위한 여유(Margin) 설정 (1%)
+        applied_margin = float(jnp.max(p_max - p_min) * 0.01)
+
         # 로컬 원점(Centroid) 재설정
         self.local_centroid_0 = initial_centroid + ((p_min + p_max) / 2.0) @ self.local_basis_axes.T
         markers_local_corrected = (initial_markers - self.local_centroid_0) @ self.local_basis_axes
-        
+
         # 수동 입력된 W, H 가 없을 경우 데이터로부터 추정
         if self.W == 0: self.W = float(markers_local_corrected[:, 0].max() - markers_local_corrected[:, 0].min())
         if self.H == 0: self.H = float(markers_local_corrected[:, 1].max() - markers_local_corrected[:, 1].min())
-        
-        self.x_bounds = [
-            float(markers_local_corrected[:, 0].min() - applied_margin), 
-            float(markers_local_corrected[:, 0].max() + applied_margin)
-        ]
-        self.y_bounds = [
-            float(markers_local_corrected[:, 1].min() - applied_margin), 
-            float(markers_local_corrected[:, 1].max() + applied_margin)
-        ]
-        # Raw dimensions for UI
+
         self.actual_w = float(markers_local_corrected[:, 0].max() - markers_local_corrected[:, 0].min())
         self.actual_h = float(markers_local_corrected[:, 1].max() - markers_local_corrected[:, 1].min())
-        self.y_bounds = [
-            float(markers_local_corrected[:, 1].min() - applied_margin), 
-            float(markers_local_corrected[:, 1].max() + applied_margin)
+        self.x_bounds = [
+            float(markers_local_corrected[:, 0].min()) - applied_margin,
+            float(markers_local_corrected[:, 0].max()) + applied_margin,
         ]
+        self.y_bounds = [
+            float(markers_local_corrected[:, 1].min()) - applied_margin,
+            float(markers_local_corrected[:, 1].max()) + applied_margin,
+        ]
+
+        # 법선(3번째 축) 부호 고정: 판 centroid → assembly 중심 반대 방향(바깥쪽)
+        # assembly_center 없으면 frame 0 전체 마커 평균을 fallback으로 사용
+        ref_center = np.array(assembly_center) if assembly_center is not None \
+                     else np.array(initial_centroid)
+        outward = np.array(self.local_centroid_0) - ref_center
+        norm = np.linalg.norm(outward)
+        if norm > 1e-9:
+            outward /= norm
+            if np.dot(np.array(self.local_basis_axes[:, 2]), outward) < 0:
+                self.local_basis_axes = self.local_basis_axes.at[:, 2].mul(-1)
 
     @partial(jit, static_argnums=(0,))
     def extract_kinematics_vmap(self, frame_markers_batch: jnp.ndarray):
@@ -418,7 +424,7 @@ class ShellDeformationAnalyzer:
     @property
     def ref_center(self): return self.kin.local_centroid_0 if self.kin else None
 
-    def run_analysis(self, sim_data=None) -> bool:
+    def run_analysis(self, sim_data=None, assembly_center: Optional[np.ndarray] = None) -> bool:
         """분석 파이프라인 실행"""
         # [v7.5.1] m_raw 또는 m_data_hist(v6 호환성) 중 하나가 있으면 사용
         markers = self.m_raw if self.m_raw is not None else self.m_data_hist
@@ -448,7 +454,7 @@ class ShellDeformationAnalyzer:
         print(f"    - Dimensions: {len(self.m_raw[0])} markers, {len(self.m_raw)} frames", flush=True)
         
         # 기구학 매니저 초기화
-        self.kin = RigidBodyKinematicsManager(self.m_raw)
+        self.kin = RigidBodyKinematicsManager(self.m_raw, assembly_center=assembly_center)
         
         # UI 시각화용 치수는 마진을 제외한 순수 마커 범위 사용 (사용자 피드백 반영: Tight Bounding Box)
         self.W, self.H = self.kin.actual_w, self.kin.actual_h
@@ -495,8 +501,10 @@ class ShellDeformationAnalyzer:
         r_rmses = np.sqrt(np.mean(np.square(np.array(local_disp) - ref_local[None, :, :])[:, :, :2], axis=(1, 2)))
         self.results['r_rmse'] = r_rmses
         
-        if np.mean(r_rmses) > 15.0:
-            print(f"  ❌ [CRASH] {self.name} failed alignment stability test.")
+        # 판 크기 대비 상대 임계값 (10%) — 절대값 15mm 하드코딩 대체
+        crash_tol = max(self.W, self.H) * 0.10
+        if np.mean(r_rmses) > crash_tol:
+            print(f"  ❌ [CRASH] {self.name} alignment RMSE {np.mean(r_rmses):.2f} > tol {crash_tol:.2f} mm.")
             return False
             
         print(f"  ✅ [SUCCESS] {self.name} analysis completed.", flush=True)
@@ -516,8 +524,14 @@ class PlateAssemblyManager:
 
     def run_all(self):
         print(f"[WHTOOLS] Starting Assembly Analysis (Parts: {len(self.analyzers)})...")
+
+        # 모든 파트 Frame 0 마커를 합쳐 assembly 중심 계산 (법선 부호 고정용)
+        all_f0 = [np.array(ana.m_raw[0]) for ana in self.analyzers
+                  if ana.m_raw is not None and len(ana.m_raw) > 0]
+        assembly_center = np.concatenate(all_f0, axis=0).mean(axis=0) if all_f0 else None
+
         for ana in self.analyzers:
-            ana.run_analysis(sim_data=self.sim_data)
+            ana.run_analysis(sim_data=self.sim_data, assembly_center=assembly_center)
         print("[WHTOOLS] Assembly Analysis Finished.")
 
     def show_report(self):

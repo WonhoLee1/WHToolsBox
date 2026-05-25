@@ -8,7 +8,6 @@ import os
 import sys
 import time
 import ast
-import json
 import tempfile
 from functools import partial
 import numpy as np
@@ -832,6 +831,20 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.seq_group = QtWidgets.QLabel("📋 ISTA 6-Amazon Test Sequence Table")
         self.seq_group.setStyleSheet("font-weight: bold; color: #eceff4; font-size: 9.5pt; margin-top: 4px;")
         
+        seq_header_lay = QtWidgets.QHBoxLayout()
+        seq_header_lay.addWidget(self.seq_group)
+        
+        if self.multi_select_mode:
+            self.btn_select_all = QtWidgets.QPushButton("Select All")
+            self.btn_deselect_all = QtWidgets.QPushButton("Deselect All")
+            self.btn_select_all.clicked.connect(self._on_select_all)
+            self.btn_deselect_all.clicked.connect(self._on_deselect_all)
+            seq_header_lay.addStretch()
+            seq_header_lay.addWidget(self.btn_select_all)
+            seq_header_lay.addWidget(self.btn_deselect_all)
+            
+        ista_lay.addLayout(seq_header_lay)
+        
         self.table_seq = QtWidgets.QTableWidget()
         if self.multi_select_mode:
             self.table_seq.setColumnCount(5)
@@ -849,7 +862,6 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         self.table_seq.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table_seq.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         
-        ista_lay.addWidget(self.seq_group)
         ista_lay.addWidget(self.table_seq)
         
         self.stacked_widget.addWidget(self.page_ista)
@@ -896,6 +908,20 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         btn_box.addStretch()
         btn_box.addWidget(self.btn_apply)
         layout.addLayout(btn_box)
+
+    def _on_select_all(self):
+        for row in range(self.table_seq.rowCount()):
+            item = self.table_seq.item(row, 0)
+            if item:
+                from PySide6.QtCore import Qt
+                item.setCheckState(Qt.Checked)
+
+    def _on_deselect_all(self):
+        for row in range(self.table_seq.rowCount()):
+            item = self.table_seq.item(row, 0)
+            if item:
+                from PySide6.QtCore import Qt
+                item.setCheckState(Qt.Unchecked)
 
     def _load_config_values(self):
         # 복원 작업 중 시그널에 의한 _update_all 연쇄 호출을 전면 차단하여
@@ -1301,11 +1327,13 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
                 step = self.current_generated_seq[row]
                 mapped_dir = self._convert_to_ista_direction_name(step['direction'], is_ltl)
                 h_val = step['height']
+                # rot_edge/rot_corner: height는 m 단위; 그 외: mm 단위 → m 변환
+                h_m = h_val if step['type'] in ['rot_edge', 'rot_corner'] else h_val / 1000.0
                 scenarios.append({
-                    'label': f"Step {step['num']}: {mapped_dir} @ {h_val:.3f}m",
+                    'label': f"Step {step['num']}: {mapped_dir} @ {h_val:.0f}mm",
                     'drop_mode': mode,
                     'drop_direction': mapped_dir,
-                    'drop_height': h_val,
+                    'drop_height': h_m,
                     'initial_tilt_deg': float(step.get('tilt_lat', 0.0)),
                     'initial_tilt_azimuth_deg': float(step.get('tilt_az', 0.0)),
                     'box_w': self.spin_w.value(),
@@ -2657,14 +2685,13 @@ class BatchRdsWorker(QThread):
         {"id": "C8", "name": "Rear-Top-Left",      "s": [-1,  1, -1]},
     ]
 
-    def __init__(self, base_config, scenarios, output_folder, auto_cutout,
+    def __init__(self, base_config, scenarios, output_folder,
                  parallel_workers=1, parent=None):
         import copy, threading
         super().__init__(parent)
         self.base_config      = copy.deepcopy(base_config)  # 병렬 시나리오 간 공유 방지
         self.scenarios        = scenarios
         self.output_folder    = Path(output_folder)
-        self.auto_cutout      = auto_cutout
         self.parallel_workers = max(1, parallel_workers)
         self._stop_event  = threading.Event()
         self._pause_event = threading.Event()
@@ -2725,24 +2752,24 @@ class BatchRdsWorker(QThread):
                 t_hist  = sim.time_history
                 g_hist  = sim.ground_impact_hist
 
-                if self.auto_cutout and t_hist:
-                    s_i, e_i = self._detect_active_range(g_hist, sim)
-                else:
-                    s_i, e_i = 0, len(t_hist)
+                s_i, e_i = 0, len(t_hist)
 
                 scen_dir.mkdir(parents=True, exist_ok=True)
                 parts = {
                     "Chassis":  (scen.get("assy_w",    cfg["assy_w"]),
                                  scen.get("assy_h",    cfg["assy_h"]),
-                                 scen.get("chassis_d", cfg["chassis_d"])),
+                                 scen.get("chassis_d", cfg["chassis_d"]),
+                                 cfg.get("components", {}).get("chassis", {}).get("mass", 0.0)),
                     "Cushion":  (scen.get("box_w",     cfg["box_w"]),
                                  scen.get("box_h",     cfg["box_h"]),
-                                 scen.get("box_d",     cfg["box_d"])),
+                                 scen.get("box_d",     cfg["box_d"]),
+                                 cfg.get("components", {}).get("cushion", {}).get("mass", 0.0)),
                     "OpenCell": (scen.get("assy_w",    cfg["assy_w"]),
                                  scen.get("assy_h",    cfg["assy_h"]),
-                                 cfg.get("opencell_d", 0.012)),
+                                 cfg.get("opencell_d", 0.012),
+                                 cfg.get("components", {}).get("opencell", {}).get("mass", 0.0)),
                 }
-                for part_name, (pw, ph, pd) in parts.items():
+                for part_name, (pw, ph, pd, pmass) in parts.items():
                     ph_data = sim.part_corner_hist.get(part_name)
                     if ph_data is None:
                         self.sig_log.emit(f"  ⚠ {part_name} corner history unavailable, skipping.")
@@ -2750,13 +2777,13 @@ class BatchRdsWorker(QThread):
                     csv_path = scen_dir / f"{part_name.lower()}_corners.csv"
                     self._write_corner_csv(
                         csv_path, scen, part_name,
-                        pw, ph, pd,
+                        pw, ph, pd, pmass,
                         t_hist, ph_data["pos"],
                         s_i, e_i
                     )
                     self.sig_log.emit(f"  💾 {part_name}: {csv_path.name}")
 
-                self._write_topo_arg(scen_dir, scen, cfg)
+                self._write_topo_arg(scen_dir, scen, cfg, t_hist, s_i, e_i)
                 mujoco.set_mjcb_control(None)
 
             except Exception as e:
@@ -2780,38 +2807,12 @@ class BatchRdsWorker(QThread):
 
     # ── helpers ───────────────────────────────────────────────────────────
 
-    def _detect_active_range(self, ground_impact_hist, sim):
-        """낙하 전(공중) 구간과 안정 후 구간을 자동 제거한 유효 구간 [start, end) 인덱스 반환."""
-        n = len(ground_impact_hist)
-        if n == 0:
-            return 0, 0
-
-        # 1) 첫 충돌 프레임 탐지 (임팩트력 > 1 N)
-        start_i = 0
-        for i, f in enumerate(ground_impact_hist):
-            if f > 1.0:
-                start_i = max(0, i - 2)
-                break
-
-        # 2) 안정 후 컷아웃: Chassis 코너 속도 resultant 가 임계값 아래로 수렴한 뒤 10 프레임 포함
-        vel_res_list = sim.part_corner_hist.get("Chassis", {}).get("vel_res", [])
-        end_i = n
-        settle_threshold = 0.05  # m/s
-        for i in range(n - 1, start_i, -1):
-            try:
-                vmax = float(np.max(vel_res_list[i])) if i < len(vel_res_list) else 0.0
-            except Exception:
-                vmax = 0.0
-            if vmax > settle_threshold:
-                end_i = min(n, i + 10)
-                break
-
-        return start_i, end_i
-
-    def _write_topo_arg(self, scen_dir, scen, cfg):
+    def _write_topo_arg(self, scen_dir, scen, cfg,
+                        time_hist=None, start_i=0, end_i=None):
         """
         resources/topo_arg.txt 를 시나리오 결과 폴더에 복사하면서
         chassis 치수 사양(tray-width/length/height)과 dynamic-opts 경로를 갱신한다.
+        time_hist + start_i/end_i 가 주어지면 실제 컷아웃 시간 범위를 dynamic-opts에 기록.
         """
         import re
         src = Path(__file__).parent.parent / "resources" / "topo_arg.txt"
@@ -2819,11 +2820,22 @@ class BatchRdsWorker(QThread):
             self.sig_log.emit(f"  ⚠ topo_arg.txt 원본을 찾을 수 없습니다: {src}")
             return
 
-        assy_w_mm   = scen.get("assy_w",    cfg.get("assy_w",    1.4)) * 1000.0
-        assy_h_mm   = scen.get("assy_h",    cfg.get("assy_h",    0.83)) * 1000.0
+        assy_w_mm    = scen.get("assy_w",    cfg.get("assy_w",    1.4)) * 1000.0
+        assy_h_mm    = scen.get("assy_h",    cfg.get("assy_h",    0.83)) * 1000.0
         chassis_d_mm = scen.get("chassis_d", cfg.get("chassis_d", 0.035)) * 1000.0
 
         chassis_csv = scen_dir / "chassis_corners.csv"
+
+        # 실제 컷아웃 시간 범위 결정
+        t_start = 0.0
+        t_end   = 0.0
+        if time_hist:
+            n = len(time_hist)
+            _end = end_i if end_i is not None else n
+            if 0 <= start_i < n:
+                t_start = float(time_hist[start_i])
+            if 0 < _end <= n:
+                t_end = float(time_hist[min(_end, n) - 1])
 
         lines = src.read_text(encoding="utf-8").splitlines()
         out = []
@@ -2838,19 +2850,35 @@ class BatchRdsWorker(QThread):
             line = re.sub(
                 r'^(--tray-height\s+)\S+',
                 lambda m: f"{m.group(1)}{chassis_d_mm:.1f}", line)
-            # dynamic-opts: 비활성 줄을 활성화하고 chassis CSV 경로 삽입
+            # dynamic-opts: 비활성 줄을 활성화하고 chassis CSV 경로와 실제 시간 범위 삽입
             if re.match(r'^#\s*--dynamic-opts\s', line):
                 csv_rel = chassis_csv.name  # 같은 폴더이므로 파일명만
-                line = f"--dynamic-opts  {csv_rel},0.0,0.0"
+                line = f"--dynamic-opts  {csv_rel},{t_start:.4f},{t_end:.4f}"
             out.append(line)
 
+        content = "\n".join(out)
+
+        # 1. 케이스 폴더에 저장 (CSV 경로: 파일명만, 같은 폴더)
         dest = scen_dir / "topo_arg.txt"
-        dest.write_text("\n".join(out), encoding="utf-8")
+        dest.write_text(content, encoding="utf-8")
         self.sig_log.emit(f"  📄 topo_arg.txt → {dest.name}  "
-                          f"(W={assy_w_mm:.0f} L={assy_h_mm:.0f} H={chassis_d_mm:.1f} mm)")
+                          f"(W={assy_w_mm:.0f} L={assy_h_mm:.0f} H={chassis_d_mm:.1f} mm, "
+                          f"t={t_start:.3f}~{t_end:.3f}s)")
+
+        # 2. 부모 결과 폴더에도 저장 (CSV 경로: 케이스 폴더명/파일명 으로 교체)
+        parent_dir = scen_dir.parent
+        if parent_dir != scen_dir:
+            csv_rel_parent = f"{scen_dir.name}/{chassis_csv.name}"
+            parent_content = content.replace(
+                f"--dynamic-opts  {chassis_csv.name},",
+                f"--dynamic-opts  {csv_rel_parent},"
+            )
+            parent_dest = parent_dir / "topo_arg.txt"
+            parent_dest.write_text(parent_content, encoding="utf-8")
+            self.sig_log.emit(f"  📄 topo_arg.txt → {parent_dest.relative_to(parent_dir.parent)}")
 
     def _write_corner_csv(self, csv_path, scen, part_name,
-                          pw, ph, pd,
+                          pw, ph, pd, pmass,
                           time_hist, pos_hist,
                           start_i, end_i):
         w_mm, h_mm, d_mm = pw * 1000.0, ph * 1000.0, pd * 1000.0
@@ -2861,6 +2889,7 @@ class BatchRdsWorker(QThread):
             f.write(f"# drop_direction, {scen['drop_direction']}\n")
             f.write(f"# drop_height_m, {scen['drop_height']:.4f}\n")
             f.write(f"# dims_mm, {w_mm:.0f}, {h_mm:.0f}, {d_mm:.0f}\n")
+            f.write(f"# mass_kg, {pmass:.2f}\n")
             for c in self.CORNER_DEFS:
                 sx, sy, sz = c["s"]
                 f.write(f"# {c['id']}, {sx*w_mm/2:.1f}, {sy*h_mm/2:.1f}, {sz*d_mm/2:.1f}\n")
@@ -2936,7 +2965,7 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         fl = QtWidgets.QHBoxLayout(folder_group)
         from datetime import datetime as _dt
         default_folder = str(
-            Path("results") / f"rds-{_dt.now().strftime('%Y%m%d_%H%M%S')}")
+            Path("results") / f"sde-{_dt.now().strftime('%Y%m%d_%H%M%S')}")
         self.edit_folder = QtWidgets.QLineEdit(default_folder)
         self.btn_browse_folder = QtWidgets.QPushButton("Browse...")
         self.btn_browse_folder.clicked.connect(self._on_browse_folder)
@@ -2948,10 +2977,6 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         opt_group = QtWidgets.QGroupBox("Options")
         ol = QtWidgets.QVBoxLayout(opt_group)
         par_lay = QtWidgets.QHBoxLayout()
-        self.chk_auto_cutout = QtWidgets.QCheckBox(
-            "Auto time-range cutout  (공중 구간 제거 + 안정 후 트림)")
-        self.chk_auto_cutout.setChecked(True)
-        ol.addWidget(self.chk_auto_cutout)
 
         par_lay.addWidget(QtWidgets.QLabel("Parallel workers:"))
         self.spin_workers = QtWidgets.QSpinBox()
@@ -3079,7 +3104,6 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
             base_config=self.config,
             scenarios=self._scenarios,
             output_folder=output_folder,
-            auto_cutout=self.chk_auto_cutout.isChecked(),
             parallel_workers=self.spin_workers.value(),
             parent=None,
         )
@@ -3137,7 +3161,7 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
             f"✅ Batch complete. Results saved to: {self.edit_folder.text()}")
         QtWidgets.QMessageBox.information(
             self, "Done",
-            f"배치 완료!\n결과 폴더: {self.edit_folder.text()}")
+            f"Batch Complete!\nResult Folder: {self.edit_folder.text()}")
 
     def _on_worker_error(self, msg):
         self._on_worker_finished()
@@ -3149,6 +3173,10 @@ class ControlPanel(QMainWindow):
     """
     def __init__(self, simulator):
         super().__init__()
+        app = QtWidgets.QApplication.instance()
+        if app:
+            app.setQuitOnLastWindowClosed(False)
+            
         self.sim = simulator
         self.setWindowTitle("[WHTOOLS] Simulation Control Center")
         self.setMinimumWidth(500)
@@ -3183,12 +3211,17 @@ class ControlPanel(QMainWindow):
         act_new.triggered.connect(self._on_model_new)
         
         model_menu.addSeparator()
-        
+
         act_load = model_menu.addAction("📂 Load Config (JSON)")
         act_load.triggered.connect(self._on_model_load)
-        
+
         act_save = model_menu.addAction("💾 Save Config (JSON)")
         act_save.triggered.connect(self._on_model_save)
+
+        model_menu.addSeparator()
+
+        self._recent_menu = model_menu.addMenu("🕘 최근 파일")
+        self._rebuild_recent_menu()
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -3370,7 +3403,7 @@ class ControlPanel(QMainWindow):
         util_layout = QVBoxLayout()
         
         row1 = QHBoxLayout()
-        self.btn_config = QPushButton("⚙️ Edit Configuration")
+        self.btn_config = QPushButton("⚙️ Edit Config.")
         self.btn_config.setMinimumHeight(35)
         self.btn_config.clicked.connect(self._on_open_config)
         row1.addWidget(self.btn_config)
@@ -3385,6 +3418,12 @@ class ControlPanel(QMainWindow):
         self.btn_log_motion.setMinimumHeight(35)
         self.btn_log_motion.clicked.connect(self._on_log_motion)
         row1.addWidget(self.btn_log_motion)
+
+        self.btn_str_analysis = QPushButton("🔬 Str. Analysis")
+        self.btn_str_analysis.setToolTip("평판 변형 이론을 근거로 빠르게 변형과 충격을 분석")
+        self.btn_str_analysis.setMinimumHeight(35)
+        self.btn_str_analysis.clicked.connect(self._on_str_analysis)
+        row1.addWidget(self.btn_str_analysis)
         
         util_layout.addLayout(row1)
 
@@ -3399,6 +3438,34 @@ class ControlPanel(QMainWindow):
 
         # 스타일 시트 적용 (Premium Dark Theme)
         self.setStyleSheet(GLOBAL_QSS)
+
+    def _on_str_analysis(self):
+        if self.sim is None or self.sim.data is None:
+            QtWidgets.QMessageBox.warning(self, "No Data", "시뮬레이션 데이터가 없습니다.")
+            return
+            
+        target_time = self.sim.config.get("sim_duration", 1.0)
+        curr_time = self.sim.data.time
+        if curr_time < target_time:
+            QtWidgets.QMessageBox.warning(self, "Incomplete", "시뮬레이션 진행이 목표 시간까지 수행된 후 실행할 수 있습니다.")
+            return
+            
+        if not hasattr(self.sim, 'result') or self.sim.result is None:
+            if hasattr(self.sim, 'build_and_save_result'):
+                self.sim.build_and_save_result()
+            else:
+                QtWidgets.QMessageBox.warning(self, "No Result", "시뮬레이션 결과(result)를 생성할 수 없습니다.")
+                return
+
+        from .whts_analysis_pipeline import run_analysis_pipeline
+        import os
+        # Path manipulation to match the expected 'curr_dir' (TVPackageMotionSim folder)
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        try:
+            self._post_dashboard = run_analysis_pipeline(self.sim.result, parent_dir, standalone=False)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Analysis Error", f"분석 파이프라인 실행 중 오류가 발생했습니다:\n{e}")
 
     def _update_status(self):
         """시뮬레이터의 현재 상태를 UI에 반영합니다."""
@@ -3588,13 +3655,25 @@ class ControlPanel(QMainWindow):
             self._reloading = False
 
     def closeEvent(self, event):
-        """창이 닫힐 때 하위 모니터 창들도 모두 닫습니다."""
+        """창이 닫힐 때 종료 신호를 보내고 하위 창들을 닫습니다.
+        sim_thread 완료 대기는 _launch_with_control_panel에서 처리합니다."""
+        # 1. 시뮬레이션 루프 종료 신호 (스레드 대기는 하지 않음 — UI 블로킹 방지)
+        self.sim.ctrl_quit_request = True
+
+        # 2. MuJoCo viewer 닫기
+        try:
+            self.sim.stop_viewer()
+        except Exception:
+            pass
+
+        # 3. 모니터 창 닫기
         if hasattr(self, 'monitor_windows'):
             for win in self.monitor_windows:
                 try:
                     win.close()
-                except:
+                except Exception:
                     pass
+
         self.timer.stop()
         event.accept()
 
@@ -3721,29 +3800,79 @@ class ControlPanel(QMainWindow):
         dlg = ModelSetupDialog(self, self.sim)
         dlg.exec()
 
+    # ── Config 최근 파일 관리 ────────────────────────────────────────────────
+
+    def _get_recent_configs(self) -> list:
+        from PySide6.QtCore import QSettings
+        s = QSettings("WHTools", "DropSimulator")
+        return s.value("recent_configs", []) or []
+
+    def _push_recent_config(self, path: str) -> None:
+        from PySide6.QtCore import QSettings
+        s = QSettings("WHTools", "DropSimulator")
+        recent = s.value("recent_configs", []) or []
+        recent = [path] + [r for r in recent if r != path]
+        s.setValue("recent_configs", recent[:10])
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        recent = self._get_recent_configs()
+        if not recent:
+            act = self._recent_menu.addAction("(없음)")
+            act.setEnabled(False)
+            return
+        for p in recent:
+            label = Path(p).name
+            act = self._recent_menu.addAction(label)
+            act.setToolTip(p)
+            act.triggered.connect(lambda checked=False, fp=p: self._load_config_from_path(fp))
+        self._recent_menu.addSeparator()
+        act_clear = self._recent_menu.addAction("목록 지우기")
+        act_clear.triggered.connect(self._clear_recent_configs)
+
+    def _clear_recent_configs(self) -> None:
+        from PySide6.QtCore import QSettings
+        QSettings("WHTools", "DropSimulator").setValue("recent_configs", [])
+        self._rebuild_recent_menu()
+
+    def _load_config_from_path(self, path: str) -> None:
+        from ..run_discrete_builder.whtb_config import load_config
+        try:
+            new_cfg = load_config(path)
+            self.sim.config.update(new_cfg)
+            self.sim.ctrl_reload_request = True
+            self._push_recent_config(path)
+            self._load_config_values()
+            self.lbl_status.setText(f"✅ Config loaded: {Path(path).name}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Load Error", f"파일을 불러올 수 없습니다:\n{e}")
+
+    # ── 메뉴 핸들러 ──────────────────────────────────────────────────────────
+
     def _on_model_load(self):
         """저장된 JSON 설정 파일을 불러옵니다."""
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Config", "", "JSON Files (*.json)")
+        recent = self._get_recent_configs()
+        start_dir = str(Path(recent[0]).parent) if recent else ""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load Config", start_dir, "JSON Files (*.json)")
         if path:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    new_cfg = json.load(f)
-                self.sim.config.update(new_cfg)
-                self.sim.ctrl_reload_request = True
-                QtWidgets.QMessageBox.information(self, "Success", "Configuration loaded and model reload requested.")
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "Error", f"Failed to load config: {e}")
+            self._load_config_from_path(path)
 
     def _on_model_save(self):
         """현재 시뮬레이션 설정을 JSON 파일로 저장합니다."""
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Config", "config_backup.json", "JSON Files (*.json)")
+        from ..run_discrete_builder.whtb_config import save_config
+        recent = self._get_recent_configs()
+        start_dir = str(Path(recent[0]).parent) if recent else ""
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Config", start_dir + "/config.json", "JSON Files (*.json)")
         if path:
             try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(self.sim.config, f, indent=4, ensure_ascii=False)
-                QtWidgets.QMessageBox.information(self, "Success", f"Config saved to:\n{path}")
+                save_config(self.sim.config, path)
+                self._push_recent_config(path)
+                self.lbl_status.setText(f"💾 Config saved: {Path(path).name}")
             except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "Error", f"Failed to save config: {e}")
+                QtWidgets.QMessageBox.warning(self, "Save Error", f"저장 실패:\n{e}")
 
     def _on_reload_xml(self):
         from PySide6.QtWidgets import QFileDialog
