@@ -169,21 +169,28 @@ class DropSimulator:
             self.apply_balancing()
 
     def _init_state_variables(self) -> None:
-        """시뮬레이션 내부 상태 추적 변수들을 초기화합니다."""
+        """시뮬레이션 내부 상태 추적 변수들을 초기화합니다.
+        setup() 이후에 호출될 때는 geom_state_tracker/components 등
+        _init_plasticity_tracker()가 채운 데이터를 덮어쓰지 않도록 주의.
+        _reset_loop_variables()가 루프 재시작 시 안전하게 리셋합니다."""
         self.geom_state_tracker: Dict[int, Dict[str, Any]] = {}
         self.components: Dict[str, Dict[Tuple[int, int, int], int]] = {}
         self.metrics: Dict[str, Any] = {}
         self.neighbor_map: Dict[str, Dict[Tuple[int, int, int], List[Tuple[int, int, int]]]] = {}
-        self.snapshots: List[Dict[str, Any]] = [] # 되감기용 스냅샷 저장소
-        
-        # 물리 캐시 및 임시 변수
+        self.snapshots: List[Dict[str, Any]] = []
+
         self._last_f_drag = 0.0
         self._last_f_sq = 0.0
         self._last_f_visc = 0.0
         self.nominal_local_pos: Dict[int, np.ndarray] = {}
         self.block_half_extents: Dict[int, np.ndarray] = {}
         self.body_index_map: Dict[int, Tuple[int, int, int]] = {}
-        
+
+        self._reset_loop_variables()
+
+    def _reset_loop_variables(self) -> None:
+        """루프 시작/재시작 시 리셋해야 하는 변수만 초기화합니다.
+        setup()에서 채운 geom_state_tracker, components 등은 건드리지 않습니다."""
         # 실시간 물리 지표 (최대치 추적)
         self.max_equiv_strain = 0.0
         self.max_applied_pressure_pa = 0.0
@@ -192,11 +199,11 @@ class DropSimulator:
         self._last_reported_interval = -1
         self._report_count = 0
         self.start_real_time = time.time()
-        
+
         # [WHTOOLS] 인터랙티브 레코딩 및 특수 효과
-        self.is_recording = False    # 무한 모드에서의 데이터 누적 여부
-        self.ctrl_slow_motion = False # 슬로우 모션 토글 상태
-        self.step_idx = 0            # 현재 스텝 인덱스 (UI 동기화용)
+        self.is_recording = False
+        self.ctrl_slow_motion = False
+        self.step_idx = 0
 
     def _init_histories(self) -> None:
         """시뮬레이션 데이터 저장을 위한 히스토리 리스트를 초기화합니다."""
@@ -545,6 +552,11 @@ class DropSimulator:
         
         if d.ncon > 0:
             contacts = d.contact.geom[:d.ncon] # (ncon, 2)
+            # [WHTOOLS] 소성 변형 대상 지오메트리에 대한 접촉이 없는 경우 조기 반환(Early Exit)하여 파이썬 루프 방지
+            intersect = np.intersect1d(contacts, tracked_gids)
+            if len(intersect) == 0:
+                return
+                
             valid_c_idx = np.where(np.isin(contacts[:, 0], tracked_gids) | np.isin(contacts[:, 1], tracked_gids))[0]
             
             for c_idx in valid_c_idx:
@@ -832,12 +844,17 @@ class DropSimulator:
 
         # 초기 상태 저장 및 동기화
         self.snapshots = []
-        self._init_state_variables()
+        self._reset_loop_variables()  # geom_state_tracker 등 setup()이 채운 데이터는 보존
         self._init_histories()
         mujoco.mj_forward(self.model, self.data)
         self._save_snapshot()
 
         self.log(f"🎬 Simulation Session Started. Target Duration: {self.config.get('sim_duration', 1.0)}s")
+
+        # [WHTOOLS] 120 Hz 렌더링 스로틀링(Throttling)을 위한 실시간 시계 변수 초기화
+        import time
+        last_render_time = time.perf_counter()
+        render_interval = 1.0 / 120.0  # 120 FPS (약 8.33ms)
 
         # 물리 연산 루프 (quit 또는 reload 요청 시 탈출)
         while not self.ctrl_quit_request and not self.ctrl_reload_request:
@@ -861,15 +878,21 @@ class DropSimulator:
 
                 # 3. Data Collection & Snapshotting
                 if self.step_idx % report_step == 0:
-                    if self.step_idx <= total_steps or self.is_recording:
+                    dynamic_target_time = self.config.get("sim_duration", 1.0)
+                    dynamic_total_steps = int(dynamic_target_time / self.model.opt.timestep)
+                    if self.step_idx <= dynamic_total_steps or self.is_recording:
                         self._collect_history()
                     self._save_snapshot()
 
                 # 4. Progress Reporting
                 self._report_progress(self.step_idx)
 
+                # [WHTOOLS] 동적으로 sim_duration을 재계산 (UI 실시간 변경 지원)
+                dynamic_target_time = self.config.get("sim_duration", 1.0)
+                dynamic_total_steps = int(dynamic_target_time / self.model.opt.timestep)
+
                 # 타겟 도달 시 자동 일시 정지 (viewer 모드) 또는 종료 (headless)
-                if self.step_idx == total_steps:
+                if self.step_idx >= dynamic_total_steps:
                     if self.config.get("use_viewer", False):
                         self.ctrl_paused = True
                         self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Paused for review.", level="info")
@@ -882,7 +905,11 @@ class DropSimulator:
 
                 self.step_idx += 1
                 if self.viewer and self.viewer.is_running():
-                    self.viewer.sync()
+                    # [WHTOOLS] 매 물리 스텝마다의 GUI 동기화 오버헤드를 막기 위해 120 Hz 스로틀링 적용
+                    curr_time = time.perf_counter()
+                    if curr_time - last_render_time >= render_interval:
+                        self.viewer.sync()
+                        last_render_time = curr_time
 
                 # 속도 제어 (Speed Multiplier 및 Slow Motion 적용)
                 effective_multiplier = self.ctrl_speed_multiplier

@@ -51,12 +51,12 @@ CONFIG_METADATA = {
     # [Components & Balancing Options]
     "components": {"desc": "Component Specifications (Mass, Meshing, Weld, Color)", "cat": "Components"},
     "components_balance": {"desc": "Assembly Mass, CoG & MoI Target Specifications", "cat": "Components Balance"},
+    "contacts": {"desc": "Contact Parameters", "cat": "Contacts"},
 
     # [Drop Env]
     "drop_mode": {"desc": "Drop Mode (LTL, PARCEL, etc.)", "cat": "Drop Env"},
     "drop_direction": {"desc": "Drop Target (e.g. Corner 2-3-5)", "cat": "Drop Env"},
     "drop_height": {"desc": "Drop Height (m)", "cat": "Drop Env"},
-    "sim_duration": {"desc": "Simulation Duration (s)", "cat": "Drop Env"},
     "include_paperbox": {"desc": "Include Outer Paper Box in Simulation", "cat": "Drop Env"},
     "include_cushion": {"desc": "Include Cushion in Simulation", "cat": "Drop Env"},
     "use_postprocess_ui": {"desc": "Enable Post-process UI", "cat": "Drop Env"},
@@ -78,6 +78,7 @@ CONFIG_METADATA = {
     "box_use_weld": {"desc": "Weld Paper Box Elements Together", "cat": "Meshing"},
 
     # [Solver]
+    "sim_duration": {"desc": "Simulation Duration (s)", "cat": "Solver"},
     "sim_timestep": {"desc": "Solver Time Step (s)", "cat": "Solver"},
     "sim_integrator": {"desc": "Integrator (implicitfast, etc.)", "cat": "Solver"},
     "sim_iterations": {"desc": "Max Solver Iterations", "cat": "Solver"},
@@ -90,15 +91,15 @@ CONFIG_METADATA = {
     "welds": {"desc": "Weld Connector Specifications (solref, solimp, torquescale)", "cat": "Weld Physics"},
 
     # [Contact Specs]
-    "cush_friction": {"desc": "Cushion Friction Coefficient", "cat": "Contact Specs"},
-    "paper_friction": {"desc": "Paper Box Friction Coefficient", "cat": "Contact Specs"},
-    "ground_friction": {"desc": "Ground Friction Coefficient", "cat": "Contact Specs"},
-    "cush_contact_solref": {"desc": "Cushion Contact Solref Vector", "cat": "Contact Specs"},
-    "cush_contact_solimp": {"desc": "Cushion Contact Solimp Vector", "cat": "Contact Specs"},
-    "cush_corner_solref": {"desc": "Cushion Corner Contact Solref Vector", "cat": "Contact Specs"},
-    "cush_corner_solimp": {"desc": "Cushion Corner Contact Solimp Vector", "cat": "Contact Specs"},
-    "ground_solref": {"desc": "Ground Contact Solref Vector", "cat": "Contact Specs"},
-    "ground_solimp": {"desc": "Ground Contact Solimp Vector", "cat": "Contact Specs"},
+    "cush_friction": {"desc": "(legacy) Cushion Friction Coefficient", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "paper_friction": {"desc": "(legacy) Paper Box Friction Coefficient", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "ground_friction": {"desc": "(legacy) Ground Friction Coefficient", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "cush_contact_solref": {"desc": "(legacy) Cushion Contact Solref Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "cush_contact_solimp": {"desc": "(legacy) Cushion Contact Solimp Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "cush_corner_solref": {"desc": "(legacy) Cushion Corner Contact Solref Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "cush_corner_solimp": {"desc": "(legacy) Cushion Corner Contact Solimp Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "ground_solref": {"desc": "(legacy) Ground Contact Solref Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
+    "ground_solimp": {"desc": "(legacy) Ground Contact Solimp Vector", "cat": "Air Fluidics", "subcat": "Contact Legacy"},
 
     # [Plasticity]
     "enable_plasticity": {"desc": "Enable Cushion Plasticity", "cat": "Plasticity"},
@@ -1425,29 +1426,34 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
 
         specs_grid.addWidget(QtWidgets.QLabel("🌀 Target MoI Diagonal (Ixx, Iyy, Izz):"), 2, 0)
         moi_diag_lay = QtWidgets.QHBoxLayout()
+        moi_diag_lay.setAlignment(Qt.AlignLeft)
         moi_vals = bal_cfg.get("target_inertia", [3.0, 8.0, 14.0, 0.1, 0.1, 0.1])
-        self.spin_moi_xx = QtWidgets.QDoubleSpinBox(); self.spin_moi_xx.setRange(0.01, 500.0); self.spin_moi_xx.setDecimals(4); self.spin_moi_xx.setValue(moi_vals[0])
-        self.spin_moi_yy = QtWidgets.QDoubleSpinBox(); self.spin_moi_yy.setRange(0.01, 500.0); self.spin_moi_yy.setDecimals(4); self.spin_moi_yy.setValue(moi_vals[1])
-        self.spin_moi_zz = QtWidgets.QDoubleSpinBox(); self.spin_moi_zz.setRange(0.01, 500.0); self.spin_moi_zz.setDecimals(4); self.spin_moi_zz.setValue(moi_vals[2])
+        self.spin_moi_xx = QtWidgets.QDoubleSpinBox(); self.spin_moi_xx.setRange(-10000.0, 10000.0); self.spin_moi_xx.setDecimals(6); self.spin_moi_xx.setSingleStep(0.05); self.spin_moi_xx.setValue(moi_vals[0]); self.spin_moi_xx.setFixedWidth(140)
+        self.spin_moi_yy = QtWidgets.QDoubleSpinBox(); self.spin_moi_yy.setRange(-10000.0, 10000.0); self.spin_moi_yy.setDecimals(6); self.spin_moi_yy.setSingleStep(0.05); self.spin_moi_yy.setValue(moi_vals[1]); self.spin_moi_yy.setFixedWidth(140)
+        self.spin_moi_zz = QtWidgets.QDoubleSpinBox(); self.spin_moi_zz.setRange(-10000.0, 10000.0); self.spin_moi_zz.setDecimals(6); self.spin_moi_zz.setSingleStep(0.05); self.spin_moi_zz.setValue(moi_vals[2]); self.spin_moi_zz.setFixedWidth(140)
         moi_diag_lay.addWidget(self.spin_moi_xx); moi_diag_lay.addWidget(self.spin_moi_yy); moi_diag_lay.addWidget(self.spin_moi_zz)
-        
+
         # [WHTOOLS] 균일 직육면체 근사치 계산 버튼
         self.btn_guess_moi = QtWidgets.QPushButton("🎲 Guess Uniform")
+        self.btn_guess_moi.setAutoDefault(False)
+        self.btn_guess_moi.setDefault(False)
         self.btn_guess_moi.setToolTip(
             "Package 크기(W×H×D)와 SET 크기, Target Mass를 기반으로\n"
             "균일 밀도 직육면체로 근사한 Ixx, Iyy, Izz를 자동 계산하여 적용합니다.\n"
             "I_xx = m/12*(h²+d²), I_yy = m/12*(w²+d²), I_zz = m/12*(w²+h²)"
         )
         self.btn_guess_moi.setStyleSheet(f"background-color: {C_BTN_INDIGO}; color: white; padding: 3px 8px; font-size: 9pt;")
+        self.btn_guess_moi.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         self.btn_guess_moi.clicked.connect(self._on_guess_uniform_moi)
         moi_diag_lay.addWidget(self.btn_guess_moi)
         specs_grid.addLayout(moi_diag_lay, 2, 1)
 
         specs_grid.addWidget(QtWidgets.QLabel("🌀 Target MoI Product (Ixy, Ixz, Iyz):"), 3, 0)
         moi_prod_lay = QtWidgets.QHBoxLayout()
-        self.spin_moi_xy = QtWidgets.QDoubleSpinBox(); self.spin_moi_xy.setRange(-100.0, 100.0); self.spin_moi_xy.setDecimals(4); self.spin_moi_xy.setValue(moi_vals[3])
-        self.spin_moi_xz = QtWidgets.QDoubleSpinBox(); self.spin_moi_xz.setRange(-100.0, 100.0); self.spin_moi_xz.setDecimals(4); self.spin_moi_xz.setValue(moi_vals[4])
-        self.spin_moi_yz = QtWidgets.QDoubleSpinBox(); self.spin_moi_yz.setRange(-100.0, 100.0); self.spin_moi_yz.setDecimals(4); self.spin_moi_yz.setValue(moi_vals[5])
+        moi_prod_lay.setAlignment(Qt.AlignLeft)
+        self.spin_moi_xy = QtWidgets.QDoubleSpinBox(); self.spin_moi_xy.setRange(-10000.0, 10000.0); self.spin_moi_xy.setDecimals(6); self.spin_moi_xy.setSingleStep(0.05); self.spin_moi_xy.setValue(moi_vals[3]); self.spin_moi_xy.setFixedWidth(140)
+        self.spin_moi_xz = QtWidgets.QDoubleSpinBox(); self.spin_moi_xz.setRange(-10000.0, 10000.0); self.spin_moi_xz.setDecimals(6); self.spin_moi_xz.setSingleStep(0.05); self.spin_moi_xz.setValue(moi_vals[4]); self.spin_moi_xz.setFixedWidth(140)
+        self.spin_moi_yz = QtWidgets.QDoubleSpinBox(); self.spin_moi_yz.setRange(-10000.0, 10000.0); self.spin_moi_yz.setDecimals(6); self.spin_moi_yz.setSingleStep(0.05); self.spin_moi_yz.setValue(moi_vals[5]); self.spin_moi_yz.setFixedWidth(140)
         moi_prod_lay.addWidget(self.spin_moi_xy); moi_prod_lay.addWidget(self.spin_moi_xz); moi_prod_lay.addWidget(self.spin_moi_yz)
         specs_grid.addLayout(moi_prod_lay, 3, 1)
 
@@ -1524,6 +1530,7 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
 
         btn_calc_lay = QtWidgets.QHBoxLayout()
         self.btn_calc = QtWidgets.QPushButton("⚡ Calculate Inertia Correction")
+        self.btn_calc.setDefault(True)
         self.btn_calc.setStyleSheet(f"background-color: {C_BTN_GREEN2}; color: white; font-weight: bold;")
         self.btn_calc.clicked.connect(lambda: self._calculate_delta_inertia(show_popup=True))
         btn_calc_lay.addStretch()
@@ -1555,6 +1562,9 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
               I_yy = m/12 * (w² + d²)
               I_zz = m/12 * (w² + h²)
         """
+        reply = QtWidgets.QMessageBox.question(self, 'Guess Uniform MoI', '주어진 형상 정보와 질량(무게)를 이용해 균일 분포로 가정한 MoI를 산출합니다. 정보를 바꾸시겠습니까?', QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.No:
+            return
         m = self.spin_target_mass.value()
 
         # Package 크기 (m 단위)
@@ -1603,6 +1613,15 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
                 self.spin_moi_xx.value(), self.spin_moi_yy.value(), self.spin_moi_zz.value(),
                 self.spin_moi_xy.value(), self.spin_moi_xz.value(), self.spin_moi_yz.value()
             ])
+
+            # [WHTOOLS BUG-FIX] Calculate 전 UI의 component masses를 설정에 동기화하여 m_base 갱신 보장
+            if "components" in self.config:
+                if "cushion" in self.config["components"]:
+                    self.config["components"]["cushion"]["mass"] = self.spin_cushion_mass.value()
+                if "opencell" in self.config["components"]:
+                    self.config["components"]["opencell"]["mass"] = self.spin_opencell_mass.value()
+                if "chassis" in self.config["components"]:
+                    self.config["components"]["chassis"]["mass"] = self.spin_chassis_mass.value()
 
             from run_discrete_builder.whtb_physics import _get_assembly_inertia_base
             m_base, c_base, i_base, _ = _get_assembly_inertia_base(self.config)
@@ -2073,7 +2092,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
         setup_group = QtWidgets.QGroupBox("Setup")
         setup_vlay = QtWidgets.QVBoxLayout(setup_group)
         setup_vlay.setSpacing(6)
-        setup_vlay.setContentsMargins(12, 16, 12, 12)
+        setup_vlay.setContentsMargins(12, 4, 12, 4)
         
         # 1) Setup 버튼
         self.btn_select_ref_model_direct = QtWidgets.QPushButton("🔍 Size and ISTA")        
@@ -2152,8 +2171,23 @@ class ModelSetupDialog(QtWidgets.QDialog):
         mid_splitter = QtWidgets.QSplitter(Qt.Vertical)
         
         # 3-1. 위쪽: Config Tree & Category
+        tree_container = QtWidgets.QWidget()
+        tree_lay = QtWidgets.QVBoxLayout(tree_container)
+        tree_lay.setContentsMargins(0, 0, 0, 0)
+        
+        tree_btn_lay = QtWidgets.QHBoxLayout()
+        btn_expand_all = QtWidgets.QPushButton("Expand All")
+        btn_fold_all = QtWidgets.QPushButton("Fold All")
+        tree_btn_lay.addWidget(btn_expand_all)
+        tree_btn_lay.addWidget(btn_fold_all)
+        tree_btn_lay.addStretch()
+        tree_lay.addLayout(tree_btn_lay)
+        
         self.config_tree = QtWidgets.QTreeWidget()
         self.config_tree.setColumnCount(3)
+        btn_expand_all.clicked.connect(self.config_tree.expandAll)
+        btn_fold_all.clicked.connect(self.config_tree.collapseAll)
+        tree_lay.addWidget(self.config_tree)
         self.config_tree.setHeaderLabels(["Configuration Key", "Value", "Description"])
         self.config_tree.setColumnWidth(0, 200)
         self.config_tree.setColumnWidth(1, 250)  # Value 열 폭
@@ -2162,19 +2196,31 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.config_tree.itemChanged.connect(self._on_tree_item_changed)
         self.config_tree.setStyleSheet(TREE_QSS)
         
-        mid_splitter.addWidget(self.config_tree)
+        mid_splitter.addWidget(tree_container)
         
         # 3-2. 아래쪽: Editor Area
-        editor_widget = QtWidgets.QWidget()
-        editor_layout = QtWidgets.QVBoxLayout(editor_widget)
+        self.editor_widget = QtWidgets.QWidget()
+        editor_layout = QtWidgets.QVBoxLayout(self.editor_widget)
         
+        # [WHTOOLS] 확장/축소 버튼을 포함한 타이틀 영역
+        title_lay = QtWidgets.QHBoxLayout()
         self.lbl_editor_title = QtWidgets.QLabel("Select a key to edit...")
         self.lbl_editor_title.setStyleSheet(f"font-weight: bold; color: {C_ACCENT_BLUE};")
-        editor_layout.addWidget(self.lbl_editor_title)
+        self.btn_toggle_editor = QtWidgets.QPushButton("▲ Show")
+        self.btn_toggle_editor.setFixedWidth(80)
+        self.btn_toggle_editor.clicked.connect(self._on_toggle_editor)
+        title_lay.addWidget(self.lbl_editor_title)
+        title_lay.addStretch()
+        title_lay.addWidget(self.btn_toggle_editor)
+        editor_layout.addLayout(title_lay)
+
+        self.editor_content_widget = QtWidgets.QWidget()
+        content_lay = QtWidgets.QVBoxLayout(self.editor_content_widget)
+        content_lay.setContentsMargins(0, 0, 0, 0)
         
         self.py_editor = QtWidgets.QPlainTextEdit()
         self.py_editor.setStyleSheet(f"background-color: {C_BG_EDITOR}; color: {C_STATUS_TEXT_OK}; border: 1px solid {C_BORDER};")
-        editor_layout.addWidget(self.py_editor)
+        content_lay.addWidget(self.py_editor)
         
         edit_btn_layout = QtWidgets.QHBoxLayout()
         self.btn_apply_val = QtWidgets.QPushButton("✅ Apply Value")
@@ -2183,9 +2229,11 @@ class ModelSetupDialog(QtWidgets.QDialog):
         edit_btn_layout.addWidget(self.btn_apply_val)
         edit_btn_layout.addWidget(self.lbl_status)
         edit_btn_layout.addStretch()
-        editor_layout.addLayout(edit_btn_layout)
+        content_lay.addLayout(edit_btn_layout)
         
-        mid_splitter.addWidget(editor_widget)
+        self.editor_content_widget.setVisible(False)  # 초기 상태: 숨김
+        editor_layout.addWidget(self.editor_content_widget)
+        mid_splitter.addWidget(self.editor_widget)
         mid_splitter.setStretchFactor(0, 2)
         mid_splitter.setStretchFactor(1, 1)
         
@@ -2233,34 +2281,54 @@ class ModelSetupDialog(QtWidgets.QDialog):
                 # Leaf 노드인 경우 Value 열 편집 가능 지정
                 child_item.setFlags(child_item.flags() | QtCore.Qt.ItemIsEditable)
 
+    def _on_toggle_editor(self):
+        is_visible = self.editor_content_widget.isVisible()
+        self.editor_content_widget.setVisible(not is_visible)
+        self.btn_toggle_editor.setText("▲ Show" if is_visible else "▼ Hide")
+
     def _populate_config_tree(self):
         """CONFIG_METADATA를 기반으로 트리를 구성하고 메타데이터에 없는 키도 추가합니다.
         딕셔너리 구조의 설정 값은 하위에 트리 노드로 나누어 표시합니다."""
         self.config_tree.blockSignals(True) # In-place 갱신 무한 루프 방지 시그널 차단
         self.config_tree.clear()
-        categories = {}
-        
+        categories = {}   # cat -> QTreeWidgetItem
+        subcategories = {}  # (cat, subcat) -> QTreeWidgetItem
+
         # 1. 메타데이터 기반 분류
         for key, meta in CONFIG_METADATA.items():
             cat = meta["cat"]
+            subcat = meta.get("subcat")
+
             if cat not in categories:
                 cat_item = QtWidgets.QTreeWidgetItem(self.config_tree)
                 cat_item.setText(0, cat)
-                cat_item.setExpanded(True)
+                cat_item.setExpanded(False)
                 categories[cat] = cat_item
-            
+
+            # subcat이 있으면 cat 하위에 서브카테고리 노드 생성
+            if subcat:
+                sc_key = (cat, subcat)
+                if sc_key not in subcategories:
+                    sc_item = QtWidgets.QTreeWidgetItem(categories[cat])
+                    sc_item.setText(0, subcat)
+                    sc_item.setExpanded(False)
+                    subcategories[sc_key] = sc_item
+                parent_item = subcategories[sc_key]
+            else:
+                parent_item = categories[cat]
+
             val = self.config.get(key)
-            
+
             # [PREMIUM UI/UX] 카테고리 껍데기 노드 간소화(Flattening) 기법 적용!
             # 카테고리가 'Components'이거나 'Weld Physics'인 경우, 껍데기 노드 없이 대분류 하위에 다이렉트 주입!
             if cat in ["Components", "Weld Physics"] and isinstance(val, dict):
                 categories[cat].setData(0, Qt.UserRole, (key,))
                 self._add_dict_items(categories[cat], val, (key,))
             else:
-                key_item = QtWidgets.QTreeWidgetItem(categories[cat])
+                key_item = QtWidgets.QTreeWidgetItem(parent_item)
                 key_item.setText(0, key) # 0번째 열(Configuration Key)에 주입하여 완벽한 트리 들여쓰기 렌더링 실현!
                 key_item.setText(2, meta["desc"]) # col=2가 Description 열
-                
+
                 if isinstance(val, dict):
                     key_item.setText(1, "(dictionary)") # col=1이 Value 열
                     key_item.setData(0, Qt.UserRole, (key,))
@@ -2278,7 +2346,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
                 if misc_cat is None:
                     misc_cat = QtWidgets.QTreeWidgetItem(self.config_tree)
                     misc_cat.setText(0, "Miscellaneous")
-                    misc_cat.setExpanded(True)
+                    misc_cat.setExpanded(False)
                 key_item = QtWidgets.QTreeWidgetItem(misc_cat)
                 key_item.setText(0, key) # 0번째 열(Configuration Key)에 키 주입!
                 
@@ -3220,7 +3288,7 @@ class ControlPanel(QMainWindow):
 
         model_menu.addSeparator()
 
-        self._recent_menu = model_menu.addMenu("🕘 최근 파일")
+        self._recent_menu = model_menu.addMenu("🕘 Recent Files")
         self._rebuild_recent_menu()
 
         central_widget = QWidget()
@@ -3367,9 +3435,26 @@ class ControlPanel(QMainWindow):
         slider_group = QGroupBox("Timeline Navigation")
         slider_layout = QVBoxLayout(slider_group)
         
-        info_layout = QHBoxLayout()        
+        info_layout = QHBoxLayout()
+
+        _nav_btn_style = "padding: 0px; font-size: 13px;"
+        self.btn_play_nav = QPushButton("▶")
+        self.btn_play_nav.setFixedSize(28, 20)
+        self.btn_play_nav.setStyleSheet(_nav_btn_style)
+        self.btn_play_nav.setToolTip("Play")
+        self.btn_play_nav.clicked.connect(self._on_nav_play)
+        info_layout.addWidget(self.btn_play_nav)
+
+        self.btn_pause_nav = QPushButton("■")
+        self.btn_pause_nav.setFixedSize(28, 20)
+        self.btn_pause_nav.setStyleSheet(_nav_btn_style)
+        self.btn_pause_nav.setToolTip("Pause")
+        self.btn_pause_nav.setEnabled(False)
+        self.btn_pause_nav.clicked.connect(self._on_nav_pause)
+        info_layout.addWidget(self.btn_pause_nav)
+
         self.lbl_frame_info = QLabel("Frame: 0 / 0")
-        self.lbl_frame_info.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)        
+        self.lbl_frame_info.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         info_layout.addWidget(self.lbl_frame_info)
         
         # [WHTOOLS] Speed Multiplier와 spinbox를 lbl_frame_info 우측에 나란히 배치하여 공간 극강 압축
@@ -3408,7 +3493,7 @@ class ControlPanel(QMainWindow):
         self.btn_config.clicked.connect(self._on_open_config)
         row1.addWidget(self.btn_config)
         
-        self.btn_camera = QPushButton("📸 Capture Camera")
+        self.btn_camera = QPushButton("📸 Cam. Info.")
         self.btn_camera.setMinimumHeight(35)
         self.btn_camera.clicked.connect(self._on_camera_export)
         row1.addWidget(self.btn_camera)
@@ -3699,7 +3784,33 @@ class ControlPanel(QMainWindow):
                     win._update_plot()
 
     def _on_speed_changed(self, value):
-        self.sim.ctrl_speed_multiplier = value
+        interval = max(10, int(50 / value))
+        if hasattr(self, '_nav_timer'):
+            self._nav_timer.setInterval(interval)
+
+    def _on_nav_play(self):
+        if not hasattr(self, '_nav_timer'):
+            self._nav_timer = QTimer(self)
+            self._nav_timer.timeout.connect(self._nav_tick)
+        interval = max(10, int(50 / self.spin_speed.value()))
+        self._nav_timer.setInterval(interval)
+        self._nav_timer.start()
+        self.btn_play_nav.setEnabled(False)
+        self.btn_pause_nav.setEnabled(True)
+
+    def _on_nav_pause(self):
+        if hasattr(self, '_nav_timer'):
+            self._nav_timer.stop()
+        self.btn_play_nav.setEnabled(True)
+        self.btn_pause_nav.setEnabled(False)
+
+    def _nav_tick(self):
+        max_val = self.slider.maximum()
+        cur = self.slider.value()
+        if cur >= max_val:
+            self._on_nav_pause()
+            return
+        self.slider.setValue(cur + 1)
 
     def _on_duration_changed(self, value):
         """

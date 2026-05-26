@@ -1601,7 +1601,21 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         self.sld.valueChanged.connect(self.update_frame)
         layout.addWidget(self.sld, stretch=1)
         
-        # 4. Status Information
+        # 4. Play/Pause buttons next to Frame label
+        self.btn_play2 = QtWidgets.QPushButton("▶")
+        self.btn_play2.setFixedSize(32, 28)
+        self.btn_play2.setToolTip("Play")
+        self.btn_play2.clicked.connect(self._on_play2)
+        layout.addWidget(self.btn_play2)
+
+        self.btn_pause2 = QtWidgets.QPushButton("⏸")
+        self.btn_pause2.setFixedSize(32, 28)
+        self.btn_pause2.setToolTip("Pause")
+        self.btn_pause2.setEnabled(False)
+        self.btn_pause2.clicked.connect(self._on_pause2)
+        layout.addWidget(self.btn_pause2)
+
+        # 4b. Status Information
         self.lf = QtWidgets.QLabel(f"Frame: 0 / {n_frames-1}")
         self.lf.setFixedWidth(150)
         layout.addWidget(self.lf)
@@ -1628,6 +1642,22 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
     def _on_speed_changed(self, text):
         mapping = {"Max": 0, "High": 15, "Mid": 30, "Low": 100}
         self.timer.setInterval(mapping.get(text, 30))
+
+    def _on_play2(self):
+        if not self.timer.isActive():
+            self.timer.start()
+            self.is_playing = True
+            self.bp.setText("⏸️")
+        self.btn_play2.setEnabled(False)
+        self.btn_pause2.setEnabled(True)
+
+    def _on_pause2(self):
+        if self.timer.isActive():
+            self.timer.stop()
+            self.is_playing = False
+            self.bp.setText("▶️")
+        self.btn_play2.setEnabled(True)
+        self.btn_pause2.setEnabled(False)
 
     # --------------------------------------------------------------------------
     # --- 3D Visualization Engine ---
@@ -2320,12 +2350,19 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
 
     def _on_toggle_play(self):
         if not hasattr(self, 'timer'): return
-        if self.timer.isActive(): self.timer.stop(); self.is_playing = False; self.bp.setText("▶️")
-        else: self.timer.start(); self.is_playing = True; self.bp.setText("⏸️")
+        if self.timer.isActive():
+            self.timer.stop(); self.is_playing = False; self.bp.setText("▶️")
+            if hasattr(self, 'btn_play2'): self.btn_play2.setEnabled(True); self.btn_pause2.setEnabled(False)
+        else:
+            self.timer.start(); self.is_playing = True; self.bp.setText("⏸️")
+            if hasattr(self, 'btn_play2'): self.btn_play2.setEnabled(False); self.btn_pause2.setEnabled(True)
 
     def _on_reset_animation(self):
         self.timer.stop()
+        self.is_playing = False
+        self.bp.setText("▶️")
         if hasattr(self, 'btn_play'): self.btn_play.setText("▶️ Play")
+        if hasattr(self, 'btn_play2'): self.btn_play2.setEnabled(True); self.btn_pause2.setEnabled(False)
         self.sld.setValue(0); self.update_frame(0)
 
     def _ctrl_slot(self, c):

@@ -306,7 +306,7 @@ def test_case_1_setup():
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]
-    p_solref = [-25000.0,-1200.0]
+    p_solref = [-25000.0,-200.0]
     p_solimp = [0.90, 0.95, 0.001, 0.5, 2]
     cfg["contacts"] = {
         ("ground", "cushion")       : {"friction": common_friction, "solref": [0.001, 1.0], "solimp": p_solimp},
@@ -357,21 +357,20 @@ def test_case_1_setup():
     # [5. PLASTICITY & HARDENING]
     cfg["enable_plasticity"]    = True
     cfg["plasticity_ratio"]     = 0.3
-    cfg["cush_yield_pressure"]  = 5000.0
-    cfg["plastic_hardening_modulus"] = 300000.0
+    cfg["cush_yield_pressure"]  = 3500.0
+    cfg["plastic_hardening_modulus"] = 30000.0
     
     # [6. MASS TOTALS & INERTIA CORRECTION]
     # target_mass / target_cog / target_inertia 를 지정하면 analyze_and_balance_components가
     # delta-inertia를 자동 계산하여 MuJoCo XML에 <InertiaCorrection> 가상 바디로 삽입합니다.
     cfg["components_balance"] = {
         "target_mass"   : 42.2,
-        "target_inertia": [3.0, 7.0, 11.0, -0.1, 0.1, 0.1],  # [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] kg·m²
-        "target_cog"    : [0.001, 0.007, 0.010],              # [x, y, z] m
+        "target_inertia": [5.013, 14.005, 18.8, 0.289, -0.0073, -0.0252],   # [Ixx, Iyy, Izz, Ixy, Ixz, Iyz] kg·m²
+        "target_cog"    : [0.0034228, -0.01196665, 0.0059899],              # [x, y, z] m
     }
 
     # [7. GROUND PROPERTIES]
     # (Unused legacy keys removed)
-
 
     # [WHTOOLS] 0. 내부 컴포넌트 관성 측정 및 Auto-Balancing 확인
     from run_discrete_builder.whtb_physics import analyze_and_balance_components

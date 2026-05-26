@@ -342,14 +342,25 @@ class RealTimeMonitorWindow(QWidget):
         self.act_config = QAction("⚙️ Configure Subplots", self)
         self.act_tight = QAction("📐 Tight Layout", self)
         
+        # [WHTOOLS] 범례 토글 체크박스 메뉴 추가
+        self.act_show_legend = QAction("📋 Show Legend", self)
+        self.act_show_legend.setCheckable(True)
+        self.act_show_legend.setChecked(True)
+        
         self.act_home.triggered.connect(self.nav_toolbar.home)
         self.act_back.triggered.connect(self.nav_toolbar.back)
         self.act_forward.triggered.connect(self.nav_toolbar.forward)
         self.act_pan.triggered.connect(self.nav_toolbar.pan)
         self.act_zoom.triggered.connect(self.nav_toolbar.zoom)
         self.act_config.triggered.connect(self.nav_toolbar.configure_subplots)
-        # [WHTOOLS] Tight Layout 후 subplots_adjust 재적용 (legend 우측 외부 배치 유지)
-        self.act_tight.triggered.connect(lambda: (self.fig.tight_layout(), self.fig.subplots_adjust(right=0.78), self.canvas.draw()))
+        self.act_show_legend.triggered.connect(self._on_toggle_legend)
+        
+        # [WHTOOLS] Tight Layout 후 subplots_adjust 재적용 (범례 상태에 맞는 우측 배치 유지)
+        self.act_tight.triggered.connect(lambda: (
+            self.fig.tight_layout(), 
+            self.fig.subplots_adjust(right=0.88 if self.act_show_legend.isChecked() else 0.96), 
+            self.canvas.draw()
+        ))
         
         self.view_menu.addAction(self.act_home)
         self.view_menu.addAction(self.act_back)
@@ -358,6 +369,7 @@ class RealTimeMonitorWindow(QWidget):
         self.view_menu.addAction(self.act_pan)
         self.view_menu.addAction(self.act_zoom)
         self.view_menu.addSeparator()
+        self.view_menu.addAction(self.act_show_legend)
         self.view_menu.addAction(self.act_tight)
         self.view_menu.addAction(self.act_config)
         
@@ -433,29 +445,51 @@ class RealTimeMonitorWindow(QWidget):
             plot_info['marker'] = marker
             
         self.fig.tight_layout()
-        # [WHTOOLS] Legend를 플롯 우측 바깥에 배치 - 겹침 방지
-        # subplots_adjust로 오른쪽 여백 확보 후 각 axes에 legend 부착
-        self.fig.subplots_adjust(right=0.78)  # 우측 22% 여백 = legend 영역
+        
+        # [WHTOOLS] 하나의 창에 있는 모든 subplot들의 중복 legend 제거 후
+        # 가장 첫 번째 subplot에서 얻은 단 하나의 legend 정보로 Figure 우측 중앙에 통합 배치
+        all_handles = []
+        all_labels = []
         for plot_info in self.axes_plots:
             ax = plot_info['ax']
             if ax is None:
                 continue
-            handles, labels = ax.get_legend_handles_labels()
-            if not handles:
-                continue
-            # 기존 legend 제거 후 우측 밖으로 재배치
             if ax.get_legend():
                 ax.get_legend().remove()
-            ax.legend(
-                handles, labels,
+            handles, labels = ax.get_legend_handles_labels()
+            if handles and not all_handles:
+                all_handles = handles
+                all_labels = labels
+
+        self.fig_legend = None
+        if all_handles:
+            show_legend = self.act_show_legend.isChecked()
+            right_margin = 0.93 if show_legend else 0.99
+            self.fig.subplots_adjust(right=right_margin)
+
+            self.fig_legend = self.fig.legend(
+                all_handles, all_labels,
                 loc='center left',
-                bbox_to_anchor=(1.01, 0.5),  # axes 기준 우측 밖
+                bbox_to_anchor=(0.94, 0.5),
                 fontsize=6,
                 facecolor='#121212',
                 labelcolor='white',
                 framealpha=0.85,
                 borderpad=0.5,
             )
+            self.fig_legend.set_visible(show_legend)
+        else:
+            self.fig.subplots_adjust(right=0.99)
+
+    def _on_toggle_legend(self):
+        """범례 표시 여부를 토글하고 레이아웃을 업데이트합니다."""
+        show_legend = self.act_show_legend.isChecked()
+        if hasattr(self, 'fig_legend') and self.fig_legend is not None:
+            self.fig_legend.set_visible(show_legend)
+            
+        right_margin = 0.93 if show_legend else 0.99
+        self.fig.subplots_adjust(right=right_margin)
+        self.canvas.draw()
 
     def _update_plot(self):
         """시뮬레이터의 데이터를 가져와 그래프를 갱신합니다."""
