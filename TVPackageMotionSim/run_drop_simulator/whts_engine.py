@@ -847,6 +847,7 @@ class DropSimulator:
         self._reset_loop_variables()  # geom_state_tracker 등 setup()이 채운 데이터는 보존
         self._init_histories()
         mujoco.mj_forward(self.model, self.data)
+        self._collect_history() # [WHTOOLS] time=0 시점 초기값 기록
         self._save_snapshot()
 
         self.log(f"🎬 Simulation Session Started. Target Duration: {self.config.get('sim_duration', 1.0)}s")
@@ -872,6 +873,7 @@ class DropSimulator:
 
                 # 1. Physics Step
                 mujoco.mj_step(self.model, self.data)
+                self.step_idx += 1 # [WHTOOLS] 물리 연산 완료 후 step_idx 즉시 증가
 
                 # 2. Advanced Physics Post-step
                 self._apply_plasticity_v2()
@@ -902,8 +904,6 @@ class DropSimulator:
                         self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Finishing simulation.", level="info")
                         self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
                         self.ctrl_quit_request = True
-
-                self.step_idx += 1
                 if self.viewer and self.viewer.is_running():
                     # [WHTOOLS] 매 물리 스텝마다의 GUI 동기화 오버헤드를 막기 위해 120 Hz 스로틀링 적용
                     curr_time = time.perf_counter()
@@ -1335,7 +1335,8 @@ class DropSimulator:
                 quat_hist=self.quat_hist,
                 components=self.components.copy(), 
                 body_index_map=self.body_index_map, 
-                block_half_extents=self.block_half_extents
+                block_half_extents=self.block_half_extents,
+                part_corner_hist=self.part_corner_hist
             )
             
             result_path = self.output_dir / "simulation_result.pkl"
@@ -1347,6 +1348,10 @@ class DropSimulator:
 
     def _launch_postprocess(self) -> None:
         pass
+        
+    def get_output_dir(self) -> Path:
+        """[WHTOOLS] pkl 파일이 저장된 폴더 경로를 반환합니다."""
+        return self.output_dir
     
     def apply_balancing(self) -> None:
         """타겟 질량 및 관성을 맞추기 위한 보조 질량을 계산하여 설정에 적용합니다."""

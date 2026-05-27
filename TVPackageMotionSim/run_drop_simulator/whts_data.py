@@ -49,6 +49,7 @@ class DropSimResult:
     
     corner_pos_hist: List[Any] = field(default_factory=list)
     corner_vel_hist: List[Any] = field(default_factory=list)
+    part_corner_hist: Dict[str, Any] = field(default_factory=dict)
     
     ground_impact_hist: List[float] = field(default_factory=list)
     air_drag_hist: List[float] = field(default_factory=list)
