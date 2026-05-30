@@ -73,6 +73,16 @@ from .whts_control_panel import launch_control_panel
 # [WHTOOLS] 외부 패키지 임포트
 from run_discrete_builder import create_model, get_default_config
 
+# [WHTOOLS] Thread-safe MuJoCo callback dispatcher
+import threading
+_mujoco_thread_registry = {}
+
+def _global_mujoco_control_callback(model, data):
+    tid = threading.get_ident()
+    cb = _mujoco_thread_registry.get(tid)
+    if cb is not None:
+        cb(model, data)
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -271,7 +281,8 @@ class DropSimulator:
         """
         # 이전 실행이 등록한 stale 콜백 해제 (프로세스 전역 싱글톤)
         # 해제하지 않으면 GC된 DropSimulator 인스턴스를 참조해 "Python exception raised" 발생
-        mujoco.set_mjcb_control(None)
+        import threading
+        _mujoco_thread_registry.pop(threading.get_ident(), None)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         xml_path = self.output_dir / "simulation_model.xml"
@@ -310,16 +321,19 @@ class DropSimulator:
             self._init_tracking_containers()
             self._init_plasticity_tracker()
             
-            # [CRITICAL] 물리 제어 콜백 등록
+            # [CRITICAL] 물리 제어 콜백 등록 (Thread-safe Dispatcher)
             self._mjcb_control = lambda m, d: self._physics_control_callback(m, d)
-            mujoco.set_mjcb_control(self._mjcb_control)
+            import threading
+            _mujoco_thread_registry[threading.get_ident()] = self._mjcb_control
+            mujoco.set_mjcb_control(_global_mujoco_control_callback)
             
             self.start_real_time = time.time()
             self.log(f"📦 Assembly: {len(self.components)} components, {self.model.nbody} bodies identified.")
             self.log(f"🚀 Simulation Ready. Timestep: {self.model.opt.timestep:.6f}s")
             
         except Exception as e:
-            mujoco.set_mjcb_control(None)  # dangling 콜백 방지
+            import threading
+            _mujoco_thread_registry.pop(threading.get_ident(), None)  # dangling 콜백 방지
             self.log(f"Failed to setup simulation: {e}", level="error")
             raise
 

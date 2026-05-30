@@ -608,7 +608,12 @@ class SelectTVModelDialog(QtWidgets.QDialog):
             'set_w_std_m': float(self.table.item(row, 5).text()) if self.table.item(row, 5).text() else 0.0,
             'set_wo_std_size': self.table.item(row, 6).text(),
             'set_wo_std_m': float(self.table.item(row, 7).text()) if self.table.item(row, 7).text() else 0.0,
-            'stand_base': self.table.item(row, 8).text()
+            'stand_base': self.table.item(row, 8).text(),
+            'cushion_m': self.table.item(row, 9).text() if self.table.item(row, 9) else '',
+            'chassis_m': self.table.item(row, 10).text() if self.table.item(row, 10) else '',
+            'opencell_m': self.table.item(row, 11).text() if self.table.item(row, 11) else '',
+            'cog': self.table.item(row, 12).text() if self.table.item(row, 12) else '',
+            'moi': self.table.item(row, 13).text() if self.table.item(row, 13) else ''
         }
         self.accept()
 
@@ -985,40 +990,132 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
                 self.spin_set_h.setValue(set_h_mm / 1000.0)
                 self.spin_set_d.setValue(set_d_mm / 1000.0)
             
+            box_w = w_mm / 1000.0 if w_mm > 0 else self.spin_w.value()
+            box_h = h_mm / 1000.0 if h_mm > 0 else self.spin_h.value()
+            box_d = d_mm / 1000.0 if d_mm > 0 else self.spin_d.value()
+            
+            assy_w = set_w_mm / 1000.0 if set_w_mm > 0 else self.spin_set_w.value()
+            assy_h = set_h_mm / 1000.0 if set_h_mm > 0 else self.spin_set_h.value()
+            assy_d = set_d_mm / 1000.0 if set_d_mm > 0 else self.spin_set_d.value()
+
             # [WHTOOLS] 가장 최근 선택된 Ref. Model의 Package 질량을 config에 저장
             # ComponentBalanceDialog에서 "from Ref. Model" 힌트로 표시되어 편의성 제공
             if m.get('pkg_m', 0) > 0:
                 self.config["last_ref_pkg_mass"] = float(m['pkg_m'])
 
             # 3) 컴포넌트 질량 반영 (cushion / chassis / opencell)
+            cushion_m_val = None
+            chassis_m_val = None
+            opencell_m_val = None
+            
             try:
-                v = float(m.get('cushion_m', '') or '')
-                if v > 0:
-                    self.spin_cushion_mass.setValue(v)
+                cushion_m_val = float(m.get('cushion_m', '') or '')
             except (ValueError, TypeError):
                 pass
+                
             try:
-                v = float(m.get('chassis_m', '') or '')
-                if v > 0:
-                    self.spin_chassis_mass.setValue(v)
+                chassis_m_val = float(m.get('chassis_m', '') or '')
             except (ValueError, TypeError):
                 pass
+                
             try:
-                v = float(m.get('opencell_m', '') or '')
-                if v > 0:
-                    self.spin_opencell_mass.setValue(v)
+                opencell_m_val = float(m.get('opencell_m', '') or '')
             except (ValueError, TypeError):
                 pass
+
+            # 기하학적 치수를 바탕으로 부피(m³) 계산
+            box_thick = self.config.get("box_thick", 0.015)
+            cush_gap = self.config.get("cush_gap", 0.003)
+            cush_w = box_w - 2 * box_thick
+            cush_h = box_h - 2 * box_thick
+            cush_d = box_d - 2 * box_thick
+            
+            ext_vol = cush_w * cush_h * cush_d
+            int_vol = assy_w * assy_h * assy_d
+            cush_vol = max(0.01, ext_vol - int_vol)
+            
+            opencell_d = self.config.get("opencell_d", 0.005)
+            opencellcoh_d = self.config.get("opencellcoh_d", 0.002)
+            calculated_chassis_d = assy_d - (opencell_d + opencellcoh_d + cush_gap)
+            chassis_d = max(0.001, calculated_chassis_d)
+            
+            chassis_vol = assy_w * assy_h * chassis_d
+            opencell_vol = assy_w * assy_h * opencell_d
+
+            calc_needed = False
+            calc_msg_list = []
+            
+            if cushion_m_val is None or cushion_m_val <= 0:
+                cushion_m_val = 2e-11 * cush_vol * 1e9
+                calc_msg_list.append(f"• Cushion: {cushion_m_val:.3f} kg (밀도 2e-11 기반)")
+                calc_needed = True
+                
+            if chassis_m_val is None or chassis_m_val <= 0:
+                chassis_m_val = 1e-9 * chassis_vol * 1e9
+                calc_msg_list.append(f"• Chassis: {chassis_m_val:.3f} kg (밀도 1e-9 기반)")
+                calc_needed = True
+                
+            if opencell_m_val is None or opencell_m_val <= 0:
+                opencell_m_val = 2e-9 * opencell_vol * 1e9
+                calc_msg_list.append(f"• Opencell: {opencell_m_val:.3f} kg (밀도 2e-9 기반)")
+                calc_needed = True
+
+            # config["components"] 업데이트
+            if "components" not in self.config:
+                self.config["components"] = {}
+            if "cushion" not in self.config["components"]:
+                self.config["components"]["cushion"] = {}
+            if "chassis" not in self.config["components"]:
+                self.config["components"]["chassis"] = {}
+            if "opencell" not in self.config["components"]:
+                self.config["components"]["opencell"] = {}
+                
+            self.config["components"]["cushion"]["mass"] = cushion_m_val
+            self.config["components"]["chassis"]["mass"] = chassis_m_val
+            self.config["components"]["opencell"]["mass"] = opencell_m_val
+
+            if calc_needed:
+                msg = (
+                    "선택한 레퍼런스 모델에 일부 컴포넌트의 질량 정보가 누락되어 있습니다.\n"
+                    "이에 따라 규격 밀도를 기반으로 계산된 무게로 임의 설정합니다:\n\n"
+                    + "\n".join(calc_msg_list)
+                )
+                QtWidgets.QMessageBox.information(self, "Component Mass Calculated", msg)
 
             # 4) CoG (3값: x y z, m 단위) → config["chassis_cog"]
             cog_vals = parse_float_list(m.get('cog', ''), 3)
-            if cog_vals is not None:
-                self.config["chassis_cog"] = cog_vals
+            if cog_vals is None:
+                cog_vals = [0.0, 0.0, 0.0]
+            self.config["chassis_cog"] = cog_vals
+            
+            if "components_balance" not in self.config:
+                self.config["components_balance"] = {}
+            self.config["components_balance"]["target_cog"] = cog_vals
 
             # 5) MoI (6값: Ixx Iyy Izz Ixy Ixz Iyz, kg·m²) → config["chassis_moi"]
             moi_vals = parse_float_list(m.get('moi', ''), 6)
-            if moi_vals is not None:
-                self.config["chassis_moi"] = moi_vals
+            
+            t_mass = float(m.get('pkg_m', 0.0))
+            if t_mass <= 0.0:
+                t_mass = cushion_m_val + chassis_m_val + opencell_m_val
+                if t_mass <= 0.0:
+                    t_mass = 42.2
+            
+            self.config["components_balance"]["target_mass"] = t_mass
+
+            if moi_vals is None:
+                # 균질 정보 계산
+                eff_w = box_w * 0.70 + assy_w * 0.30
+                eff_h = box_h * 0.70 + assy_h * 0.30
+                eff_d = box_d * 0.70 + assy_d * 0.30
+
+                ixx = t_mass / 12.0 * (eff_h**2 + eff_d**2)
+                iyy = t_mass / 12.0 * (eff_w**2 + eff_d**2)
+                izz = t_mass / 12.0 * (eff_w**2 + eff_h**2)
+                moi_vals = [ixx, iyy, izz, 0.0, 0.0, 0.0]
+                
+            self.config["chassis_moi"] = moi_vals
+            self.config["components_balance"]["target_inertia"] = moi_vals
 
             self.temp_selected_ref_model = m
             self._update_all()
@@ -2852,7 +2949,8 @@ class BatchRdsWorker(QThread):
                     self.sig_log.emit(f"  💾 {part_name}: {csv_path.name}")
 
                 self._write_topo_arg(scen_dir, scen, cfg, t_hist, s_i, e_i)
-                mujoco.set_mjcb_control(None)
+                from .whts_engine import _mujoco_thread_registry
+                _mujoco_thread_registry.pop(threading.get_ident(), None)
 
             except Exception as e:
                 self.sig_log.emit(f"  ❌ Scenario {idx+1} failed: {e}")

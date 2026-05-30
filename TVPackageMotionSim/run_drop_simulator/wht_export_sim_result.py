@@ -54,14 +54,14 @@ class SimulationDataExporter:
         # 플롯 공통 설정
         plt.rcParams.update({'font.size': 9})
         
-    def export_all(self, fig_size: Tuple[float, float] = (8.0, 6.0)) -> None:
-        """모든 CSV와 PNG 플롯을 생성합니다."""
-        logger.info("Starting data export process...")
-        self.export_parts_data(fig_size)
-        self.export_engineering_data(fig_size)
+    def export_all(self, fig_size: Tuple[float, float] = (8.0, 6.0), formats: Tuple[str, ...] = ("csv", "tab", "json")) -> None:
+        """모든 지정된 포맷(CSV, TAB, JSON)과 PNG 플롯을 생성합니다."""
+        logger.info(f"Starting data export process for formats: {formats}...")
+        self.export_parts_data(fig_size, formats)
+        self.export_engineering_data(fig_size, formats)
         logger.info(f"Data export completed. Files saved in {self.output_dir}")
 
-    def export_parts_data(self, fig_size: Tuple[float, float]) -> None:
+    def export_parts_data(self, fig_size: Tuple[float, float], formats: Tuple[str, ...]) -> None:
         """각 파트별(Chassis, Cushion, Cushion-Rigid, OpenCell) 코너 데이터를 분리하여 저장합니다."""
         # part_corner_hist 구조: { "PartName": { "pos": [...], "vel": [...], "acc": [...] } }
         part_hist = getattr(self.result, "part_corner_hist", None)
@@ -92,22 +92,50 @@ class SimulationDataExporter:
                     continue
                 
                 for ax_idx, ax_name in enumerate(axes):
-                    filename_csv = f"{safe_part_name}-{dtype}-{ax_name}.csv"
-                    filename_png = f"{safe_part_name}-{dtype}-{ax_name}.png"
-                    csv_path = self.output_dir / filename_csv
-                    png_path = self.output_dir / filename_png
+                    base_filename = f"{safe_part_name}-{dtype}-{ax_name}"
                     
-                    # CSV 저장 (UTF-8)
-                    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        header = ["frame", "time"] + [f"C{i+1}" for i in range(8)]
-                        writer.writerow(header)
+                    # Prepare data structure for JSON
+                    json_data = []
+                    
+                    # Prepare tabular data
+                    header = ["frame", "time"] + [f"C{i+1}" for i in range(8)]
+                    rows = []
+                    
+                    for frame in range(num_frames):
+                        time_val = float(time_hist[frame])
+                        row_dict = {"frame": frame, "time": time_val}
+                        row_list = [frame, f"{time_val:.5f}"]
                         
-                        for frame in range(num_frames):
-                            row = [frame, f"{time_hist[frame]:.5f}"]
-                            for corner in range(8):
-                                row.append(f"{history_np[frame, corner, ax_idx]:.6f}")
-                            writer.writerow(row)
+                        for corner in range(8):
+                            val = float(history_np[frame, corner, ax_idx])
+                            row_dict[f"C{corner+1}"] = val
+                            row_list.append(f"{val:.6f}")
+                            
+                        json_data.append(row_dict)
+                        rows.append(row_list)
+                    
+                    # Export to requested formats
+                    if "csv" in formats:
+                        csv_path = self.output_dir / f"{base_filename}.csv"
+                        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                            writer = csv.writer(f)
+                            writer.writerow(header)
+                            writer.writerows(rows)
+                            
+                    if "tab" in formats or "tsv" in formats:
+                        tab_path = self.output_dir / f"{base_filename}.tab"
+                        with open(tab_path, "w", newline="", encoding="utf-8") as f:
+                            writer = csv.writer(f, delimiter='\t')
+                            writer.writerow(header)
+                            writer.writerows(rows)
+                            
+                    if "json" in formats:
+                        import json
+                        json_path = self.output_dir / f"{base_filename}.json"
+                        with open(json_path, "w", encoding="utf-8") as f:
+                            json.dump(json_data, f, indent=4)
+                            
+                    png_path = self.output_dir / f"{base_filename}.png"
                     
                     # PNG 플롯 저장
                     fig, ax = plt.subplots(figsize=fig_size)
@@ -126,16 +154,14 @@ class SimulationDataExporter:
                     fig.savefig(png_path, dpi=300)
                     plt.close(fig)
 
-    def export_engineering_data(self, fig_size: Tuple[float, float]) -> None:
-        """통합 공학 데이터(Z Position, Impact, Drag 등)를 CSV 및 PNG로 저장합니다."""
+    def export_engineering_data(self, fig_size: Tuple[float, float], formats: Tuple[str, ...]) -> None:
+        """통합 공학 데이터(Z Position, Impact, Drag 등)를 지정된 포맷(CSV, TAB, JSON) 및 PNG로 저장합니다."""
         time_hist = self.result.time_history
         num_frames = len(time_hist)
         
         if num_frames == 0:
             return
             
-        csv_path = self.output_dir / "engineering.csv"
-        
         # 기록할 데이터 수집
         eng_data: Dict[str, np.ndarray] = {}
         if hasattr(self.result, "z_hist") and self.result.z_hist:
@@ -151,22 +177,51 @@ class SimulationDataExporter:
             logger.info("No engineering data to export.")
             return
 
-        # CSV 저장 (UTF-8)
         keys = list(eng_data.keys())
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            header = ["frame", "time"] + keys
-            writer.writerow(header)
+        header = ["frame", "time"] + keys
+        
+        json_data = []
+        rows = []
+        
+        for frame in range(num_frames):
+            time_val = float(time_hist[frame])
+            row_dict = {"frame": frame, "time": time_val}
+            row_list = [frame, f"{time_val:.5f}"]
             
-            for frame in range(num_frames):
-                row = [frame, f"{time_hist[frame]:.5f}"]
-                for k in keys:
-                    arr = eng_data[k]
-                    if frame < len(arr):
-                        row.append(f"{arr[frame]:.6f}")
-                    else:
-                        row.append("0.0")
-                writer.writerow(row)
+            for k in keys:
+                arr = eng_data[k]
+                if frame < len(arr):
+                    val = float(arr[frame])
+                    row_dict[k] = val
+                    row_list.append(f"{val:.6f}")
+                else:
+                    row_dict[k] = 0.0
+                    row_list.append("0.0")
+                    
+            json_data.append(row_dict)
+            rows.append(row_list)
+            
+        base_filename = "engineering"
+        
+        if "csv" in formats:
+            csv_path = self.output_dir / f"{base_filename}.csv"
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(header)
+                writer.writerows(rows)
+                
+        if "tab" in formats or "tsv" in formats:
+            tab_path = self.output_dir / f"{base_filename}.tab"
+            with open(tab_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f, delimiter='\t')
+                writer.writerow(header)
+                writer.writerows(rows)
+                
+        if "json" in formats:
+            import json
+            json_path = self.output_dir / f"{base_filename}.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(json_data, f, indent=4)
                 
         # PNG 플롯 저장 (각 축별 개별 생성)
         for k in keys:
@@ -191,9 +246,13 @@ class SimulationDataExporter:
 if __name__ == "__main__":
     # 단위 테스트/단독 실행 지원
     import sys
-    if len(sys.argv) > 1:
-        target_pkl = sys.argv[1]
-        exporter = SimulationDataExporter(target_pkl)
-        exporter.export_all()
-    else:
-        print("Usage: python wht_export_sim_result.py [path_to_simulation_result.pkl]")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="WHTOOLS Drop Simulation Data Exporter")
+    parser.add_argument("pkl_path", type=str, help="Path to simulation_result.pkl")
+    parser.add_argument("--formats", type=str, default="csv,tab,json", help="Comma-separated formats to export (e.g., csv,tab,json)")
+    args = parser.parse_args()
+    
+    formats = tuple(fmt.strip().lower() for fmt in args.formats.split(","))
+    exporter = SimulationDataExporter(args.pkl_path)
+    exporter.export_all(formats=formats)

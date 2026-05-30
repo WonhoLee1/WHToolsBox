@@ -17,8 +17,10 @@ import pandas as pd
 from typing import List, Union
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QTabWidget, QMessageBox
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QTabWidget, QMessageBox, QComboBox, QLabel
 )
+import numpy as np
 
 import matplotlib
 matplotlib.use('QtAgg')
@@ -36,29 +38,64 @@ class PlotTab(QWidget):
         self.fig.subplots_adjust(right=0.85) # 범례 공간 확보
         self.ax = self.fig.add_subplot(111)
         
-        # Canvas 및 Toolbar 임베딩
+        # 툴바와 캔버스 임베딩
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         
+        # 상단 컨트롤 패널(콤보박스)
+        self.control_layout = QHBoxLayout()
+        self.control_layout.addWidget(QLabel("Data Type:"))
+        self.combo = QComboBox()
+        self.combo.addItems(["Position", "Velocity", "Acceleration"])
+        self.combo.currentTextChanged.connect(self.on_combo_changed)
+        self.control_layout.addWidget(self.combo)
+        self.control_layout.addStretch()
+        
         self.layout.addWidget(self.toolbar)
+        self.layout.addLayout(self.control_layout)
         self.layout.addWidget(self.canvas)
         
-        self.plot_data(title)
+        self.tab_title = title
+        self.plot_data(self.tab_title, "Position")
         
-    def plot_data(self, title: str):
-        # time 열을 X축으로 사용
-        if 'time' not in self.df.columns:
+    def on_combo_changed(self, text):
+        self.plot_data(self.tab_title, text)
+        
+    def plot_data(self, title: str, data_type: str):
+        self.ax.clear()
+        
+        # 대소문자 및 공백 무시하여 time 컬럼 찾기
+        time_col = next((c for c in self.df.columns if c.strip().lower() == 'time'), None)
+        if time_col is None:
             return
             
-        time_data = self.df['time']
-        # frame, time을 제외한 나머지 열을 플롯
+        time_data = self.df[time_col]
+        
+        # 대소문자 및 공백 무시하여 제외할 컬럼 목록(frame, time) 구성
+        exclude_cols = [c for c in self.df.columns if c.strip().lower() in ['frame', 'time']]
+        
         for col in self.df.columns:
-            if col not in ['frame', 'time']:
-                self.ax.plot(time_data, self.df[col], label=col)
+            if col not in exclude_cols:
+                y_data = self.df[col].values
                 
-        self.ax.set_title(title, fontsize=9)
+                # 미분을 통한 속도/가속도 계산
+                if data_type == "Velocity":
+                    y_data = np.gradient(y_data, time_data.values)
+                elif data_type == "Acceleration":
+                    v_data = np.gradient(y_data, time_data.values)
+                    y_data = np.gradient(v_data, time_data.values)
+                    
+                self.ax.plot(time_data, y_data, label=col.strip())
+                
+        self.ax.set_title(f"{title} ({data_type})", fontsize=9)
         self.ax.set_xlabel('Time (s)', fontsize=9)
-        self.ax.set_ylabel('Value', fontsize=9)
+        
+        ylabel = 'Value'
+        if data_type == "Position": ylabel = "Position (m/deg)"
+        elif data_type == "Velocity": ylabel = "Velocity"
+        elif data_type == "Acceleration": ylabel = "Acceleration"
+        self.ax.set_ylabel(ylabel, fontsize=9)
+        
         self.ax.grid(True, linestyle="--", alpha=0.7)
         self.ax.tick_params(axis='both', which='major', labelsize=9)
         
@@ -101,8 +138,8 @@ class PlotWindowUtil(QMainWindow):
         
         for csv_file in csv_files:
             try:
-                # pandas로 읽을 때 UTF-8 명시 (인코딩 표준 준수)
-                df = pd.read_csv(csv_file, encoding='utf-8')
+                # pandas로 읽을 때 UTF-8 명시 (인코딩 표준 준수), 메타데이터(#) 주석 무시
+                df = pd.read_csv(csv_file, encoding='utf-8', comment='#')
                 tab_title = csv_file.stem
                 tab = PlotTab(tab_title, df)
                 self.tabs.addTab(tab, tab_title)
