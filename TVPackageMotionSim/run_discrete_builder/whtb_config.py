@@ -54,7 +54,14 @@ def _make_serializable(obj: Any) -> Any:
     except ImportError:
         pass
     if isinstance(obj, dict):
-        return {k: _make_serializable(v) for k, v in obj.items()}
+        new_dict = {}
+        for k, v in obj.items():
+            if isinstance(k, tuple):
+                # JSON serializable string format for tuple keys
+                new_dict[f"{k[0]},{k[1]}"] = _make_serializable(v)
+            else:
+                new_dict[k] = _make_serializable(v)
+        return new_dict
     if isinstance(obj, (list, tuple)):
         return [_make_serializable(v) for v in obj]
     return obj
@@ -96,6 +103,16 @@ def load_config(path: Union[str, Path],
     # 메타 필드 분리
     file_version = int(raw.get("_version", 0))
     saved = {k: v for k, v in raw.items() if not k.startswith("_")}
+
+    # [WHTOOLS] 복원: string으로 변환된 contacts tuple key 복원
+    if "contacts" in saved:
+        new_contacts = {}
+        for k, v in saved["contacts"].items():
+            if "," in k:
+                new_contacts[tuple(k.split(","))] = v
+            else:
+                new_contacts[k] = v
+        saved["contacts"] = new_contacts
 
     # 버전 마이그레이션
     if file_version < CONFIG_VERSION:

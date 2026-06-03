@@ -449,7 +449,14 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     contact_pairs_xml = ""
     defined_classes = set()
     
-    for (t1, t2), p in config["contacts"].items():
+    for key, p in config.get("contacts", {}).items():
+        if isinstance(key, str) and "," in key:
+            t1, t2 = key.split(",")
+            t1, t2 = t1.strip(), t2.strip()
+        elif isinstance(key, tuple) and len(key) == 2:
+            t1, t2 = key
+        else:
+            continue
         cls_name = f"cls_{t1}_{t2}"
         # [V5.11.4] Sliding -> Torsional 마찰 자동 계산 (대표 반경 R=5mm 기준)
         f_vals = get_friction_standard(p["friction"])

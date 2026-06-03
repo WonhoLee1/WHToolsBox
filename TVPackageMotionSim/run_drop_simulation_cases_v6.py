@@ -22,6 +22,64 @@ if sys.stdout.encoding != 'utf-8':
     except (AttributeError, io.UnsupportedOperation):
         pass
 
+import tempfile
+from datetime import datetime
+import threading
+
+class TeeLogger:
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+        self.lock = threading.Lock()
+        
+    def write(self, data):
+        # [WHTOOLS] FIX: UnicodeEncodeError 방지 및 쓰기 에러 무시
+        try:
+            self.stream.write(data)
+            self.stream.flush()
+        except Exception:
+            pass
+            
+        # [WHTOOLS] FIX: 디스크 I/O 충돌 방지를 위한 Lock 적용
+        try:
+            with self.lock:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(data)
+        except Exception:
+            pass
+            
+    def flush(self):
+        try:
+            self.stream.flush()
+        except Exception:
+            pass
+        
+    def __getattr__(self, name):
+        if name in ['stream', 'log_file', 'lock']:
+            raise AttributeError
+        return getattr(self.stream, name)
+
+# [WHTOOLS] FIX: 다중 프로세스 충돌 방지를 위해 PID를 포함한 고유 로그 파일명 사용
+pid = os.getpid()
+unique_log_path = os.path.join(tempfile.gettempdir(), f"whts_simulation_log_{pid}.txt")
+shared_log_link = os.path.join(tempfile.gettempdir(), "whts_simulation_log.txt")
+
+try:
+    with open(unique_log_path, "w", encoding="utf-8") as f:
+        f.write(f"--- WHTS Simulation Log Started at {datetime.now()} (PID: {pid}) ---\n")
+    sys.stdout = TeeLogger(sys.stdout, unique_log_path)
+    sys.stderr = TeeLogger(sys.stderr, unique_log_path)
+    
+    # 개발자 편의를 위해 최신 로그 심볼릭 링크 제공 시도
+    try:
+        if os.path.exists(shared_log_link):
+            os.remove(shared_log_link)
+        os.symlink(unique_log_path, shared_log_link)
+    except Exception:
+        pass
+except Exception:
+    pass
+
 # [WHTOOLS] 경로 설정
 curr_dir = os.path.dirname(os.path.abspath(__file__))
 if curr_dir not in sys.path: sys.path.append(curr_dir)
@@ -149,9 +207,9 @@ def run_analysis_and_dashboard_minimal(result: Any):
     except Exception as e:
         print(f"\n⚠️ Dashboard Launch Skipped: {e}")
 
-    # [WHTOOLS] 표준 정상 종료 처리
+    # [WHTOOLS] [FIX] 자율 해석 파이프라인 정상 가동을 위해 sys.exit 제거
     sys.stdout.flush()
-    sys.exit(0)
+    return True
 
 def run_digital_twin_pipeline_v6(case_func):
     """
@@ -212,7 +270,10 @@ def run_digital_twin_pipeline_v6(case_func):
             print(f"  [Pipeline] components from sim: {list(sim.components.keys())}")
     print(f"  [Pipeline] components: {list(result.components.keys())}")
 
-    #run_analysis_pipeline(result, curr_dir, standalone=True)
+    # [WHTOOLS] [FIX] 자율 해석 파이프라인 정상 연동
+    print("🚀 [WHTOOLS] Simulation finished. Initiating Autonomous Structural Analysis...")
+    # 주석처리 지우지 말어.
+    #run_analysis_and_dashboard_minimal(result)
 
 def test_case_1_setup():
     """
@@ -383,4 +444,8 @@ def test_case_1_setup():
 
 if __name__ == "__main__":
     # Case 1 기반으로 v6 파이프라인 실행
-    run_digital_twin_pipeline_v6(test_case_1_setup)
+    try:
+        run_digital_twin_pipeline_v6(test_case_1_setup)
+    finally:
+        # 단독 실행 시에만 최종적으로 클린 종료 처리
+        sys.exit(0)

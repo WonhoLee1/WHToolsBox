@@ -31,6 +31,8 @@ def analyze_and_balance_components(config: Dict[str, Any], verbose: bool = True)
     t_mass = balance_cfg.get("target_mass", config.get("target_mass", m_base))
     t_cog  = np.array(balance_cfg.get("target_cog", config.get("target_cog", c_base)))
     t_moi  = np.array(balance_cfg.get("target_inertia", config.get("target_moi", i_base)))
+    if t_moi.ndim == 1 and len(t_moi) == 3:
+        t_moi = np.concatenate([t_moi, [0.0, 0.0, 0.0]])
 
     # inertia_correction이 없으면 components_balance 타겟으로부터 자동 계산
     ic = config.get("inertia_correction")

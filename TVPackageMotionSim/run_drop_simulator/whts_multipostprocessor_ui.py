@@ -21,6 +21,7 @@ from matplotlib.figure import Figure
 import pyvista as pv
 from pyvistaqt import QtInteractor
 from PySide6 import QtWidgets, QtCore, QtGui
+from .whts_theme import get_app_icon
 
 # ==============================================================================
 # --- [Section 1] Global Configuration & Data Models ---
@@ -83,6 +84,7 @@ class PartManagerWindow(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.Window | QtCore.Qt.WindowStaysOnTopHint)
         self.setWindowTitle("Part Manager")
+        self.setWindowIcon(get_app_icon())
         self.resize(500, 650)
         self.parent = parent
         
@@ -382,6 +384,7 @@ class AddPlotDialog(QtWidgets.QDialog):
         self.plot_slots = plot_slots # [PlotSlotConfig, ...]
         
         self.setWindowTitle("Edit Plot Layout & Data")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumWidth(450)
         
         layout = QtWidgets.QVBoxLayout(self)
@@ -878,6 +881,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         QtWidgets.QApplication.instance().setStyleSheet("QPushButton { padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; min-width: 30px; }")
         
         self.setWindowTitle("WHTOOLS Structural Dashboard v5.9")
+        self.setWindowIcon(get_app_icon())
         self.resize(1700, 1020)
         
         # 중앙 위젯 및 메인 레이아웃
@@ -1247,6 +1251,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         
         fname = os.path.basename(getattr(self, 'last_path', 'Data Loaded'))
         self.setWindowTitle(f"WHTOOLS Structural Dashboard - {fname}")
+        self.setWindowIcon(get_app_icon())
         self._apply_initial_preset()
         self.update_frame(0)
         self.v_int.reset_camera()

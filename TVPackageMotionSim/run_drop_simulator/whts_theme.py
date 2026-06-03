@@ -249,8 +249,8 @@ QTreeWidget {{
     font-size: 9pt;
 }}
 QTreeWidget::item {{
-    min-height: 24px;
-    padding: 2px;
+    min-height: 20px;
+    padding: 0px 2px;
 }}
 QTreeWidget::item:hover {{ background-color: {C_BG_BTN_HOV}; }}
 QTreeWidget::item:selected {{ background-color: {C_SEL}; color: {C_TEXT}; }}
@@ -289,3 +289,17 @@ def apply_app_theme(app) -> None:
     launch_control_panel() 내에서 QApplication 생성 직후 한 번만 호출하세요.
     """
     app.setStyleSheet(GLOBAL_QSS)
+
+
+def get_app_icon():
+    """resources 폴더의 logo_icon_*.png 파일들로 멀티-해상도 QIcon을 반환합니다."""
+    import os
+    from PySide6.QtGui import QIcon, QPixmap
+    icon = QIcon()
+    sizes = [16, 24, 32, 48, 64, 128, 256]
+    base = os.path.join(os.path.dirname(__file__), '..', 'resources')
+    for s in sizes:
+        path = os.path.join(base, f'logo_icon_{s}x{s}.png')
+        if os.path.exists(path):
+            icon.addPixmap(QPixmap(path))
+    return icon

@@ -6,7 +6,7 @@
 
 import sys
 import numpy as np
-from .whts_theme import MONITOR_WINDOW_QSS, C_BTN_BLUE, C_TEXT_MUTED, C_BG_BTN_HOV, C_BG_DARK, C_BORDER_IN
+from .whts_theme import MONITOR_WINDOW_QSS, get_app_icon, C_BTN_BLUE, C_TEXT_MUTED, C_BG_BTN_HOV, C_BG_DARK, C_BORDER_IN
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, 
     QRadioButton, QButtonGroup, QPushButton, QLabel, 
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox, QGridLayout
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QIcon, QActionGroup, QCursor
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -26,6 +26,7 @@ class MonitorConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📈 Monitor Configuration")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumWidth(400)
         # Ensure the close button is active and remove the help button
         self.setWindowFlags(
@@ -262,6 +263,7 @@ class RealTimeMonitorWindow(QWidget):
         self.sim = sim
         self.config = config
         self.setWindowTitle(f"📈 WHTS Real-Time Monitor - {config['data_type'].upper()}")
+        self.setWindowIcon(get_app_icon())
         self.resize(600, 450)
         # [WHTOOLS] 커브 창 항상 위 + 표준 윈도우 버튼
         self.setWindowFlags(
@@ -312,8 +314,6 @@ class RealTimeMonitorWindow(QWidget):
         self.act_to_file.setCheckable(True)
         self.act_to_clipboard.setChecked(True)
         
-        # Group targets to make them exclusive
-        from PySide6.QtGui import QActionGroup
         self.target_group = QActionGroup(self) 
         self.target_group.addAction(self.act_to_clipboard)
         self.target_group.addAction(self.act_to_file)
@@ -329,9 +329,63 @@ class RealTimeMonitorWindow(QWidget):
         self.act_save_csv.triggered.connect(lambda checked=False, m="csv": self._export_data(m))
         self.act_save_tab.triggered.connect(lambda checked=False, m="tab": self._export_data(m))
         self.act_save_md.triggered.connect(lambda checked=False, m="md": self._export_data(m))
-        
-        # 2. View Menu (Matplotlib Navigation)
+
+        # 2. View Menu
         self.view_menu = self.menu_bar.addMenu("🔍 View")
+        self.act_show_legend = QAction("📋 Show Legend", self)
+        self.act_show_legend.setCheckable(True)
+        self.act_show_legend.setChecked(True)
+        self.act_tight = QAction("📐 Tight Layout", self)
+        self.act_config = QAction("⚙️ Configure Subplots", self)
+
+        # Legend Position Menu
+        self.legend_menu = QMenu("Legend Position", self)
+        self.act_leg_right = QAction("Right", self)
+        self.act_leg_left = QAction("Left", self)
+        self.act_leg_top = QAction("Top", self)
+        self.act_leg_bottom = QAction("Bottom", self)
+        
+        self.leg_group = QActionGroup(self)
+        for act in [self.act_leg_right, self.act_leg_left, self.act_leg_top, self.act_leg_bottom]:
+            act.setCheckable(True)
+            self.leg_group.addAction(act)
+            self.legend_menu.addAction(act)
+            act.triggered.connect(self._update_legend_layout)
+            
+        self.act_leg_right.setChecked(True)
+
+        self.view_menu.addAction(self.act_show_legend)
+        self.view_menu.addMenu(self.legend_menu)
+        self.view_menu.addAction(self.act_tight)
+        self.view_menu.addAction(self.act_config)
+        
+        self.act_show_legend.triggered.connect(self._update_legend_layout)
+        self.act_config.triggered.connect(self.nav_toolbar.configure_subplots)
+        self.act_tight.triggered.connect(lambda: (
+            self.fig.tight_layout(), 
+            self._update_legend_layout()
+        ))
+
+        # 3. Theme Menu
+        self.theme_menu = self.view_menu.addMenu("🎨 Theme")
+        self.act_theme_black = QAction("Black", self)
+        self.act_theme_black.setCheckable(True)
+        self.act_theme_black.setChecked(True)
+        self.act_theme_white = QAction("White", self)
+        self.act_theme_white.setCheckable(True)
+
+        self.theme_group = QActionGroup(self)
+        self.theme_group.addAction(self.act_theme_black)
+        self.theme_group.addAction(self.act_theme_white)
+        self.theme_group.setExclusive(True)
+
+        self.theme_menu.addAction(self.act_theme_black)
+        self.theme_menu.addAction(self.act_theme_white)
+
+        self.act_theme_black.triggered.connect(lambda: self._apply_theme('black'))
+        self.act_theme_white.triggered.connect(lambda: self._apply_theme('white'))
+
+        # Direct Nav Actions on MenuBar
         self.act_home = QAction("🏠 Home", self)
         self.act_back = QAction("⬅️ Back", self)
         self.act_forward = QAction("➡️ Forward", self)
@@ -339,41 +393,34 @@ class RealTimeMonitorWindow(QWidget):
         self.act_pan.setCheckable(True)
         self.act_zoom = QAction("🔍 Zoom", self)
         self.act_zoom.setCheckable(True)
-        self.act_config = QAction("⚙️ Configure Subplots", self)
-        self.act_tight = QAction("📐 Tight Layout", self)
-        
-        # [WHTOOLS] 범례 토글 체크박스 메뉴 추가
-        self.act_show_legend = QAction("📋 Show Legend", self)
-        self.act_show_legend.setCheckable(True)
-        self.act_show_legend.setChecked(True)
-        
+
         self.act_home.triggered.connect(self.nav_toolbar.home)
         self.act_back.triggered.connect(self.nav_toolbar.back)
         self.act_forward.triggered.connect(self.nav_toolbar.forward)
         self.act_pan.triggered.connect(self.nav_toolbar.pan)
         self.act_zoom.triggered.connect(self.nav_toolbar.zoom)
-        self.act_config.triggered.connect(self.nav_toolbar.configure_subplots)
-        self.act_show_legend.triggered.connect(self._on_toggle_legend)
-        
-        # [WHTOOLS] Tight Layout 후 subplots_adjust 재적용 (범례 상태에 맞는 우측 배치 유지)
-        self.act_tight.triggered.connect(lambda: (
-            self.fig.tight_layout(), 
-            self.fig.subplots_adjust(right=0.88 if self.act_show_legend.isChecked() else 0.96), 
-            self.canvas.draw()
-        ))
-        
-        self.view_menu.addAction(self.act_home)
-        self.view_menu.addAction(self.act_back)
-        self.view_menu.addAction(self.act_forward)
-        self.view_menu.addSeparator()
-        self.view_menu.addAction(self.act_pan)
-        self.view_menu.addAction(self.act_zoom)
-        self.view_menu.addSeparator()
-        self.view_menu.addAction(self.act_show_legend)
-        self.view_menu.addAction(self.act_tight)
-        self.view_menu.addAction(self.act_config)
+
+        self.menu_bar.addAction(self.act_home)
+        self.menu_bar.addAction(self.act_back)
+        self.menu_bar.addAction(self.act_forward)
+        self.menu_bar.addAction(self.act_pan)
+        self.menu_bar.addAction(self.act_zoom)
+
+        # Coordinates Label
+        self.lbl_coords = QLabel("X: --, Y: --")
+        self.lbl_coords.setStyleSheet("color: gray; padding-right: 10px; font-weight: bold;")
+        self.lbl_coords.setMinimumWidth(150)
+        self.lbl_coords.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.menu_bar.setCornerWidget(self.lbl_coords, Qt.TopRightCorner)
         
         layout.setMenuBar(self.menu_bar)
+
+        self.current_theme = 'black'
+        self.hover_annot = None
+        self.annotations = []
+        self.enable_annotations = True
+        self.canvas.mpl_connect("motion_notify_event", self._on_hover)
+        self.canvas.mpl_connect("button_press_event", self._on_click)
         
         # Add Canvas to layout
         layout.addWidget(self.canvas)
@@ -410,6 +457,25 @@ class RealTimeMonitorWindow(QWidget):
             ax.set_title(plot_info['label'], color='white', fontsize=9)
             ax.tick_params(axis='both', colors='gray', labelsize=8)
             ax.grid(True, color='#333', linestyle='--')
+            
+            # X축, Y축 제목
+            ax.set_xlabel("Time(s)", color='gray', fontsize=8)
+            if plot_info['type'] == "kin":
+                dtype = self.config['data_type']
+                if dtype == "pos":
+                    ax.set_ylabel("Pos (m)", color='gray', fontsize=8)
+                elif dtype == "vel":
+                    ax.set_ylabel("Vel. (m/s)", color='gray', fontsize=8)
+                elif dtype == "acc":
+                    ax.set_ylabel("Acc. (m/s²)", color='gray', fontsize=8)
+            elif plot_info['type'] == "rot_axis":
+                ax.set_ylabel("Degree (°)", color='gray', fontsize=8)
+            elif plot_info['type'] in ["impact", "drag", "squeeze"]:
+                ax.set_ylabel("Force (N)", color='gray', fontsize=8)
+            elif plot_info['type'] == "rot_speed":
+                ax.set_ylabel("Speed (rad/s)", color='gray', fontsize=8)
+            elif plot_info['type'] in ["trans_vel_xyz", "trans_vel_res"]:
+                ax.set_ylabel("Vel. (m/s)", color='gray', fontsize=8)
             
             # X축 범위
             duration = self.sim.config.get("sim_duration", 1.0)
@@ -463,33 +529,148 @@ class RealTimeMonitorWindow(QWidget):
 
         self.fig_legend = None
         if all_handles:
-            show_legend = self.act_show_legend.isChecked()
-            right_margin = 0.93 if show_legend else 0.99
-            self.fig.subplots_adjust(right=right_margin)
-
             self.fig_legend = self.fig.legend(
                 all_handles, all_labels,
-                loc='center left',
-                bbox_to_anchor=(0.94, 0.5),
                 fontsize=6,
                 facecolor='#121212',
                 labelcolor='white',
                 framealpha=0.85,
                 borderpad=0.5,
             )
-            self.fig_legend.set_visible(show_legend)
-        else:
-            self.fig.subplots_adjust(right=0.99)
+        self._update_legend_layout()
 
-    def _on_toggle_legend(self):
-        """범례 표시 여부를 토글하고 레이아웃을 업데이트합니다."""
-        show_legend = self.act_show_legend.isChecked()
-        if hasattr(self, 'fig_legend') and self.fig_legend is not None:
-            self.fig_legend.set_visible(show_legend)
+    def _update_legend_layout(self):
+        """범례 위치 및 표시 여부를 업데이트합니다."""
+        if not hasattr(self, 'fig_legend') or self.fig_legend is None:
+            return
             
-        right_margin = 0.93 if show_legend else 0.99
-        self.fig.subplots_adjust(right=right_margin)
+        show = self.act_show_legend.isChecked()
+        self.fig_legend.set_visible(show)
+        
+        self.fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+        
+        if not show:
+            self.fig.subplots_adjust(right=0.95, left=0.1, top=0.9, bottom=0.1)
+        else:
+            if self.act_leg_right.isChecked():
+                self.fig_legend.set_bbox_to_anchor((0.99, 0.5))
+                self.fig_legend._loc = 7 # center right
+                self.fig_legend._ncol = 1
+                self.fig.subplots_adjust(right=0.82)
+            elif self.act_leg_left.isChecked():
+                self.fig_legend.set_bbox_to_anchor((0.01, 0.5))
+                self.fig_legend._loc = 6 # center left
+                self.fig_legend._ncol = 1
+                self.fig.subplots_adjust(left=0.25)
+            elif self.act_leg_top.isChecked():
+                self.fig_legend.set_bbox_to_anchor((0.5, 0.99))
+                self.fig_legend._loc = 9 # upper center
+                self.fig_legend._ncol = max(1, len(self.fig_legend.get_texts()) // 2)
+                self.fig.subplots_adjust(top=0.82)
+            elif self.act_leg_bottom.isChecked():
+                self.fig_legend.set_bbox_to_anchor((0.5, 0.01))
+                self.fig_legend._loc = 8 # lower center
+                self.fig_legend._ncol = max(1, len(self.fig_legend.get_texts()) // 2)
+                self.fig.subplots_adjust(bottom=0.22)
+                
         self.canvas.draw()
+
+    def _apply_theme(self, theme):
+        self.current_theme = theme
+        bg_color = '#ffffff' if theme == 'white' else '#121212'
+        ax_bg_color = '#f0f0f0' if theme == 'white' else '#1e1e1e'
+        text_color = 'black' if theme == 'white' else 'white'
+        grid_color = '#cccccc' if theme == 'white' else '#333333'
+        arrow_color = 'black' if theme == 'white' else '#aaaaaa'
+        
+        self.fig.patch.set_facecolor(bg_color)
+        for plot_info in self.axes_plots:
+            ax = plot_info['ax']
+            ax.set_facecolor(ax_bg_color)
+            ax.title.set_color(text_color)
+            ax.xaxis.label.set_color(text_color)
+            ax.yaxis.label.set_color(text_color)
+            ax.tick_params(axis='both', colors=text_color)
+            ax.grid(True, color=grid_color, linestyle='--')
+        # Permanent annotations style update
+        if hasattr(self, 'annotations'):
+            for ann_dict in self.annotations:
+                ann_dict['annot'].arrow_patch.set_color(arrow_color)
+            
+        if hasattr(self, 'fig_legend') and self.fig_legend is not None:
+            self.fig_legend.get_frame().set_facecolor(bg_color)
+            for text in self.fig_legend.get_texts():
+                text.set_color(text_color)
+                
+        self.canvas.draw()
+
+    def _on_hover(self, event):
+        # 마우스 오버 시 상단 좌표 텍스트만 업데이트하고, 
+        # 무거운 draw_idle() 및 툴팁 표시는 하지 않음 (성능 최적화)
+        if not self.enable_annotations or self.nav_toolbar.mode != '':
+            self.lbl_coords.setText("X: --, Y: --")
+            return
+
+        if event.inaxes:
+            x, y = event.xdata, event.ydata
+            self.lbl_coords.setText(f"X: {x:.3f}, Y: {y:.3f}")
+        else:
+            self.lbl_coords.setText("X: --, Y: --")
+
+    def _on_click(self, event):
+        # Zoom, Pan 상태이거나 annotation 기능이 꺼져있으면 click annotation 무시
+        if event.button == 1 and event.inaxes and self.enable_annotations and self.nav_toolbar.mode == '':
+            x, y = event.xdata, event.ydata
+            ax = event.inaxes
+            
+            arrow_col = 'black' if self.current_theme == 'white' else '#aaaaaa'
+            annot = ax.annotate(f"x: {x:.3f}\ny: {y:.3f}", xy=(x, y), xytext=(10, 10),
+                                textcoords="offset points",
+                                bbox=dict(boxstyle="round", fc="yellow", alpha=0.6),
+                                arrowprops=dict(arrowstyle="->", color=arrow_col),
+                                color="black", fontsize=8, zorder=100)
+            self.annotations.append({'ax': ax, 'annot': annot, 'x': x, 'y': y, 'title': ax.get_title()})
+            self.canvas.draw_idle()
+        elif event.button == 3:
+            self._show_context_menu(event)
+
+    def _show_context_menu(self, event):
+        menu = QMenu(self)
+        act_toggle = QAction("Enable Annotations", self)
+        act_toggle.setCheckable(True)
+        act_toggle.setChecked(self.enable_annotations)
+        act_toggle.triggered.connect(self._toggle_annotations)
+        
+        act_clear = QAction("Clear Annotations", self)
+        act_print = QAction("Print Annotations", self)
+        act_clear.triggered.connect(self._clear_annotations)
+        act_print.triggered.connect(self._print_annotations)
+        
+        menu.addAction(act_toggle)
+        menu.addSeparator()
+        menu.addAction(act_clear)
+        menu.addAction(act_print)
+        menu.exec(QCursor.pos())
+
+    def _toggle_annotations(self, checked):
+        self.enable_annotations = checked
+        if not checked:
+            self.lbl_coords.setText("X: --, Y: --")
+
+    def _clear_annotations(self):
+        for ann in self.annotations:
+            ann['annot'].remove()
+        self.annotations.clear()
+        self.canvas.draw_idle()
+
+    def _print_annotations(self):
+        print("\n Graph Annotations ")
+        print(" " + "-" * 45)
+        print(" {:<15} | {:<10} | {:<10} ".format("Plot", "X", "Y"))
+        print(" " + "-" * 45)
+        for ann in self.annotations:
+            print(" {:<15} | {:<10.3f} | {:<10.3f} ".format(ann['title'][:15], ann['x'], ann['y']))
+        print(" " + "-" * 45 + "\n")
 
     def _update_plot(self):
         """시뮬레이터의 데이터를 가져와 그래프를 갱신합니다."""

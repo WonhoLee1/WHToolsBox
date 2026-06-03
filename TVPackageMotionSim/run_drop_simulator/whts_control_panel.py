@@ -23,7 +23,7 @@ from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 import ctypes
 from ctypes import wintypes
 from .whts_theme import (
-    apply_app_theme, GLOBAL_QSS, TREE_QSS,
+    apply_app_theme, get_app_icon, GLOBAL_QSS, TREE_QSS,
     C_BG_TABLE, C_BG_BTN, C_BG_INPUT, C_BG_EDITOR, C_ACCENT, C_TEXT_DIM, C_BORDER, C_BORDER_IN, C_TEXT_TREE, C_TEXT_MUTED, C_SEL, C_BG,
     C_BTN_GREEN, C_BTN_GREEN2, C_BTN_BLUE, C_BTN_BLUE2, C_BTN_BLUE3,
     C_BTN_INDIGO, C_BTN_BROWN, C_BTN_RED, C_BTN_TEAL, C_BTN_NAVY, C_BTN_NAVY_BORDER, C_ACCENT_BLUE,
@@ -234,6 +234,7 @@ class XMLEditorDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, initial_xml="", model_path=None):
         super().__init__(parent)
         self.setWindowTitle("[WHTOOLS] Live XML Editor")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(900, 700)
         self.model_path = model_path
         self._xml_modified = False
@@ -508,6 +509,7 @@ class SelectTVModelDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select TV Reference Model")
+        self.setWindowIcon(get_app_icon())
         self.resize(1050, 600)
         self.setStyleSheet(GLOBAL_QSS)
         self.selected_model = None
@@ -629,6 +631,7 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         if multi_select_mode:
             title += "  [Multi-Scenario Select]"
         self.setWindowTitle(title)
+        self.setWindowIcon(get_app_icon())
         if multi_select_mode:
             self.setMinimumSize(600, 720)
         else:
@@ -1460,6 +1463,7 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
         self.config = config.copy() if config else {}
         self.parent_dialog = parent
         self.setWindowTitle("⚖️ [WHTOOLS] Assembly Inertia Correction")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(820, 560)
         self.resize(860, 580)
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinMaxButtonsHint)
@@ -2129,6 +2133,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.sim = simulator
         self.config = simulator.config.copy() if simulator else {}
         self.setWindowTitle("🛠️ [WHTOOLS] Model Configuration & Setup")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(750, 690)  # [WHTOOLS] 프리뷰 컴팩트 슬림화에 따른 세로 최소 높이 축소 (780 -> 690)
         self.resize(800, 700)          # 기본 열림 세로 크기도 800 -> 700 으로 슬림화
         
@@ -3096,6 +3101,7 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         self._scenarios = []   # 선택된 시나리오 리스트
         self._worker    = None
         self.setWindowTitle("🏗️ Structural Dynamics Extraction  [Batch RDS]")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(640, 560)
         self.resize(700, 620)
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowMinMaxButtonsHint)
@@ -3345,6 +3351,7 @@ class ControlPanel(QMainWindow):
             
         self.sim = simulator
         self.setWindowTitle("[WHTOOLS] Simulation Control Center")
+        self.setWindowIcon(get_app_icon())
         self.setMinimumWidth(500)
         self.setWindowFlags(Qt.WindowStaysOnTopHint) # 항상 위에 표시
         
@@ -3361,6 +3368,41 @@ class ControlPanel(QMainWindow):
         self._reloading = False  # _do_reload 재진입 방지 플래그
         self._last_mujoco_hwnd = None
         self._last_mujoco_rect = None
+
+    def _on_view_log(self):
+        """임시 로그 파일의 내용을 보여주는 창을 엽니다."""
+        log_path = os.path.join(tempfile.gettempdir(), "whts_simulation_log.txt")
+        content = "로그 파일이 존재하지 않습니다."
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception as e:
+                content = f"로그 파일을 읽는 중 오류 발생:\n{e}"
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📜 Simulation Terminal Log")
+        dlg.resize(800, 600)
+        dlg.setStyleSheet(GLOBAL_QSS)
+        
+        layout = QVBoxLayout(dlg)
+        text_edit = QPlainTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(content)
+        
+        font = QFont("Consolas", 9)
+        if not font.fixedPitch():
+            font = QFont("Courier New", 9)
+        text_edit.setFont(font)
+        text_edit.setStyleSheet(f"background-color: {C_BG_EDITOR}; color: #e0e0e0;")
+        
+        layout.addWidget(text_edit)
+        
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(dlg.accept)
+        layout.addWidget(btn_close)
+        
+        dlg.exec()
 
     def showEvent(self, event):
         """창이 표시될 때 정렬을 위해 부모 이벤트를 호출합니다."""
@@ -3388,6 +3430,10 @@ class ControlPanel(QMainWindow):
 
         self._recent_menu = model_menu.addMenu("🕘 Recent Files")
         self._rebuild_recent_menu()
+
+        view_menu = menubar.addMenu("🔍 View")
+        act_view_log = view_menu.addAction("📜 View Log")
+        act_view_log.triggered.connect(self._on_view_log)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -3951,8 +3997,21 @@ class ControlPanel(QMainWindow):
             f"\n[📊 Current Motion State at Time {self.sim.data.time:.4f}s]\n"
             f"- Rotation Axis: [{axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f}] (Azi: {azi:.1f}°, Ele: {ele:.1f}°)\n"
             f"- Rotation Speed: {speed:.4f} rad/s\n"
-            f"- Trans. Velocity: [{tvel[0]:.4f}, {tvel[1]:.4f}, {tvel[2]:.4f}] (Resultant: {tvel_res:.4f} m/s)"
+            f"- Trans. Velocity: [{tvel[0]:.4f}, {tvel[1]:.4f}, {tvel[2]:.4f}] (Resultant: {tvel_res:.4f} m/s)\n"
         )
+        
+        if hasattr(self.sim, 'part_corner_hist') and self.sim.part_corner_hist:
+            for part in ['Cushion', 'Chassis', 'OpenCell']:
+                if part in self.sim.part_corner_hist:
+                    hist_pos = self.sim.part_corner_hist[part].get('pos', [])
+                    if len(hist_pos) > 0:
+                        corners = hist_pos[-1]
+                        msg += f"\n[📍 {part} Corner Absolute Coordinates]\n"
+                        msg += f"| Corner | X (m) | Y (m) | Z (m) |\n"
+                        msg += f"|---|---|---|---|\n"
+                        for i in range(len(corners)):
+                            msg += f"| C{i+1} | {corners[i][0]:.5f} | {corners[i][1]:.5f} | {corners[i][2]:.5f} |\n"
+
         self.sim.log(msg, level="info")
 
     def _on_cam_view(self, view_name):
