@@ -60,7 +60,7 @@ from rich import box
 
 # [WHTOOLS] 패키지 내부 모듈 임포트
 from .whts_data import DropSimResult
-from .whts_utils import compute_corner_kinematics, calculate_required_aux_masses
+from .whts_utils import compute_corner_kinematics, calculate_required_aux_masses, WHToolsSessionLogger
 from .whts_reporting import (
     compute_structural_step_metrics, 
     finalize_simulation_results, 
@@ -78,10 +78,16 @@ import threading
 _mujoco_thread_registry = {}
 
 def _global_mujoco_control_callback(model, data):
+    import threading
     tid = threading.get_ident()
     cb = _mujoco_thread_registry.get(tid)
     if cb is not None:
-        cb(model, data)
+        try:
+            cb(model, data)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise
 
 # 로깅 설정
 logging.basicConfig(
@@ -174,9 +180,73 @@ class DropSimulator:
         self.config_editor = None
         self.result = None
 
+        # 세션 로그 시작 (최초 인스턴스 생성 시 1회만 활성화)
+        WHToolsSessionLogger.start()
+
         # 자동 밸런싱 적용
         if self.config.get("enable_target_balancing", False) or "components_balance" in self.config:
             self.apply_balancing()
+
+    def __del__(self) -> None:
+        WHToolsSessionLogger.release()
+
+    # ── Config I/O ───────────────────────────────────────────────────────────
+
+    def save_config(self, path: Union[str, Path]) -> Dict[str, Any]:
+        """현재 self.config를 JSON 파일로 저장하고 config dict를 반환합니다.
+
+        파일 상단에 패키지 규격·낙하 조건·물리 옵션 설명을 _comment_* 필드로 포함합니다.
+        """
+        from run_discrete_builder.whtb_config import save_config as _save
+        cfg = self.config
+        w  = cfg.get("box_w", 0) * 1000
+        h  = cfg.get("box_h", 0) * 1000
+        d  = cfg.get("box_d", 0) * 1000
+        extra_meta = {
+            "_comment_tool": (
+                "WHTOOLS TV Package Motion Simulation Tool  |  "
+                f"Saved: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            ),
+            "_comment_description": (
+                "MuJoCo-based rigid-body drop simulation for TV package cushion analysis. "
+                "Captures plasticity deformation, air fluidics, and multi-corner kinematics."
+            ),
+            "_comment_package": (
+                f"Package Size: W={w:.0f}mm x H={h:.0f}mm x D={d:.0f}mm  |  "
+                f"Target Mass: {cfg.get('target_mass', 0):.1f} kg"
+            ),
+            "_comment_drop": (
+                f"Drop Mode: {cfg.get('drop_mode', 'N/A')}  |  "
+                f"Direction: {cfg.get('drop_direction', 'N/A')}  |  "
+                f"Height: {cfg.get('drop_height', 0) * 1000:.0f} mm"
+            ),
+            "_comment_physics": (
+                f"Plasticity: {'ON' if cfg.get('enable_plasticity') else 'OFF'}  |  "
+                f"Air Drag: {'ON' if cfg.get('enable_air_drag') else 'OFF'}"
+            ),
+        }
+        _save(cfg, path, extra_meta=extra_meta)
+        self.log(f"💾 Config saved → {Path(path).name}")
+        return dict(cfg)
+
+    def load_config(self, path: Union[str, Path]) -> Dict[str, Any]:
+        """JSON 파일을 읽어 self.config를 갱신하고 새 config dict를 반환합니다.
+
+        누락 키는 기본값으로 자동 채워지며, 물리 파라미터 동기화도 수행됩니다.
+        리로드 요청 플래그를 설정하여 다음 루프에서 모델을 재생성합니다.
+        """
+        from run_discrete_builder.whtb_config import load_config as _load
+        new_cfg = _load(path)
+        self.config.update(new_cfg)
+        self.ctrl_reload_request = True
+        self.log(f"✅ Config loaded : {Path(path).name}")
+        return dict(self.config)
+
+    def load_config_from_dict(self, new_cfg) -> dict:
+        self.config.update(new_cfg)
+        self.ctrl_reload_request = True
+        self.log("✅ Config loaded from dictionary/pickle")
+        return dict(self.config)
 
     def _init_state_variables(self) -> None:
         """시뮬레이션 내부 상태 추적 변수들을 초기화합니다.
@@ -282,6 +352,8 @@ class DropSimulator:
         # 이전 실행이 등록한 stale 콜백 해제 (프로세스 전역 싱글톤)
         # 해제하지 않으면 GC된 DropSimulator 인스턴스를 참조해 "Python exception raised" 발생
         import threading
+        import mujoco
+        mujoco.set_mjcb_control(None)
         _mujoco_thread_registry.pop(threading.get_ident(), None)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -333,6 +405,8 @@ class DropSimulator:
             
         except Exception as e:
             import threading
+            import traceback
+            traceback.print_exc()
             _mujoco_thread_registry.pop(threading.get_ident(), None)  # dangling 콜백 방지
             self.log(f"Failed to setup simulation: {e}", level="error")
             raise
@@ -412,19 +486,20 @@ class DropSimulator:
                 ]
 
     def _init_plasticity_tracker(self) -> None:
-        """소성 변형이 허용된 Geoms(Cushion Edge 등)을 식별하고 초기 상태를 설정합니다."""
+        """소성 변형 대상 Geoms(Cushion Edge 등)를 식별하고 초기 색상(Yellow)으로 강조합니다."""
         for gi in range(self.model.ngeom):
             name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gi)
             if name and "cushion" in name.lower() and "_edge" in name.lower():
+                # [복원] 사용자의 요청으로 추적 대상 코너 블럭의 초기 색상을 눈에 띄게 노란색(Yellow)으로 즉시 변경
+                self.model.geom_rgba[gi] = [1.0, 1.0, 0.0, 1.0]
+                
                 self.geom_state_tracker[gi] = {
                     'is_plastic': True,
                     'yield_st': self.config.get('cush_yield_strain', 0.05),
-                    'base_rgba': self.model.geom_rgba[gi].copy(),
-                    'plastic_rgba': [1.0, 1.0, 0.0, 1.0], # 소성 강조색: Yellow
-                    'target_size': self.original_geom_size[gi].copy() # [WHTOOLS] 최종 도달 목표 크기
+                    'base_rgba': self.model.geom_rgba[gi].copy(), # 노란색을 베이스 컬러로 저장
+                    'plastic_rgba': [1.0, 0.0, 0.0, 1.0], # 찌그러질 때 빨간색(Red)으로 변형
+                    'target_size': self.original_geom_size[gi].copy() # [WHTOOLS] 목표 크기
                 }
-                # 초기 시각적 강조 적용
-                self.model.geom_rgba[gi] = [1.0, 1.0, 0.0, 1.0]
 
     def _physics_control_callback(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
         """MuJoCo 제어 루프에서 매 스텝 호출되는 물리 콜백 함수입니다."""
@@ -553,7 +628,10 @@ class DropSimulator:
             strains = [max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) for ax in range(3)]
             equiv_strain = np.linalg.norm(strains)
             sn = np.clip(equiv_strain / self.config.get("plastic_color_limit", 0.1), 0.0, 1.0)
-            m.geom_rgba[g_id] = [sn, 0.4, 1.0 - sn, 1.0]
+            if self.config.get("enable_plasticity_color", True):
+                base_color = np.array(state['base_rgba'])
+                plastic_color = np.array([1.0, 0.0, 0.0, 1.0])  # Red
+                m.geom_rgba[g_id] = base_color * (1.0 - sn) + plastic_color * sn
 
     def _apply_plasticity_v2(self) -> None:
         """[OPTIMIZED] Numpy 벡터화 기반 소성 변형 가속 (파이썬 루프 제거)"""
@@ -625,7 +703,10 @@ class DropSimulator:
             strains = [max(0.0, (self.original_geom_size[g_id][ax] - m.geom_size[g_id][ax]) / self.original_geom_size[g_id][ax]) for ax in range(3)]
             equiv_strain = np.linalg.norm(strains)
             sn = np.clip(equiv_strain / self.config.get("plastic_color_limit", 0.1), 0.0, 1.0)
-            m.geom_rgba[g_id] = [sn, 0.4, 1.0 - sn, 1.0]
+            if self.config.get("enable_plasticity_color", True):
+                base_color = np.array(state['base_rgba'])
+                plastic_color = np.array([1.0, 0.0, 0.0, 1.0])  # Red
+                m.geom_rgba[g_id] = base_color * (1.0 - sn) + plastic_color * sn
 
     def _collect_history(self) -> None:
         """현재 타임스텝의 데이터를 히스토리에 기록합니다."""
@@ -908,15 +989,19 @@ class DropSimulator:
                 dynamic_total_steps = int(dynamic_target_time / self.model.opt.timestep)
 
                 # 타겟 도달 시 자동 일시 정지 (viewer 모드) 또는 종료 (headless)
-                if self.step_idx >= dynamic_total_steps:
+                if self.step_idx == dynamic_total_steps:
+                    self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached.", level="info")
+                    self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
+                    
+                    # 목표 시간 도달 즉시 결과 저장 및 컴포넌트 정보 처리
+                    self.build_and_save_result()
+                    
                     if self.config.get("use_viewer", False):
                         self.ctrl_paused = True
-                        self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Paused for review.", level="info")
-                        self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
+                        self.log("✅ Paused for review.", level="info")
                         self.log("💡 [Tip] Press 'Play' to continue or 'L' to record more data.", level="debug")
                     else:
-                        self.log("✅ [DATA COLLECTION COMPLETE] Target simulation time reached. Finishing simulation.", level="info")
-                        self.log(f"📊 Collected {len(self.pos_hist)} frames up to {self.data.time:.3f}s", level="info")
+                        self.log("✅ Finishing simulation.", level="info")
                         self.ctrl_quit_request = True
                 if self.viewer and self.viewer.is_running():
                     # [WHTOOLS] 매 물리 스텝마다의 GUI 동기화 오버헤드를 막기 위해 120 Hz 스로틀링 적용
@@ -1073,6 +1158,10 @@ class DropSimulator:
                 for g_id, t_size in snapshot['plastic_targets'].items():
                     if g_id in self.geom_state_tracker:
                         self.geom_state_tracker[g_id]['target_size'] = t_size.copy()
+
+            # [WHTOOLS] Rank Heatmap
+            if self.config.get('enable_rank_heatmap', False):
+                apply_rank_heatmap(self)
             
             # 3. 통계 데이터 초기화 (0번으로 돌아갈 때만 완전 초기화)
             if idx == 0:
@@ -1282,7 +1371,7 @@ class DropSimulator:
 
     def _print_border(self) -> None:
         """리포트 구분선을 출력합니다."""
-        console.print(f"[bold white]{'━' * 100}[/bold white]")
+        console.print(f"[bold white]{'━' * 128}[/bold white]")
 
     def _wrap_up(self) -> None:
         """시뮬레이션 종료 후 데이터를 정리하고 결과를 저장하며 UI를 호출합니다."""
@@ -1324,7 +1413,8 @@ class DropSimulator:
         try:
             compute_batch_structural_metrics(self)
             finalize_simulation_results(self)
-            apply_rank_heatmap(self)
+            if self.config.get("enable_rank_heatmap", False):
+                apply_rank_heatmap(self)
             
             self.result = DropSimResult(
                 config=self.config.copy(), 
@@ -1406,6 +1496,80 @@ class DropSimulator:
         elif keycode == 256: # ESC: Quit
             self.ctrl_quit_request = True
             self.log("🛑 Quit Request Received.")
+
+    def export_radioss(self, frame_idx: int = None, target_time: float = None) -> tuple:
+        """현재 상태 또는 지정된 프레임/시간의 상태에서 OpenRadioss 모델을 생성합니다."""
+        from pathlib import Path
+        from .whts_radioss_builder import RadiossModelBuilder
+        import numpy as np
+        import mujoco
+
+        rid = getattr(self, 'root_id', -1)
+        
+        # 만약 시뮬레이션 종료 후 결과가 있다면 result 객체에서 추출
+        if hasattr(self, 'result') and self.result is not None and getattr(self.result, "quat_hist", None) is not None:
+            if rid < 0 and getattr(self.result, "body_index_map", None):
+                rid = self.result.body_index_map.get("BPackagingBox", -1)
+            if rid < 0:
+                self.log("❌ OpenRadioss: Could not find valid root_id.", level="error")
+                return None, None
+                
+            # 프레임 결정
+            if frame_idx is None and target_time is not None:
+                times = np.array(self.result.time_history)
+                frame_idx = int(np.argmin(np.abs(times - target_time)))
+                self.log(f"  [Radioss] Target time: {target_time}s -> Extracted at frame {frame_idx} (time: {times[frame_idx]:.4f}s)")
+            elif frame_idx is None:
+                frame_idx = -1 # 가장 마지막 상태
+
+            try:
+                quat_mj = self.result.quat_hist[frame_idx][rid]
+                R_flat = np.zeros(9)
+                mujoco.mju_quat2Mat(R_flat, quat_mj)
+                R_mat = R_flat.reshape(3, 3)
+                t_vec = self.result.pos_hist[frame_idx][rid].copy()
+                
+                cvel = self.result.vel_hist[frame_idx]
+                omega_vec = cvel[:3]
+                v_vec = cvel[3:]
+            except Exception as e:
+                self.log(f"⚠️ Could not extract pose for Radioss at frame {frame_idx}: {e}", level="warning")
+                return None, None
+        else:
+            # 실시간 데이터에서 직접 추출 (UI에서 현재 상태 생성 시)
+            if rid < 0 or self.data is None:
+                self.log("❌ OpenRadioss: 시뮬레이션 데이터가 없습니다.", level="error")
+                return None, None
+            R_mat = self.data.xmat[rid].reshape(3, 3).copy()
+            t_vec = self.data.xpos[rid].copy()
+            cvel = self.data.cvel[rid].copy()
+            omega_vec = cvel[:3]
+            v_vec = cvel[3:]
+
+        h = self.config.get("drop_height", 0.5)
+        out_dir = Path(self.output_dir)
+        name = self.config.get("model_name", "TVDrop_Radioss")
+        transform_mode = self.config.get("export_radioss_transform_mode", "parts")
+
+        try:
+            builder = RadiossModelBuilder(
+                config=self.config,
+                output_dir=out_dir,
+                R_mat=R_mat,
+                t_vec=t_vec,
+                v_vec=v_vec,
+                omega_vec=omega_vec,
+                transform_mode=transform_mode,
+                drop_height_m=h,
+                model_name=name,
+            )
+            starter = builder.build()
+            self._radioss_builder = builder
+            self.log("✅ [WHTOOLS] Radioss Models generated successfully.")
+            return starter, builder
+        except Exception as e:
+            self.log(f"❌ [WHTOOLS] Failed to generate Radioss Models: {e}", level="error")
+            raise
 
     def _reset_simulation(self) -> None:
         """시뮬레이션을 초기 상태(스냅샷 0)로 리셋하며 모든 히스토리를 초기화합니다."""

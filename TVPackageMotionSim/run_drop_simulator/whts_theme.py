@@ -164,6 +164,22 @@ QPushButton {{
 }}
 QPushButton:hover  {{ background-color: {C_BG_BTN_HOV}; }}
 QPushButton:pressed {{ background-color: {C_BG_BTN_PRS}; }}
+QToolButton {{
+    background-color: {C_BG_BTN};
+    color: {C_TEXT};
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid {C_BORDER_IN};
+    font-weight: bold;
+}}
+QToolButton:hover   {{ background-color: {C_BG_BTN_HOV}; }}
+QToolButton:pressed {{ background-color: {C_BG_BTN_PRS}; }}
+QToolButton::menu-button {{
+    border-left: 1px solid {C_BORDER_IN};
+    width: 16px;
+    border-radius: 0px 4px 4px 0px;
+}}
+QToolButton::menu-button:hover {{ background-color: {C_BG_BTN_HOV}; }}
 QTableWidget, QTreeWidget {{
     background-color: {C_BG_TABLE};
     color: {C_TEXT};

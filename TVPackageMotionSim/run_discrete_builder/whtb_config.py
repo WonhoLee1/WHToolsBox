@@ -68,16 +68,21 @@ def _make_serializable(obj: Any) -> Any:
 
 # ─── Public API ──────────────────────────────────────────────────────────────
 
-def save_config(cfg: Dict[str, Any], path: Union[str, Path]) -> None:
+def save_config(cfg: Dict[str, Any], path: Union[str, Path],
+                extra_meta: Optional[Dict[str, Any]] = None) -> None:
     """
     현재 config를 버전 메타데이터와 함께 JSON으로 저장합니다.
     numpy 배열 등 비직렬화 타입은 자동 변환합니다.
+    extra_meta: 저장 파일 상단에 포함할 추가 설명 필드 (선택)
     """
+    now = datetime.now()
     meta = {
         "_version": CONFIG_VERSION,
-        "_saved_at": datetime.now().isoformat(timespec="seconds"),
+        "_saved_at": now.isoformat(timespec="seconds"),
         "_app": "WHToolsBox-DropSim",
     }
+    if extra_meta:
+        meta.update(extra_meta)
     payload = {**meta, **_make_serializable(cfg)}
     Path(path).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -266,6 +271,8 @@ def _build_default_dict() -> Dict[str, Any]:
         "sim_integrator": "implicitfast", "sim_timestep": 0.0012, "sim_iterations": 50,
         "sim_noslip_iterations": 0, "sim_tolerance": 1e-5, "sim_impratio": 1.0,
         "sim_gravity": [0, 0, -9.81],
+        "radioss_sim_duration": 0.05, "radioss_print_interval": -10,
+        "export_radioss_time": 0.05, "export_radioss_dt_anim": 0.001,
 
         # [Weld Physics Constants]
         "cush_weld_solref_timec": 0.008, "cush_weld_solref_damprr": 0.8,

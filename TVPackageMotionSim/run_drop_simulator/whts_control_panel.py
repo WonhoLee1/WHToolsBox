@@ -5,6 +5,7 @@ PySide6 기반의 현대적인 MuJoCo 시뮬레이션 제어 패널입니다.
 """
 
 import os
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 import sys
 import time
 import ast
@@ -16,7 +17,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QSlider, QLabel, QFrame, QGroupBox, QDoubleSpinBox, QAbstractSpinBox,
-    QPlainTextEdit, QDialog, QMessageBox, QSplitter, QTreeWidget, QTreeWidgetItem
+    QPlainTextEdit, QDialog, QMessageBox, QSplitter, QTreeWidget, QTreeWidgetItem, QComboBox
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
@@ -86,6 +87,10 @@ CONFIG_METADATA = {
     "sim_tolerance": {"desc": "Solver Convergence Tolerance", "cat": "Solver"},
     "sim_impratio": {"desc": "Solver Impedance Ratio", "cat": "Solver"},
     "sim_gravity": {"desc": "Gravity Vector [gx, gy, gz]", "cat": "Solver"},
+    "radioss_sim_duration": {"desc": "OpenRadioss Sim Duration (s)", "cat": "Solver"},
+    "radioss_print_interval": {"desc": "OpenRadioss Print Interval (cycles)", "cat": "Solver"},
+    "export_radioss_time": {"desc": "OpenRadioss Target Time (s) [GUI]", "cat": "Solver"},
+    "export_radioss_dt_anim": {"desc": "OpenRadioss Plot Interval (s) [GUI]", "cat": "Solver"},
 
     # [Weld Physics]
     "welds": {"desc": "Weld Connector Specifications (solref, solimp, torquescale)", "cat": "Weld Physics"},
@@ -3231,8 +3236,10 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
     # ── 폴더 선택 ────────────────────────────────────────────────────
 
     def _on_browse_folder(self):
+        import os
+        start_dir = self.edit_folder.text() if self.edit_folder.text() else os.getcwd()
         folder = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select Save Folder", self.edit_folder.text())
+            self, "Select Save Folder", start_dir)
         if folder:
             self.edit_folder.setText(folder)
 
@@ -3339,6 +3346,25 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         self._on_worker_finished()
         QtWidgets.QMessageBox.warning(self, "Batch Error", msg)
 
+class RadiossEngineWorker(QThread):
+    """
+    [WHTOOLS] 백그라운드에서 OpenRadioss Engine을 비동기로 실행합니다.
+    """
+    sig_log = Signal(str)
+    sig_finished = Signal(bool, str)
+
+    def __init__(self, builder, parent=None):
+        super().__init__(parent)
+        self.builder = builder
+
+    def run(self):
+        try:
+            self.sig_log.emit("Starting OpenRadioss Engine...")
+            self.builder.run(nt=4, np_cores=1, callback=self.sig_log.emit)
+            self.sig_finished.emit(True, "Engine execution completed successfully.")
+        except Exception as e:
+            self.sig_finished.emit(False, str(e))
+
 class ControlPanel(QMainWindow):
     """
     MuJoCo 시뮬레이션을 실시간으로 제어하기 위한 PySide6 메인 윈도우입니다.
@@ -3370,10 +3396,11 @@ class ControlPanel(QMainWindow):
         self._last_mujoco_rect = None
 
     def _on_view_log(self):
-        """임시 로그 파일의 내용을 보여주는 창을 엽니다."""
-        log_path = os.path.join(tempfile.gettempdir(), "whts_simulation_log.txt")
+        """세션 로그 파일(whtoolsbox.log)의 내용을 보여주는 창을 엽니다."""
+        from .whts_utils import WHToolsSessionLogger
+        log_path = WHToolsSessionLogger.get_log_path()
         content = "로그 파일이 존재하지 않습니다."
-        if os.path.exists(log_path):
+        if log_path and os.path.exists(log_path):
             try:
                 with open(log_path, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -3425,6 +3452,11 @@ class ControlPanel(QMainWindow):
 
         act_save = model_menu.addAction("💾 Save Config (JSON)")
         act_save.triggered.connect(self._on_model_save)
+
+        model_menu.addSeparator()
+
+        act_load_pkl = model_menu.addAction("📂 Load Result Model (.pkl)")
+        act_load_pkl.triggered.connect(self._on_model_load_pkl)
 
         model_menu.addSeparator()
 
@@ -3536,18 +3568,24 @@ class ControlPanel(QMainWindow):
         playback_layout = QHBoxLayout(playback_group)
         
         self.btn_reset = QPushButton("🔄 Reset")
-        self.btn_back = QPushButton("⏪ Back")
         self.btn_play = QPushButton("▶️ Play")
-        self.btn_forward = QPushButton("⏩ Forward")
-        
-        for btn in [self.btn_reset, self.btn_back, self.btn_play, self.btn_forward]:
-            btn.setFixedHeight(30)            
+
+        for btn in [self.btn_reset, self.btn_play]:
+            btn.setFixedHeight(30)
             playback_layout.addWidget(btn)
-            
+
+        self.btn_toggle_heatmap = QPushButton("Heat Map")
+        self.btn_toggle_heatmap.setFixedSize(65, 20)
+        self.btn_toggle_heatmap.setStyleSheet("padding: 0px; font-size: 11px;")
+        self.btn_toggle_heatmap.setCheckable(True)
+        self.btn_toggle_heatmap.setChecked(False)
+        self.btn_toggle_heatmap.setToolTip("Toggle Rank Heatmap")
+        self.btn_toggle_heatmap.toggled.connect(self._on_toggle_heatmap)
+        # Adding to the right of Play button, but vertically centered since the play button is taller
+        playback_layout.addWidget(self.btn_toggle_heatmap)
+
         self.btn_reset.clicked.connect(self._on_reset)
-        self.btn_back.clicked.connect(self._on_back)
         self.btn_play.clicked.connect(self._on_play_pause)
-        self.btn_forward.clicked.connect(self._on_forward)
         
         main_layout.addWidget(playback_group)
 
@@ -3589,6 +3627,8 @@ class ControlPanel(QMainWindow):
         self.btn_play_nav.clicked.connect(self._on_nav_play)
         info_layout.addWidget(self.btn_play_nav)
 
+
+
         self.btn_pause_nav = QPushButton("■")
         self.btn_pause_nav.setFixedSize(28, 20)
         self.btn_pause_nav.setStyleSheet(_nav_btn_style)
@@ -3597,13 +3637,27 @@ class ControlPanel(QMainWindow):
         self.btn_pause_nav.clicked.connect(self._on_nav_pause)
         info_layout.addWidget(self.btn_pause_nav)
 
+        self.btn_step_back = QPushButton("◀")
+        self.btn_step_back.setFixedSize(28, 20)
+        self.btn_step_back.setStyleSheet(_nav_btn_style)
+        self.btn_step_back.setToolTip("Step Back 1 Frame")
+        self.btn_step_back.clicked.connect(self._on_nav_step_back)
+        info_layout.addWidget(self.btn_step_back)
+
+        self.btn_step_fwd = QPushButton("▶|")
+        self.btn_step_fwd.setFixedSize(28, 20)
+        self.btn_step_fwd.setStyleSheet(_nav_btn_style)
+        self.btn_step_fwd.setToolTip("Step Forward 1 Frame")
+        self.btn_step_fwd.clicked.connect(self._on_nav_step_fwd)
+        info_layout.addWidget(self.btn_step_fwd)
+
         self.lbl_frame_info = QLabel("Frame: 0 / 0")
         self.lbl_frame_info.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         info_layout.addWidget(self.lbl_frame_info)
         
         # [WHTOOLS] Speed Multiplier와 spinbox를 lbl_frame_info 우측에 나란히 배치하여 공간 극강 압축
         info_layout.addStretch()
-        lbl_speed = QLabel("Speed Multiplier:")
+        lbl_speed = QLabel("Speed:")
         info_layout.addWidget(lbl_speed)
         
         self.spin_speed = QDoubleSpinBox()
@@ -3642,10 +3696,20 @@ class ControlPanel(QMainWindow):
         self.btn_camera.clicked.connect(self._on_camera_export)
         row1.addWidget(self.btn_camera)
 
-        # [WHTOOLS] 모션 상태 로그 버튼 추가
-        self.btn_log_motion = QPushButton("📋 Log Motion")
+        # [WHTOOLS] Log Motion 콤보 버튼 (기본: Log Motion, 드롭다운: 추가 기능)
+        from PySide6.QtWidgets import QToolButton
+        self.btn_log_motion = QToolButton()
+        self.btn_log_motion.setText("📋 Log Motion")
         self.btn_log_motion.setMinimumHeight(35)
+        self.btn_log_motion.setPopupMode(QToolButton.MenuButtonPopup)
         self.btn_log_motion.clicked.connect(self._on_log_motion)
+
+        log_menu = QtWidgets.QMenu(self.btn_log_motion)
+        act_log      = log_menu.addAction("📋 Log Motion")
+        act_verify   = log_menu.addAction("🧊 Verify Pose")
+        act_log.triggered.connect(self._on_log_motion)
+        act_verify.triggered.connect(self._on_verify_pose)
+        self.btn_log_motion.setMenu(log_menu)
         row1.addWidget(self.btn_log_motion)
 
         self.btn_str_analysis = QPushButton("🔬 Str. Analysis")
@@ -3664,6 +3728,64 @@ class ControlPanel(QMainWindow):
         util_layout.addWidget(self.btn_reload_xml)
         
         main_layout.addLayout(util_layout)
+
+        # 6. Advanced Solver & Post-Processing (NEW)
+        adv_group = QGroupBox("Advanced Solver & Post-Processing")
+        adv_layout = QVBoxLayout(adv_group)
+        
+        adv_row1 = QHBoxLayout()
+        adv_row1.addWidget(QLabel("Target Time (s):"))
+        self.spin_rad_time = QDoubleSpinBox()
+        self.spin_rad_time.setRange(0.0, 10.0)
+        self.spin_rad_time.setSingleStep(0.01)
+        init_rtime = self.sim.config.get("export_radioss_time", 0.05) if self.sim else 0.05
+        self.spin_rad_time.setValue(init_rtime)
+        self.spin_rad_time.valueChanged.connect(lambda v: self.sim.config.update({"export_radioss_time": v}) if self.sim else None)
+        adv_row1.addWidget(self.spin_rad_time)
+        
+        adv_row1.addWidget(QLabel("Plot Interval (s):"))
+        self.spin_rad_dt = QDoubleSpinBox()
+        self.spin_rad_dt.setRange(0.0001, 1.0)
+        self.spin_rad_dt.setDecimals(4)
+        self.spin_rad_dt.setSingleStep(0.001)
+        init_rdt = self.sim.config.get("export_radioss_dt_anim", 0.001) if self.sim else 0.001
+        self.spin_rad_dt.setValue(init_rdt)
+        self.spin_rad_dt.valueChanged.connect(lambda v: self.sim.config.update({"export_radioss_dt_anim": v}) if self.sim else None)
+        adv_row1.addWidget(self.spin_rad_dt)
+        
+        adv_row1.addWidget(QLabel("Tilt Mode:"))
+        self.combo_rad_mode = QComboBox()
+        self.combo_rad_mode.addItems(["parts", "ground"])
+        init_mode = self.sim.config.get("export_radioss_transform_mode", "parts") if self.sim else "parts"
+        self.combo_rad_mode.setCurrentText(init_mode)
+        self.combo_rad_mode.currentTextChanged.connect(lambda t: self.sim.config.update({"export_radioss_transform_mode": t}) if self.sim else None)
+        adv_row1.addWidget(self.combo_rad_mode)
+        
+        adv_layout.addLayout(adv_row1)
+        
+        adv_row2 = QHBoxLayout()
+        self.btn_gen_rad = QPushButton("🏗️ Generate Model")
+        self.btn_gen_rad.setMinimumHeight(35)
+        self.btn_gen_rad.clicked.connect(self._on_create_radioss_model)
+        adv_row2.addWidget(self.btn_gen_rad)
+        
+        self.btn_run_rad = QPushButton("▶️ Run Engine")
+        self.btn_run_rad.setMinimumHeight(35)
+        self.btn_run_rad.clicked.connect(self._on_run_radioss_model)
+        adv_row2.addWidget(self.btn_run_rad)
+        
+        self.btn_paraview = QPushButton("👀 ParaView")
+        self.btn_paraview.setMinimumHeight(35)
+        self.btn_paraview.clicked.connect(self._on_open_paraview)
+        adv_row2.addWidget(self.btn_paraview)
+        
+        self.btn_lsprepost = QPushButton("👀 LS-PrePost")
+        self.btn_lsprepost.setMinimumHeight(35)
+        self.btn_lsprepost.clicked.connect(self._on_open_lsprepost)
+        adv_row2.addWidget(self.btn_lsprepost)
+        
+        adv_layout.addLayout(adv_row2)
+        main_layout.addWidget(adv_group)
 
         # 스타일 시트 적용 (Premium Dark Theme)
         self.setStyleSheet(GLOBAL_QSS)
@@ -3905,6 +4027,11 @@ class ControlPanel(QMainWindow):
 
         self.timer.stop()
         event.accept()
+        
+        # [FIX] 창이 닫힐 때 명시적으로 QApplication을 종료하여 app.exec()에서 빠져나오게 함
+        from PySide6.QtWidgets import QApplication
+        if QApplication.instance():
+            QApplication.instance().quit()
 
     def _on_play_pause(self):
         self.sim.ctrl_paused = not self.sim.ctrl_paused
@@ -3948,6 +4075,15 @@ class ControlPanel(QMainWindow):
         self.btn_play_nav.setEnabled(True)
         self.btn_pause_nav.setEnabled(False)
 
+    def _on_toggle_heatmap(self, checked):
+        if not self.sim or not self.sim.model:
+            return
+        self.sim.config["enable_rank_heatmap"] = checked
+        
+        # Trigger jump to the current snapshot so that heatmap gets reapplied correctly
+        idx = self.slider.value()
+        self.sim.ctrl_jump_snapshot_idx = idx
+
     def _nav_tick(self):
         max_val = self.slider.maximum()
         cur = self.slider.value()
@@ -3955,6 +4091,12 @@ class ControlPanel(QMainWindow):
             self._on_nav_pause()
             return
         self.slider.setValue(cur + 1)
+
+    def _on_nav_step_back(self):
+        self.slider.setValue(max(0, self.slider.value() - 1))
+
+    def _on_nav_step_fwd(self):
+        self.slider.setValue(min(self.slider.maximum(), self.slider.value() + 1))
 
     def _on_duration_changed(self, value):
         """
@@ -3975,44 +4117,425 @@ class ControlPanel(QMainWindow):
     def _on_record(self, checked):
         self.sim.is_recording = checked
 
+    def _on_create_radioss_model(self):
+        """현재 화면의 프레임 상태(또는 지정된 Target Time)에서 OpenRadioss FEM 모델을 생성합니다."""
+        try:
+            frame_idx = None
+            target_time = None
+            if self.sim and hasattr(self.sim, 'result') and self.sim.result is not None:
+                # 시뮬레이션 결과가 존재하면 현재 슬라이더가 위치한 프레임 인덱스를 사용
+                frame_idx = self.slider.value()
+                if self.sim.result.time_history and frame_idx < len(self.sim.result.time_history):
+                    target_time = self.sim.result.time_history[frame_idx]
+            else:
+                # 실시간 시뮬레이션 중인 경우 타겟 시간을 기준값으로 가져옴
+                target_time = self.sim.config.get("export_radioss_time", 0.05) if self.sim else 0.05
+
+            if target_time is not None:
+                self.sim.log(f"[Radioss] 모델 생성을 시작합니다... (Target Time: {target_time:.4f}s, Frame Index: {frame_idx})")
+            else:
+                self.sim.log(f"[Radioss] 모델 생성을 시작합니다... (Live Frame)")
+
+            if frame_idx is not None:
+                starter, builder = self.sim.export_radioss(frame_idx=frame_idx)
+            else:
+                starter, builder = self.sim.export_radioss(target_time=target_time)
+
+            if starter:
+                self._radioss_builder = builder
+                QtWidgets.QMessageBox.information(
+                    self, "OpenRadioss",
+                    f"모델 생성 완료:\n{starter}"
+                )
+        except Exception as e:
+            self.sim.log(f"[ERROR] OpenRadioss 모델 생성 실패: {e}")
+            QtWidgets.QMessageBox.critical(self, "OpenRadioss Error", str(e))
+
+
+    def _on_run_radioss_model(self):
+        """OpenRadioss starter + engine을 비동기로 실행합니다."""
+        builder = getattr(self, '_radioss_builder', None)
+        if builder is None:
+            QtWidgets.QMessageBox.warning(
+                self, "OpenRadioss",
+                "먼저 '🏗️ Generate Model'을 실행하세요."
+            )
+            return
+
+        self.btn_run_rad.setEnabled(False)
+        self.btn_run_rad.setText("⏳ Running Engine...")
+        
+        self._radioss_worker = RadiossEngineWorker(builder)
+        self._radioss_worker.sig_log.connect(lambda msg: self.sim.log(msg))
+        self._radioss_worker.sig_finished.connect(self._on_radioss_worker_finished)
+        self._radioss_worker.start()
+
+    def _on_radioss_worker_finished(self, success, msg):
+        self.btn_run_rad.setEnabled(True)
+        self.btn_run_rad.setText("▶️ Run Engine")
+        if success:
+            self.sim.log(f"[Radioss] 해석 완료: {msg}")
+            QtWidgets.QMessageBox.information(self, "OpenRadioss", f"해석이 완료되었습니다.\n{msg}")
+        else:
+            self.sim.log(f"[ERROR] OpenRadioss 실행 실패: {msg}")
+            QtWidgets.QMessageBox.critical(self, "OpenRadioss Error", f"해석 중 오류가 발생했습니다:\n{msg}")
+
+    def _on_open_paraview(self):
+        """생성된 결과 폴더에서 vtkhdf 파일을 찾아 ParaView를 호출합니다."""
+        import subprocess
+        import glob
+        import sys
+        import os
+        from .whts_utils import get_external_tool_path
+        pv_path = get_external_tool_path("paraview_path") or "paraview"
+        builder = getattr(self, '_radioss_builder', None)
+        if builder is None:
+            QtWidgets.QMessageBox.warning(self, "ParaView", "Radioss 모델이 생성되지 않았습니다.")
+            return
+            
+        vtk_dir = builder.out.parent / "vtk" if builder.out.name == "vtk" else builder.out
+        vtkhdf_file = vtk_dir / f"{builder.name}.vtkhdf"
+        
+        # 엔진 실행 중인지 확인
+        is_engine_running = False
+        if hasattr(self, '_radioss_worker') and self._radioss_worker is not None:
+            if self._radioss_worker.isRunning():
+                is_engine_running = True
+
+        # 엔진이 실행 중이거나 vtkhdf 파일이 없거나 파일 크기가 100바이트 미만(손상/0바이트)인 경우 변환 프로세스 수행
+        is_invalid_file = False
+        if vtkhdf_file.exists():
+            try:
+                if vtkhdf_file.stat().st_size < 100:
+                    is_invalid_file = True
+            except Exception:
+                is_invalid_file = True
+
+        if is_engine_running or not vtkhdf_file.exists() or is_invalid_file:
+            # Check for animation files like TVDrop_RadiossA001, A002, etc.
+            anim_pattern = str(vtk_dir / f"{builder.name}A*")
+            anim_files = sorted([f for f in glob.glob(anim_pattern) if f[-3:].isdigit()])
+            
+            # Windows 등에서 파일이 작성 중(점유)이거나 잠겨 있는지 테스트하여 안전한 파일만 수집
+            valid_anim_files = []
+            for f in anim_files:
+                try:
+                    with open(f, 'rb') as tmp:
+                        pass
+                    valid_anim_files.append(f)
+                except Exception:
+                    # 현재 엔진이 쓰고 있어서 열 수 없는 파일은 제외
+                    continue
+
+            if valid_anim_files:
+                self.sim.log(f"[ParaView] 현재 완료된 {len(valid_anim_files)}개의 결과 파일로 VTKHDF 생성 중...")
+                openradioss_gui_dir = get_external_tool_path('openradioss_gui_dir') or r"D:\OpenRadioss_win64\OpenRadioss\openradioss_gui"
+                if openradioss_gui_dir not in sys.path:
+                    sys.path.insert(0, openradioss_gui_dir)
+                try:
+                    # 기존 vtkhdf_file이 있으면 삭제 시도
+                    can_use_default = True
+                    if vtkhdf_file.exists():
+                        try:
+                            vtkhdf_file.unlink()
+                        except Exception:
+                            can_use_default = False
+                    
+                    if not can_use_default:
+                        # TVDrop_Radioss_1.vtkhdf, _2.vtkhdf 형태로 잠기지 않은 파일명을 찾아감
+                        base_stem = builder.name
+                        parent_dir = vtkhdf_file.parent
+                        counter = 1
+                        while True:
+                            candidate = parent_dir / f"{base_stem}_{counter}.vtkhdf"
+                            if not candidate.exists():
+                                vtkhdf_file = candidate
+                                break
+                            try:
+                                candidate.unlink()
+                                vtkhdf_file = candidate
+                                break
+                            except Exception:
+                                counter += 1
+                        self.sim.log(f"[ParaView] 기존 파일 잠김 감지 -> 대체 파일명 생성: {vtkhdf_file.name}")
+                    
+                    from animtovtkhdf import AnimToVTKHDF
+                    converter = AnimToVTKHDF(verbose=False, static=True)
+                    # inputf 및 outputf에 모두 posix 스타일 슬래시 경로 전달하여 파일 생성 안정성 향상
+                    posix_anims = [Path(f).as_posix() for f in valid_anim_files]
+                    converter.convert(inputf=posix_anims, outputf=vtkhdf_file.as_posix())
+                    self.sim.log("[ParaView] VTKHDF 파일 변환 완료.")
+                except Exception as e:
+                    self.sim.log(f"[ERROR] VTKHDF 변환 실패: {e}")
+                    QtWidgets.QMessageBox.warning(self, "ParaView Error", f"VTKHDF 변환 중 오류가 발생했습니다:\n{e}")
+                    return
+            else:
+                if not vtkhdf_file.exists():
+                    QtWidgets.QMessageBox.warning(self, "ParaView", f"VTKHDF 및 애니메이션 결과 파일을 찾을 수 없습니다:\n{vtkhdf_file}")
+                    return
+            
+        try:
+            subprocess.Popen([pv_path, vtkhdf_file.as_posix()], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            self.sim.log(f"[ParaView] Launched ParaView for {vtkhdf_file.name}")
+        except Exception as e:
+            self.sim.log(f"[ERROR] ParaView 실행 실패: {e}")
+            QtWidgets.QMessageBox.critical(self, "ParaView Error", str(e))
+
+    def _on_open_lsprepost(self):
+        """생성된 결과 폴더에서 .k 파일이나 d3plot을 찾아 LS-PrePost를 호출합니다."""
+        import subprocess
+        from .whts_utils import get_external_tool_path
+        lspp_path = get_external_tool_path("ls_prepost_path") or "lspp48"
+        builder = getattr(self, '_radioss_builder', None)
+        if builder is None:
+            QtWidgets.QMessageBox.warning(self, "LS-PrePost", "Radioss 모델이 생성되지 않았습니다.")
+            return
+            
+        k_file = builder.out / f"{builder.name}_LSDYNA.k"
+        if not k_file.exists():
+            QtWidgets.QMessageBox.warning(self, "LS-PrePost", f"LS-DYNA (.k) 파일을 찾을 수 없습니다:\n{k_file}")
+            return
+            
+        try:
+            # 절대 경로로 변환하여 상대 경로 처리로 인한 에러 방지
+            abs_k_file = k_file.resolve().absolute()
+            work_dir = abs_k_file.parent
+            
+            # subprocess 실행 시 cwd를 결과 폴더로 지정하고 절대 경로의 .k 파일을 인자로 넘김
+            subprocess.Popen(
+                [lspp_path, abs_k_file.as_posix()],
+                cwd=work_dir.as_posix(),
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+            self.sim.log(f"[LS-PrePost] Launched LS-PrePost for {k_file.name} (cwd: {work_dir})")
+        except Exception as e:
+            self.sim.log(f"[ERROR] LS-PrePost 실행 실패: {e}")
+            QtWidgets.QMessageBox.critical(self, "LS-PrePost Error", str(e))
+
     def _on_camera_export(self):
         self.sim.ctrl_export_camera = True
+
+    @staticmethod
+    def _mat_to_quat(R: np.ndarray) -> np.ndarray:
+        """3×3 회전 행렬 → 쿼터니안 (w, x, y, z)."""
+        tr = R[0,0] + R[1,1] + R[2,2]
+        if tr > 0:
+            s = 0.5 / np.sqrt(tr + 1.0)
+            return np.array([0.25/s, (R[2,1]-R[1,2])*s, (R[0,2]-R[2,0])*s, (R[1,0]-R[0,1])*s])
+        elif R[0,0] > R[1,1] and R[0,0] > R[2,2]:
+            s = 2.0 * np.sqrt(1.0 + R[0,0] - R[1,1] - R[2,2])
+            return np.array([(R[2,1]-R[1,2])/s, 0.25*s, (R[0,1]+R[1,0])/s, (R[0,2]+R[2,0])/s])
+        elif R[1,1] > R[2,2]:
+            s = 2.0 * np.sqrt(1.0 + R[1,1] - R[0,0] - R[2,2])
+            return np.array([(R[0,2]-R[2,0])/s, (R[0,1]+R[1,0])/s, 0.25*s, (R[1,2]+R[2,1])/s])
+        else:
+            s = 2.0 * np.sqrt(1.0 + R[2,2] - R[0,0] - R[1,1])
+            return np.array([(R[1,0]-R[0,1])/s, (R[0,2]+R[2,0])/s, (R[1,2]+R[2,1])/s, 0.25*s])
 
     def _on_log_motion(self):
         """현재 시점의 강체 거동 정보를 로그로 출력합니다."""
         if not self.sim.rot_axis_hist:
             self.sim.log("⚠️ No motion data available yet.", level="warning")
             return
-            
+
         axis = self.sim.rot_axis_hist[-1]
         speed = self.sim.rot_speed_hist[-1]
         tvel = self.sim.trans_vel_hist[-1]
         tvel_res = self.sim.trans_vel_res_hist[-1]
-        
-        import numpy as np
+
         azi = np.degrees(np.arctan2(axis[1], axis[0]))
         ele = np.degrees(np.arcsin(np.clip(axis[2], -1, 1)))
-        
+
         msg = (
             f"\n[📊 Current Motion State at Time {self.sim.data.time:.4f}s]\n"
             f"- Rotation Axis: [{axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f}] (Azi: {azi:.1f}°, Ele: {ele:.1f}°)\n"
             f"- Rotation Speed: {speed:.4f} rad/s\n"
             f"- Trans. Velocity: [{tvel[0]:.4f}, {tvel[1]:.4f}, {tvel[2]:.4f}] (Resultant: {tvel_res:.4f} m/s)\n"
         )
-        
+
+        from .whts_utils import TerminalTable
+
+        # ── 쿠션 강체 포즈 (Reference → Current) ────────────────────────────
+        rid = getattr(self.sim, 'root_id', -1)
+        if rid >= 0 and self.sim.data is not None:
+            p   = self.sim.data.xpos[rid].copy()            # 위치 (world)
+            R   = self.sim.data.xmat[rid].reshape(3, 3)     # 회전행렬 body→world
+            q   = self.sim.data.xquat[rid].copy()           # (w,x,y,z)
+
+            # Euler ZYX (yaw / pitch / roll)
+            yaw   = np.degrees(np.arctan2(R[1,0], R[0,0]))
+            pitch = np.degrees(np.arctan2(-R[2,0], np.sqrt(R[2,1]**2 + R[2,2]**2)))
+            roll  = np.degrees(np.arctan2(R[2,1], R[2,2]))
+
+            tbl_R = TerminalTable(["Rot Matrix", "X-col", "Y-col", "Z-col"],
+                                   align=["l", "r", "r", "r"])
+            tbl_R.add_row(["X-row", f"{R[0,0]:.5f}", f"{R[0,1]:.5f}", f"{R[0,2]:.5f}"])
+            tbl_R.add_row(["Y-row", f"{R[1,0]:.5f}", f"{R[1,1]:.5f}", f"{R[1,2]:.5f}"])
+            tbl_R.add_row(["Z-row", f"{R[2,0]:.5f}", f"{R[2,1]:.5f}", f"{R[2,2]:.5f}"])
+
+            msg += (
+                f"\n[🔄 Cushion Body Pose  (Ref: BB-center@origin, Front=+Z → Current)]\n"
+                f"  Transform    : x_world = R @ x_ref + t\n"
+                f"  [1] Rotation  : Yaw={yaw:.2f}°  Pitch={pitch:.2f}°  Roll={roll:.2f}°  (ZYX Euler)\n"
+                f"  Quaternion   : w={q[0]:.6f}  x={q[1]:.6f}  y={q[2]:.6f}  z={q[3]:.6f}\n"
+            )
+            msg += tbl_R.render() + "\n"
+            msg += f"  [2] Translation: X={p[0]:.5f}  Y={p[1]:.5f}  Z={p[2]:.5f}  (m)\n"
+
+            # ── 바닥면 상대 변환 (쿠션 기준 프레임) ─────────────────────────
+            RT      = R.T                                   # world→body
+            n_b     = RT @ np.array([0., 0., 1.])           # 바닥 법선 (body frame)
+            h       = float(p[2])                           # 쿠션 중심 높이
+            o_floor = RT @ np.array([0., 0., -h])           # 바닥 원점 (body frame)
+            q_floor = self._mat_to_quat(RT)
+            yaw_f   = np.degrees(np.arctan2(RT[1,0], RT[0,0]))
+            pitch_f = np.degrees(np.arctan2(-RT[2,0], np.sqrt(RT[2,1]**2 + RT[2,2]**2)))
+            roll_f  = np.degrees(np.arctan2(RT[2,1], RT[2,2]))
+
+            tbl_f = TerminalTable(["Floor (body frame)", "X", "Y", "Z"],
+                                   align=["l", "r", "r", "r"])
+            tbl_f.add_row(["Normal",  f"{n_b[0]:.5f}",     f"{n_b[1]:.5f}",     f"{n_b[2]:.5f}"])
+            tbl_f.add_row(["Origin",  f"{o_floor[0]:.5f}", f"{o_floor[1]:.5f}", f"{o_floor[2]:.5f}"])
+
+            msg += (
+                f"\n[🏔 Floor Plane  (in Cushion Reference Frame)]\n"
+                f"  Transform    : x_body = R^T @ x_world + t_floor\n"
+                f"  Height above floor : {h:.5f} m\n"
+            )
+            msg += tbl_f.render() + "\n"
+            msg += (
+                f"  [1] Rotation  : Yaw={yaw_f:.2f}°  Pitch={pitch_f:.2f}°  Roll={roll_f:.2f}°  (ZYX Euler)\n"
+                f"  Quaternion   : w={q_floor[0]:.6f}  x={q_floor[1]:.6f}  y={q_floor[2]:.6f}  z={q_floor[3]:.6f}\n"
+                f"  [2] Translation: X={o_floor[0]:.5f}  Y={o_floor[1]:.5f}  Z={o_floor[2]:.5f}  (m)\n"
+            )
+
+        # ── 파트별 코너 좌표 ──────────────────────────────────────────────────
         if hasattr(self.sim, 'part_corner_hist') and self.sim.part_corner_hist:
             for part in ['Cushion', 'Chassis', 'OpenCell']:
                 if part in self.sim.part_corner_hist:
                     hist_pos = self.sim.part_corner_hist[part].get('pos', [])
-                    if len(hist_pos) > 0:
+                    if hist_pos:
                         corners = hist_pos[-1]
                         msg += f"\n[📍 {part} Corner Absolute Coordinates]\n"
-                        msg += f"| Corner | X (m) | Y (m) | Z (m) |\n"
-                        msg += f"|---|---|---|---|\n"
-                        for i in range(len(corners)):
-                            msg += f"| C{i+1} | {corners[i][0]:.5f} | {corners[i][1]:.5f} | {corners[i][2]:.5f} |\n"
+                        tbl = TerminalTable(["Corner", "X (m)", "Y (m)", "Z (m)"],
+                                            align=["l", "r", "r", "r"])
+                        for i, c in enumerate(corners):
+                            tbl.add_row([f"C{i+1}", f"{c[0]:.5f}", f"{c[1]:.5f}", f"{c[2]:.5f}"])
+                        msg += tbl.render() + "\n"
 
         self.sim.log(msg, level="info")
+
+    def _on_verify_pose(self):
+        """현재 쿠션 포즈 변환을 PyVista 1×3 뷰로 검증합니다.
+
+        Left  : 월드 프레임 — 박스 회전+병진 적용된 현재 상태
+        Center: 기준 프레임 — BB 중심 원점, Front=+Z, Z=0 바닥
+        Right : 쿠션 기준 프레임 — 바닥이 회전+병진된 상태
+        """
+        rid = getattr(self.sim, 'root_id', -1)
+        if rid < 0 or self.sim.data is None:
+            QtWidgets.QMessageBox.warning(self, "Verify Pose", "시뮬레이션 데이터가 없습니다.")
+            return
+
+        import pyvista as pv
+
+        p_vec = self.sim.data.xpos[rid].copy()
+        R     = self.sim.data.xmat[rid].reshape(3, 3).copy()
+        RT    = R.T
+        h     = float(p_vec[2])
+
+        cfg   = self.sim.config
+        bw    = cfg.get("box_w", 0.4)
+        bh    = cfg.get("box_h", 0.3)
+        bd    = cfg.get("box_d", 0.2)
+
+        MARGIN = 0.005  # 시각적 여유 gap (m)
+
+        def _make_box_mesh(w, h, d):
+            return pv.Box(bounds=(-w/2, w/2, -h/2, h/2, -d/2, d/2))
+
+        def _make_floor_mesh(center=(0,0,0), size=3.0):
+            return pv.Plane(center=center, direction=(0,0,1),
+                            i_size=size, j_size=size)
+
+        def _apply_transform(mesh, R_mat, t_vec):
+            T = np.eye(4)
+            T[:3, :3] = R_mat
+            T[:3,  3] = t_vec
+            return mesh.transform(T)
+
+        def _min_corner_proj(R_mat, t_vec, w, h2, d, normal):
+            """8개 박스 코너의 법선 방향 투영 최솟값."""
+            mn = float('inf')
+            for sx in (-w/2, w/2):
+                for sy in (-h2/2, h2/2):
+                    for sz in (-d/2, d/2):
+                        c = R_mat @ np.array([sx, sy, sz]) + t_vec
+                        mn = min(mn, float(np.dot(normal, c)))
+            return mn
+
+        def _run():
+            pl = pv.Plotter(shape=(1, 3), window_size=(1500, 500),
+                            title="Pose Verification | Left: World  Center: Ref  Right: Floor in Body")
+
+            ALPHA_FLOOR = 0.35
+            C_BOX   = "#4fc3f7"
+            C_FLOOR = "#a5d6a7"
+            floor_size = max(bw, bh, bd) * 4
+
+            # ── Center : Reference Frame ──────────────────────────────────
+            pl.subplot(0, 1)
+            # 바닥 Z=0 고정, 박스를 하단이 Z=MARGIN이 되도록 올림
+            ref_lift = bd / 2 + MARGIN
+            ref_box   = _apply_transform(_make_box_mesh(bw, bh, bd),
+                                         np.eye(3), np.array([0., 0., ref_lift]))
+            ref_floor = _make_floor_mesh(center=(0, 0, 0), size=floor_size)
+            pl.add_mesh(ref_box,   color=C_BOX,   opacity=0.6)
+            pl.add_mesh(ref_floor, color=C_FLOOR, opacity=ALPHA_FLOOR)
+            pl.add_axes(line_width=3)
+            pl.add_text("Reference\n(BB@origin, Front=+Z)", position="upper_left", font_size=9)
+            pl.view_isometric()
+
+            # ── Left : World Frame — box rotated+translated ───────────────
+            pl.subplot(0, 0)
+            n_world = np.array([0., 0., 1.])
+            min_z   = _min_corner_proj(R, p_vec, bw, bh, bd, n_world)
+            # 바닥 Z=0 고정, 침투한 만큼 박스를 위로 올림
+            lift = max(0.0, MARGIN - min_z)
+            p_vis = p_vec + np.array([0., 0., lift])
+            world_box   = _apply_transform(_make_box_mesh(bw, bh, bd), R, p_vis)
+            world_floor = _make_floor_mesh(center=(0, 0, 0), size=floor_size)
+            pl.add_mesh(world_box,   color=C_BOX,   opacity=0.6)
+            pl.add_mesh(world_floor, color=C_FLOOR, opacity=ALPHA_FLOOR)
+            pl.add_axes(line_width=3)
+            pl.add_text("World Frame\n(box rotated + translated)", position="upper_left", font_size=9)
+            pl.view_isometric()
+
+            # ── Right : Body Reference Frame — floor rotated+translated ──
+            pl.subplot(0, 2)
+            n_b     = RT @ np.array([0., 0., 1.])
+            o_floor = RT @ np.array([0., 0., -h])
+            # 박스 코너의 n_b 방향 최솟값 계산 후 바닥을 그보다 margin 더 밀어냄
+            min_proj = _min_corner_proj(np.eye(3), np.zeros(3), bw, bh, bd, n_b)
+            floor_d  = float(np.dot(n_b, o_floor))
+            if floor_d > min_proj - MARGIN:
+                correction = floor_d - (min_proj - MARGIN)
+                t_floor_vis = o_floor - correction * n_b
+            else:
+                t_floor_vis = o_floor
+            body_box   = _make_box_mesh(bw, bh, bd)
+            body_floor = _apply_transform(
+                pv.Plane(center=(0,0,0), direction=(0,0,1), i_size=floor_size, j_size=floor_size),
+                RT, t_floor_vis)
+            pl.add_mesh(body_box,   color=C_BOX,   opacity=0.6)
+            pl.add_mesh(body_floor, color=C_FLOOR, opacity=ALPHA_FLOOR)
+            pl.add_axes(line_width=3)
+            pl.add_text("Body Ref Frame\n(floor rotated + translated)", position="upper_left", font_size=9)
+            pl.view_isometric()
+
+            pl.show()
+
+        _run()
 
     def _on_cam_view(self, view_name):
         """MuJoCo 뷰어의 시점 전환 요청을 시뮬레이터로 전달합니다."""
@@ -4042,6 +4565,9 @@ class ControlPanel(QMainWindow):
         """ISTA-6 Amazon 배치 낙하 해석 다이얼로그를 실행합니다."""
         dialog = StructuralDynamicsDialog(self, self.sim, sim_config=self.sim.config)
         dialog.exec()
+
+
+
 
     def _on_open_config(self):
         """XML 라이브 에디터를 엽니다."""
@@ -4105,11 +4631,8 @@ class ControlPanel(QMainWindow):
         self._rebuild_recent_menu()
 
     def _load_config_from_path(self, path: str) -> None:
-        from ..run_discrete_builder.whtb_config import load_config
         try:
-            new_cfg = load_config(path)
-            self.sim.config.update(new_cfg)
-            self.sim.ctrl_reload_request = True
+            self.sim.load_config(path)
             self._push_recent_config(path)
             self._load_config_values()
             self.lbl_status.setText(f"✅ Config loaded: {Path(path).name}")
@@ -4120,33 +4643,70 @@ class ControlPanel(QMainWindow):
 
     def _on_model_load(self):
         """저장된 JSON 설정 파일을 불러옵니다."""
-        recent = self._get_recent_configs()
-        start_dir = str(Path(recent[0]).parent) if recent else ""
+        import os
+        start_dir = os.getcwd()
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Load Config", start_dir, "JSON Files (*.json)")
         if path:
             self._load_config_from_path(path)
 
+    def _on_model_load_pkl(self):
+        """저장된 PKL 결과 파일에서 설정을 불러옵니다."""
+        import os
+        start_dir = os.getcwd()
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load Result Model", start_dir, "Pickle Files (*.pkl)")
+        if path:
+            self._load_config_from_pkl(path)
+
+    def _load_config_from_pkl(self, path: str) -> None:
+        try:
+            import pickle
+            import sys
+            # Add WHToolsBox root to sys.path so pickle can resolve custom WHToolsBox classes
+            from .whts_utils import get_external_tool_path
+            
+            with open(path, 'rb') as f:
+                result = pickle.load(f)
+                
+            if hasattr(result, 'config'):
+                self.sim.load_config_from_dict(result.config)
+                self._load_config_values()
+                self.lbl_status.setText(f"✅ Model Setup loaded from: {Path(path).name}")
+                QtWidgets.QMessageBox.information(self, "Success", "이전 해석 모델의 설정(Config)을 성공적으로 복원했습니다!")
+            else:
+                QtWidgets.QMessageBox.warning(self, "Load Error", "선택한 PKL 파일에 config 정보가 없습니다.")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.warning(self, "Load Error", f"PKL 파일을 불러올 수 없습니다:\n{e}")
+
     def _on_model_save(self):
         """현재 시뮬레이션 설정을 JSON 파일로 저장합니다."""
-        from ..run_discrete_builder.whtb_config import save_config
-        recent = self._get_recent_configs()
-        start_dir = str(Path(recent[0]).parent) if recent else ""
+        from datetime import datetime
+        import os
+        now = datetime.now()
+        start_dir = os.getcwd()
+        default_name = f"TVPack_{now.strftime('%Y%m%d_%H%M%S')}.json"
+        default_path = str(Path(start_dir) / default_name)
+
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Config", start_dir + "/config.json", "JSON Files (*.json)")
-        if path:
-            try:
-                save_config(self.sim.config, path)
-                self._push_recent_config(path)
-                self.lbl_status.setText(f"💾 Config saved: {Path(path).name}")
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "Save Error", f"저장 실패:\n{e}")
+            self, "Save Config (JSON)", default_path, "JSON Files (*.json)")
+        if not path:
+            return
+        try:
+            self.sim.save_config(path)
+            self._push_recent_config(path)
+            self.lbl_status.setText(f"💾 Config saved: {Path(path).name}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Save Error", f"저장 실패:\n{e}")
 
     def _on_reload_xml(self):
         from PySide6.QtWidgets import QFileDialog
+        import os
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select MuJoCo Simulation XML",
-            str(self.sim.output_dir), "MuJoCo XML (*.xml);;All Files (*)"
+            os.getcwd(), "MuJoCo XML (*.xml);;All Files (*)"
         )
         if file_path:
             self.sim.reload_xml(file_path)

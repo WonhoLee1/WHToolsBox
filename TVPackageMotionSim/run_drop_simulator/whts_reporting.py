@@ -300,12 +300,13 @@ def apply_rank_heatmap(sim: Any) -> None:
         n = len(sorted_idxs)
         for rank, (idx, _) in enumerate(sorted_idxs):
             f = rank / (n - 1) if n > 1 else 1.0
-            color = cmap(f)
+            color = list(cmap(f))
             b_uid = sim.components[comp_name][idx]
             for g_id in range(sim.model.ngeom):
                 if sim.model.geom_bodyid[g_id] == b_uid:
+                    color[3] = sim.model.geom_rgba[g_id][3]
                     sim.model.geom_rgba[g_id] = color
-    if sim.viewer: sim.viewer.sync()
+            if sim.viewer: sim.viewer.sync()
 
 def compute_ssr_shell_metrics(comp_name: str, positions: np.ndarray, values: np.ndarray, config: Dict[str, Any]) -> Dict[str, Any]:
     """

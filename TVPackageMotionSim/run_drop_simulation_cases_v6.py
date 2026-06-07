@@ -344,26 +344,26 @@ def test_case_1_setup():
 
     # [3. COMPONENTS OPTIONS] : 각 컴포넌트의 설정 (Meshing, Weld, Mass) 통합 관리
     cfg["components"] = {
-        "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
-        "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
-        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0)},
-        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": False},
-        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
+        "paper"         : {"div": [5, 5, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0),  "mesh_elem_size": 30.0},
+        "cushion"       : {"div": [5, 5, 3], "use_weld": True, "mass": 3.0,  "rgba": get_rgba_by_name("gray", 0.6), "mesh_elem_size": 100.0},
+        "opencell"      : {"div": [4, 4, 1], "use_weld": True, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0 ), "mesh_elem_size": 15.0},
+        "opencellcoh"   : {"div": [4, 4, 1], "use_weld": True, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": False, "mesh_elem_size": 15.0},
+        "chassis"       : {"div": [4, 4, 1], "use_weld": True, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0", "mesh_elem_size": 30.0},
     }
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
 
     # fast mode
-    '''
+    #'''
     cfg["components"] = {
-        "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0)},
-        "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": "0.8 0.8 0.8 0.6"},
-        "opencell"      : {"div": [3, 3, 1], "use_weld": False, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0)},
-        "opencellcoh"   : {"div": [3, 3, 1], "use_weld": False, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": True},
-        "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0"},
+        "paper"         : {"div": [3, 3, 3], "use_weld": True, "mass": 4.0,  "rgba": get_rgba_by_name("paper", 1.0), "mesh_elem_size": 30.0},
+        "cushion"       : {"div": [3, 3, 3], "use_weld": True, "mass": 3.0,  "rgba": get_rgba_by_name("gray", 0.6), "mesh_elem_size": 100.0},
+        "opencell"      : {"div": [3, 3, 1], "use_weld": False, "mass": 5.0,  "rgba": get_rgba_by_name("black", 1.0), "mesh_elem_size": 15.0},
+        "opencellcoh"   : {"div": [3, 3, 1], "use_weld": False, "mass": 0.1,  "rgba": get_rgba_by_name("red", 0.4), "enable_btm_weld": True, "mesh_elem_size": 15.0},
+        "chassis"       : {"div": [3, 3, 1], "use_weld": False, "mass": 10.0, "rgba": "0.0 0.2 0.4 1.0", "mesh_elem_size": 30.0},
     }
     cfg["sim_integrator"] = "implicitfast"
     cfg["sim_iterations"] = 30
-    '''
+    #'''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
     common_friction = [0.3, 0.3]
@@ -446,6 +446,9 @@ if __name__ == "__main__":
     # Case 1 기반으로 v6 파이프라인 실행
     try:
         run_digital_twin_pipeline_v6(test_case_1_setup)
-    finally:
-        # 단독 실행 시에만 최종적으로 클린 종료 처리
-        sys.exit(0)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
+    import sys
+    sys.exit(0)
