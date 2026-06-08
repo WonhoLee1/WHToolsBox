@@ -150,24 +150,40 @@ class RadiossModelBuilder:
 
         # Buffered stream to redirect sys.stdout (RunOpenRadioss prints) to callback
         class CallbackStream(io.TextIOBase):
-            def __init__(self, cb):
+            def __init__(self, cb, fallback_stream):
                 self.cb = cb
+                self.fallback = fallback_stream
                 self.buffer = ""
+                self._in_callback = False
             def write(self, s):
-                self.buffer += s
-                while "\n" in self.buffer:
-                    line, self.buffer = self.buffer.split("\n", 1)
-                    val = line.strip()
-                    if val:
-                        self.cb(f"[Radioss] {val}")
+                if self._in_callback:
+                    return self.fallback.write(s)
+                self._in_callback = True
+                try:
+                    self.buffer += s
+                    while "\n" in self.buffer:
+                        line, self.buffer = self.buffer.split("\n", 1)
+                        val = line.strip()
+                        if val:
+                            self.cb(f"[Radioss] {val}")
+                finally:
+                    self._in_callback = False
                 return len(s)
             def flush(self):
-                if self.buffer.strip():
-                    self.cb(f"[Radioss] {self.buffer.strip()}")
-                    self.buffer = ""
+                if self._in_callback:
+                    return self.fallback.flush()
+                self._in_callback = True
+                try:
+                    if self.buffer.strip():
+                        self.cb(f"[Radioss] {self.buffer.strip()}")
+                        self.buffer = ""
+                finally:
+                    self._in_callback = False
+            def __getattr__(self, name):
+                return getattr(self.fallback, name)
 
         old_stdout = _sys.stdout
-        stream = CallbackStream(callback) if callback else None
+        stream = CallbackStream(callback, old_stdout) if callback else None
         if stream:
             _sys.stdout = stream
 
