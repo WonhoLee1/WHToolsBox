@@ -45,6 +45,12 @@ Write-Host "[3/3] Running PyInstaller inside 'vdmc' conda environment..."
 #conda run -n vdmc pyinstaller --clean drop_simulator_v6.spec
 conda run -n vdmc pyinstaller --clean --noconfirm drop_simulator_v6.spec
 
+# [4/4] Copy user config ini file to the exe root location
+if (Test-Path "external_tools_config.ini") {
+    Write-Host "[4/4] Copying external_tools_config.ini to build dist root folder..."
+    Copy-Item "external_tools_config.ini" -Destination "dist\WHTools_DropSimulator_v6\external_tools_config.ini" -Force
+}
+
 Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Green
 Write-Host "  Build Completed!" -ForegroundColor Green

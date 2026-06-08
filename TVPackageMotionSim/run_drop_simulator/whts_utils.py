@@ -457,7 +457,12 @@ class WHToolsSessionLogger:
 import configparser
 def get_external_tool_path(tool_name):
     try:
-        cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'external_tools_config.ini')
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+        cfg_path = os.path.join(base_dir, 'external_tools_config.ini')
         if os.path.exists(cfg_path):
             parser = configparser.ConfigParser()
             parser.read(cfg_path, encoding='utf-8')
