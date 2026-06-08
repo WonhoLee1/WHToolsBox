@@ -146,7 +146,7 @@ class RadiossModelBuilder:
         
         openradioss_dir = get_external_tool_path('openradioss_dir')
         if not (openradioss_dir and os.path.exists(openradioss_dir)):
-            openradioss_dir = _gui_dir
+            openradioss_dir = str(Path(_gui_dir).parent)
 
         # Buffered stream to redirect sys.stdout (RunOpenRadioss prints) to callback
         class CallbackStream(io.TextIOBase):
