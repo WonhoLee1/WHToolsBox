@@ -28,7 +28,12 @@ a = Analysis(
     ['run_drop_simulation_cases_v6.py'],
     pathex=['.'], # 현재 경로를 탐색 경로에 추가 (하위 폴더 모듈 인식용)
     binaries=[],
-    datas=[] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas,
+    datas=[
+        ('sidebar_logo.png', '.'),
+        ('sidebar_logo_raw.png', '.'),
+        ('ui_banner.png', '.'),
+        ('resources', 'resources'),
+    ] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
