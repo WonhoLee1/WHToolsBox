@@ -12,16 +12,32 @@ pyvista_datas = collect_data_files('pyvista')
 glfw_datas = collect_data_files('glfw')
 
 # 누락되기 쉬운 동적 임포트 패키지들을 모두 포함합니다.
-hidden_imports = []
-hidden_imports += collect_submodules('mujoco')
-hidden_imports += collect_submodules('PySide6')
-hidden_imports += collect_submodules('rich')
-hidden_imports += collect_submodules('pyqtgraph')
-hidden_imports += collect_submodules('scipy')
-hidden_imports += collect_submodules('pyvista')
-hidden_imports += collect_submodules('jax')
-hidden_imports += collect_submodules('jaxlib')
-hidden_imports += ['xml.etree.ElementTree', 'concurrent.futures', 'openpyxl', 'pandas', 'pkg_resources', 'jaraco.text', 'run_drop_simulator.runopenradioss', 'run_drop_simulator.inp2rad']
+hidden_imports = [
+    'xml.etree.ElementTree', 
+    'concurrent.futures', 
+    'openpyxl', 
+    'pandas', 
+    'pkg_resources', 
+    'jaraco.text',
+    'run_drop_simulator.runopenradioss', 
+    'run_drop_simulator.inp2rad',
+    'mujoco',
+    'PySide6',
+    'PySide6.QtCore',
+    'PySide6.QtWidgets',
+    'PySide6.QtGui',
+    'PySide6.QtUiTools',
+    'rich',
+    'pyqtgraph',
+    'scipy',
+    'scipy.spatial',
+    'scipy.optimize',
+    'pyvista',
+    'pyvistaqt',
+    'jax',
+    'jaxlib',
+    'glfw'
+]
 
 
 a = Analysis(
@@ -40,10 +56,11 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter', 'unittest', 'pytest', 'IPython', 'notebook', 'jedi',
-        'matplotlib.tests', 'scipy.tests', 'numpy.random._examples',
-        'pip', 'wheel', 'cython', 'PyQt5', 'PySide2',
-        'black', 'mypy', 'sphinx', 'numpydoc', 'nbconvert', 'nbformat'
+        'torch', 'tensorflow', 'tensorboard', 'dask', 'distributed', 'ipython', 
+        'notebook', 'jupyter', 'jupyter_rfb', 'spyder', 'pylint', 'pytest', 
+        'unittest', 'jedi', 'pip', 'wheel', 'cython', 'black', 'mypy', 
+        'sphinx', 'numpydoc', 'nbconvert', 'nbformat', 'matplotlib.tests', 
+        'scipy.tests', 'numpy.random._examples', 'PyQt5', 'PySide2', 'tkinter'
     ], # 불필요한 개발/테스트/GUI 툴킷 모듈을 제외하여 용량을 최소화합니다.
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

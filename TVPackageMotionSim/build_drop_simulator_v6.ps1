@@ -48,7 +48,11 @@ conda run -n vdmc pyinstaller --clean --noconfirm drop_simulator_v6.spec
 # [4/4] Copy user config ini file to the exe root location
 if (Test-Path "external_tools_config.ini") {
     Write-Host "[4/4] Copying external_tools_config.ini to build dist root folder..."
-    Copy-Item "external_tools_config.ini" -Destination "dist\WHTools_DropSimulator_v6\external_tools_config.ini" -Force
+    $DestDir = "dist\WHTools_DropSimulator_v6"
+    if (-not (Test-Path $DestDir)) {
+        New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+    }
+    Copy-Item "external_tools_config.ini" -Destination "$DestDir\external_tools_config.ini" -Force
 }
 
 Write-Host ""
