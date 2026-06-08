@@ -556,11 +556,15 @@ class RunOpenRadioss():
         else:
             self.process = subprocess.Popen(starter_command_line, env=custom_env,cwd=exec_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         while True:
-            line = self.process.stdout.readline().decode('utf8', 'replace')
-            if line:
-                print("  "+line.strip())
-            if not line and self.process.poll() is not None:
+            raw_line = self.process.stdout.readline()
+            if not raw_line and self.process.poll() is not None:
                 break
+            if raw_line:
+                try:
+                    line = raw_line.decode('utf-8')
+                except UnicodeDecodeError:
+                    line = raw_line.decode('cp949', 'replace')
+                print("  "+line.strip())
 
     def batch_run(self):
         custom_env = self.environment()
