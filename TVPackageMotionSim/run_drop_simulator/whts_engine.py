@@ -90,11 +90,15 @@ def _global_mujoco_control_callback(model, data):
             raise
 
 # 로깅 설정
+import platform
+is_windows = platform.system() == "Windows"
+_console = Console(color_system=None if is_windows else "auto")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True, markup=True)]
+    handlers=[RichHandler(console=_console, rich_tracebacks=True, markup=True)]
 )
 # [WHTOOLS] UTF-8 인코딩 강제 설정 (Rich/Console 호환성)
 if sys.stdout.encoding != 'utf-8':
@@ -106,7 +110,11 @@ if sys.stdout.encoding != 'utf-8':
         pass
 
 logger = logging.getLogger("WHTS_Engine")
-console = Console()
+logger.propagate = False
+# 중복 콘솔 로깅 방지 및 WHTS_Engine 로거에만 RichHandler 단독 매핑
+logger.handlers = []
+logger.addHandler(RichHandler(console=_console, rich_tracebacks=True, markup=True))
+console = _console
 
 from PySide6.QtCore import QThread
 class SimThread(QThread):
