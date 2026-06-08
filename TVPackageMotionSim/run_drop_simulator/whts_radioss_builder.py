@@ -117,12 +117,13 @@ class RadiossModelBuilder:
     def run(self, nt: int = 4, np_cores: int = 1, callback=None) -> None:
         """Build model files then launch starter + engine via RunOpenRadioss."""
         self.build()
-        import sys as _sys
         import os
-        import subprocess
+        import sys as _sys
+        import io
         from .whts_utils import get_external_tool_path
+        from .runopenradioss import RunOpenRadioss
         
-        # runopenradioss.py is located in the openradioss_gui directory
+        # runopenradioss.py is now integrated into the project
         openradioss_gui_dir = get_external_tool_path('openradioss_gui_dir')
         if openradioss_gui_dir and os.path.exists(openradioss_gui_dir):
             _gui_dir = str(openradioss_gui_dir)
@@ -147,43 +148,44 @@ class RadiossModelBuilder:
         if not (openradioss_dir and os.path.exists(openradioss_dir)):
             openradioss_dir = _gui_dir
 
-        # We must run this in a separate process because RunOpenRadioss uses signal.signal()
-        # which throws ValueError if executed inside a QThread (not main thread).
-        # We write a tiny wrapper script and execute it via python.
-        script = f"""
-import sys
-sys.path.insert(0, {_gui_dir!r})
-import runopenradioss
-runner = runopenradioss.RunOpenRadioss({command!r}, debug=1)
-runner.openradioss_path = {openradioss_dir!r}
-runner.batch_run()
-"""
-        
+        # Buffered stream to redirect sys.stdout (RunOpenRadioss prints) to callback
+        class CallbackStream(io.TextIOBase):
+            def __init__(self, cb):
+                self.cb = cb
+                self.buffer = ""
+            def write(self, s):
+                self.buffer += s
+                while "\n" in self.buffer:
+                    line, self.buffer = self.buffer.split("\n", 1)
+                    val = line.strip()
+                    if val:
+                        self.cb(f"[Radioss] {val}")
+                return len(s)
+            def flush(self):
+                if self.buffer.strip():
+                    self.cb(f"[Radioss] {self.buffer.strip()}")
+                    self.buffer = ""
+
+        old_stdout = _sys.stdout
+        stream = CallbackStream(callback) if callback else None
+        if stream:
+            _sys.stdout = stream
+
         try:
-            # Popen with stdout/stderr pipe so we can stream the output
-            proc = subprocess.Popen([_sys.executable, "-c", script], 
-                                    stdout=subprocess.PIPE, 
-                                    stderr=subprocess.STDOUT, 
-                                    text=True,
-                                    encoding='utf-8',
-                                    errors='replace')
-            
-            for line in iter(proc.stdout.readline, ''):
-                line = line.strip()
-                if line:
-                    if callback:
-                        callback(f"[Radioss] {line}")
-                    else:
-                        print(f"[Radioss] {line}")
-                    
-            proc.stdout.close()
-            ret_code = proc.wait()
-            if ret_code != 0:
-                print(f"[Radioss] Engine failed with exit code {ret_code}")
-                
+            runner = RunOpenRadioss(command, debug=1)
+            runner.openradioss_path = openradioss_dir
+            runner.batch_run()
         except Exception:
             import traceback
-            print(traceback.format_exc())
+            err_msg = traceback.format_exc()
+            if callback:
+                callback(f"[Radioss] Error executing OpenRadioss:\n{err_msg}")
+            else:
+                print(err_msg, file=old_stdout)
+        finally:
+            if stream:
+                stream.flush()
+                _sys.stdout = old_stdout
 
     # ── part geometry setup ───────────────────────────────────────────────────
 

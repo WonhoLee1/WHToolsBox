@@ -9,6 +9,7 @@ mujoco_datas = collect_data_files('mujoco')
 jax_datas = collect_data_files('jaxlib')
 scipy_datas = collect_data_files('scipy')
 pyvista_datas = collect_data_files('pyvista')
+glfw_datas = collect_data_files('glfw')
 
 # 누락되기 쉬운 동적 임포트 패키지들을 모두 포함합니다.
 hidden_imports = []
@@ -20,13 +21,14 @@ hidden_imports += collect_submodules('scipy')
 hidden_imports += collect_submodules('pyvista')
 hidden_imports += collect_submodules('jax')
 hidden_imports += collect_submodules('jaxlib')
-hidden_imports += ['xml.etree.ElementTree', 'concurrent.futures', 'openpyxl', 'pandas']
+hidden_imports += ['xml.etree.ElementTree', 'concurrent.futures', 'openpyxl', 'pandas', 'pkg_resources', 'jaraco.text', 'run_drop_simulator.runopenradioss', 'run_drop_simulator.inp2rad']
+
 
 a = Analysis(
     ['run_drop_simulation_cases_v6.py'],
     pathex=['.'], # 현재 경로를 탐색 경로에 추가 (하위 폴더 모듈 인식용)
     binaries=[],
-    datas=[] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas,
+    datas=[] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
@@ -34,7 +36,7 @@ a = Analysis(
     excludes=[
         'tkinter', 'unittest', 'pytest', 'IPython', 'notebook', 'jedi',
         'matplotlib.tests', 'scipy.tests', 'numpy.random._examples',
-        'pip', 'setuptools', 'wheel', 'cython', 'PyQt5', 'PySide2',
+        'pip', 'wheel', 'cython', 'PyQt5', 'PySide2',
         'black', 'mypy', 'sphinx', 'numpydoc', 'nbconvert', 'nbformat'
     ], # 불필요한 개발/테스트/GUI 툴킷 모듈을 제외하여 용량을 최소화합니다.
     win_no_prefer_redirects=False,
@@ -61,7 +63,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='app_icon.ico' # 아이콘 파일이 있다면 주석 해제 후 적용하세요
+    icon='resources/logo_icon.ico'
 )
 
 coll = COLLECT(
