@@ -457,13 +457,28 @@ class WHToolsSessionLogger:
 import configparser
 def get_external_tool_path(tool_name):
     try:
+        cfg_path = None
+        
+        # PyInstaller 빌드 환경(frozen)인 경우
         if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
+            # 1순위: 실행 파일(.exe) 바로 옆 루트 폴더 조회
+            exe_dir = os.path.dirname(sys.executable)
+            path_exe = os.path.join(exe_dir, 'external_tools_config.ini')
+            if os.path.exists(path_exe):
+                cfg_path = path_exe
+            else:
+                # 2순위: 없을 경우 번들 내부(_internal/ 루트) 조회
+                bundle_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                path_bundle = os.path.join(bundle_dir, 'external_tools_config.ini')
+                if os.path.exists(path_bundle):
+                    cfg_path = path_bundle
+                    
+        # 일반 개발 환경이거나, 빌드 환경에서 둘 다 못 찾은 경우
+        if not cfg_path:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cfg_path = os.path.join(base_dir, 'external_tools_config.ini')
             
-        cfg_path = os.path.join(base_dir, 'external_tools_config.ini')
-        if os.path.exists(cfg_path):
+        if cfg_path and os.path.exists(cfg_path):
             parser = configparser.ConfigParser()
             parser.read(cfg_path, encoding='utf-8')
             if 'Executables' in parser and tool_name in parser['Executables']:

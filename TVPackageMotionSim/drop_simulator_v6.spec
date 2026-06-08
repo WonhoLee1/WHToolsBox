@@ -32,6 +32,7 @@ a = Analysis(
         ('sidebar_logo.png', '.'),
         ('sidebar_logo_raw.png', '.'),
         ('ui_banner.png', '.'),
+        ('external_tools_config.ini', '.'),
         ('resources', 'resources'),
     ] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas,
     hiddenimports=hidden_imports,
