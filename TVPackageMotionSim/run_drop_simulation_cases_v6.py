@@ -111,7 +111,7 @@ if sys.stdout.encoding != 'utf-8':
         pass
 
 # 콘솔 폰트 및 120열 사이즈 설정
-configure_terminal_font("Consolas", 9, cols=120, rows=40)
+configure_terminal_font("Consolas", 8, cols=120, rows=80)
 print_ascii_art()
 
 import tempfile
