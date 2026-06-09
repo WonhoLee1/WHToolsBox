@@ -22,6 +22,11 @@ if sys.stdout.encoding != 'utf-8':
     except (AttributeError, io.UnsupportedOperation):
         pass
 
+# [WHTOOLS] VTKHDF v2.2 규격 상수 (openradioss-to-vtkhdf 참조)
+VTKHDF_VERSION = (2, 2)
+VTK_QUAD = 9
+
+
 class WHToolsExporter:
     """
     [WHTOOLS] Analysis Result Exporter (v7.2 Stable)
@@ -36,9 +41,9 @@ class WHToolsExporter:
     def export_summary(self):
         """내보내기 완료 요약 리포트 (WHTOOLS 스타일)"""
         print("\n" + "="*80)
-        print("📦 [WHTOOLS] EXPORT COMPLETE (v8.0 Ultra-Stable)")
+        print("[WHTOOLS] EXPORT COMPLETE (v9.0 VTKHDF Native)")
         print("="*80)
-        print("1. PVD+VTU: Full Transient Series (100% ParaView Compatible)")
+        print("1. VTKHDF v2.2: Native Single-File Transient (ParaView 6.0+)")
         print("2. GLB (glTF): Globally Aligned High-Fidelity 3D Assets")
         print("3. Auto-Dashboard: ParaView visualization engine launched.")
         print("="*80 + "\n")
@@ -85,6 +90,8 @@ class WHToolsExporter:
             vm_stress = analyzer.results['Von-Mises [MPa]'][target_idx]
             grid.point_data['Von-Mises [MPa]'] = vm_stress.ravel()
             
+            import vtkmodules.vtkRenderingCore as _vtkRC
+            _vtkRC.vtkObject.GlobalWarningDisplayOff()
             plotter = pv.Plotter(off_screen=True)
             try:
                 plotter.add_mesh(grid, scalars='Von-Mises [MPa]', cmap='jet', show_scalar_bar=True)
@@ -270,11 +277,238 @@ class WHToolsExporter:
             print(f"⚠️ ZIP Compression failed: {e}. Keeping raw files.")
             return pvd_path
 
-    # 하위 호환성: 기존 VTKHDF 호출 코드가 있을 경우 PVD로 라우팅
     def export_to_vtkhdf(self, output_dir: str, filename: str = "Result.vtkhdf"):
-        """[호환성 래퍼] export_to_pvd_series 로 위임합니다."""
-        pvd_dir = output_dir.rstrip("/\\")
-        return self.export_to_pvd_series(pvd_dir, "Result.pvd")
+        """
+        [WHTOOLS] VTKHDF v2.2 Native Export (v9.0)
+
+        openradioss-to-vtkhdf의 HDFWriter 규격을 참조하여 단일 .vtkhdf 파일에
+        PartitionedDataSetCollection 형태로 전체 시계열을 기록합니다.
+
+        - static=True: Connectivity/Types/Offsets는 1회만 기록
+        - Points + PointData는 프레임별 append
+        - Steps 그룹으로 시계열 오프셋 관리
+        - Assembly 그룹으로 파트 심볼릭 링크 통합
+
+        Args:
+            output_dir: 출력 디렉토리 경로
+            filename: 출력 파일명 (기본: Result.vtkhdf)
+
+        Returns:
+            str: 생성된 .vtkhdf 파일 경로, 실패 시 PVD fallback 결과
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        self.last_export_dir = output_dir
+        vtkhdf_path = os.path.join(output_dir, filename)
+
+        if not self.manager.analyzers:
+            print("  [Export Warning] No analyzers found.")
+            return None
+
+        # 유효 파트 사전 수집
+        valid_parts = []
+        for p_idx, analyzer in enumerate(self.manager.analyzers):
+            if analyzer.sol is None or not analyzer.results or 'R' not in analyzer.results:
+                continue
+            res = analyzer.sol.res
+            n_pts = res * res
+            n_cells = (res - 1) * (res - 1)
+
+            # Quad Connectivity (static): 각 셀의 4개 꼭짓점 인덱스
+            connectivity = []
+            for i in range(res - 1):
+                for j in range(res - 1):
+                    connectivity.extend([i*res+j, i*res+j+1, (i+1)*res+j+1, (i+1)*res+j])
+            # Offsets: 각 셀의 connectivity 시작 위치 (0, 4, 8, ...)
+            offsets = [4 * c for c in range(n_cells + 1)]
+
+            valid_parts.append({
+                'idx': p_idx,
+                'analyzer': analyzer,
+                'name': analyzer.name,
+                'res': res,
+                'n_pts': n_pts,
+                'n_cells': n_cells,
+                'connectivity': np.array(connectivity, dtype=np.int32),
+                'offsets': np.array(offsets, dtype=np.int32),
+                'types': np.full(n_cells, VTK_QUAD, dtype=np.uint8),
+            })
+
+        if not valid_parts:
+            print("  [Export Warning] No valid parts with analysis results.")
+            return None
+
+        print(f"\n[WHTOOLS] Exporting VTKHDF v2.2 (Native) -> {vtkhdf_path}")
+        print(f"  > Assembly: {len(valid_parts)} parts / {self.n_frames} frames")
+
+        # 공간 필드 필터 (PVD 내보내기와 동일한 로직)
+        SKIP_PREFIXES = ('Max-', 'Mean-', 'R_matrix', 'r_rmse', 'cur_centroid',
+                         'ref_centroid', 'local_markers', 'Marker Global Disp')
+        SKIP_KEYS = {'R', 'c_P', 'c_Q'}
+
+        def _is_spatial_field(key, arr):
+            """(n_frames, res, res) 형태의 공간 스칼라 필드인지 확인"""
+            if key in SKIP_KEYS:
+                return False
+            if any(key.startswith(p) for p in SKIP_PREFIXES):
+                return False
+            if not hasattr(arr, 'shape') or arr.ndim != 3:
+                return False
+            return True
+
+        max_vm = 0.0
+
+        try:
+            with h5py.File(vtkhdf_path, 'w') as hf:
+                # ── 루트 VTKHDF 그룹 ──
+                root = hf.create_group("VTKHDF", track_order=True)
+                root.attrs["Version"] = VTKHDF_VERSION
+                root.attrs.create("Type", b"PartitionedDataSetCollection",
+                                  dtype=h5py.string_dtype("ascii", len(b"PartitionedDataSetCollection")))
+
+                # ── 파트별 UnstructuredGrid 블록 기록 ──
+                for part in valid_parts:
+                    az = part['analyzer']
+                    part_name = part['name']
+                    n_pts = part['n_pts']
+                    n_cells = part['n_cells']
+                    res = part['res']
+                    n_conn = len(part['connectivity'])
+
+                    grp = root.create_group(part_name, track_order=True)
+                    grp.attrs["Version"] = VTKHDF_VERSION
+                    grp.attrs.create("Type", b"UnstructuredGrid",
+                                     dtype=h5py.string_dtype("ascii", len(b"UnstructuredGrid")))
+
+                    pd_grp = grp.create_group("PointData", track_order=True)
+                    cd_grp = grp.create_group("CellData", track_order=True)
+
+                    # NumberOf* 데이터셋 (프레임별 값 append)
+                    ds_npts = grp.create_dataset("NumberOfPoints",
+                                                 shape=(self.n_frames,), dtype=np.int32)
+                    ds_ncells = grp.create_dataset("NumberOfCells",
+                                                   shape=(self.n_frames,), dtype=np.int32)
+                    ds_nconn = grp.create_dataset("NumberOfConnectivityIds",
+                                                  shape=(self.n_frames,), dtype=np.int32)
+                    ds_npts[:] = n_pts
+                    ds_ncells[:] = n_cells
+                    ds_nconn[:] = n_conn
+
+                    # Static Topology: Connectivity, Types, Offsets (1회 기록)
+                    grp.create_dataset("Connectivity", data=part['connectivity'])
+                    grp.create_dataset("Types", data=part['types'])
+                    grp.create_dataset("Offsets", data=part['offsets'])
+
+                    # ── 공간 필드 키 사전 수집 ──
+                    spatial_keys = [k for k, v in az.results.items() if _is_spatial_field(k, v)]
+
+                    # ── Points + PointData 전프레임 기록 ──
+                    # 사전 할당 (전체 크기)
+                    ds_points = grp.create_dataset("Points",
+                                                   shape=(self.n_frames * n_pts, 3),
+                                                   dtype=np.float32)
+
+                    # PointData 데이터셋 사전 할당
+                    pd_datasets = {}
+                    for key in spatial_keys:
+                        pd_datasets[key] = pd_grp.create_dataset(
+                            key, shape=(self.n_frames * n_pts,), dtype=np.float32)
+
+                    # displacement_vec (3D 벡터)
+                    ds_disp_vec = pd_grp.create_dataset(
+                        "displacement_vec", shape=(self.n_frames * n_pts, 3), dtype=np.float32)
+
+                    # PartID (CellData)
+                    ds_partid = cd_grp.create_dataset(
+                        "PartID", shape=(self.n_frames * n_cells,), dtype=np.int32)
+
+                    rb = np.array(az.ref_basis)
+                    rc = np.array(az.ref_center)
+                    cP0 = np.array(az.results['c_P'][0])
+                    X = np.array(az.sol.X_mesh)
+                    Y = np.array(az.sol.Y_mesh)
+
+                    for t in range(self.n_frames):
+                        t_safe = min(t, len(az.results['R']) - 1)
+                        R_t = np.array(az.results['R'][t_safe])
+                        cQ_t = np.array(az.results['c_Q'][t_safe])
+                        w = np.nan_to_num(az.results['Displacement [mm]'][t_safe], nan=0.0)
+                        vm = np.nan_to_num(az.results.get('Von-Mises [MPa]', np.zeros_like(w))[t_safe] if 'Von-Mises [MPa]' in az.results else np.zeros_like(w), nan=0.0)
+
+                        p_local = np.column_stack([X.ravel(), Y.ravel(), w.ravel()])
+                        p_global = self._transform_to_global(p_local, rb, rc, cP0, R_t, cQ_t)
+                        p_ref = np.column_stack([X.ravel(), Y.ravel(), np.zeros(X.size)]) @ rb.T + rc
+
+                        # Points
+                        pt_start = t * n_pts
+                        pt_end = pt_start + n_pts
+                        ds_points[pt_start:pt_end, :] = p_global.astype(np.float32)
+
+                        # displacement_vec
+                        ds_disp_vec[pt_start:pt_end, :] = (p_global - p_ref).astype(np.float32)
+
+                        # Spatial field PointData
+                        for key in spatial_keys:
+                            val = np.nan_to_num(az.results[key][t_safe], nan=0.0).ravel().astype(np.float32)
+                            pd_datasets[key][pt_start:pt_end] = val
+
+                        # PartID (CellData)
+                        cd_start = t * n_cells
+                        cd_end = cd_start + n_cells
+                        ds_partid[cd_start:cd_end] = part['idx']
+
+                        max_vm = max(max_vm, float(np.nanmax(vm)))
+
+                    # ── Steps 그룹 ──
+                    steps = grp.create_group("Steps")
+                    steps.attrs["NSteps"] = (self.n_frames,)
+                    steps.create_dataset("Values", data=np.arange(self.n_frames, dtype=np.int32))
+
+                    # PointOffsets: [0, n_pts, 2*n_pts, ...]
+                    steps.create_dataset("PointOffsets",
+                                         data=np.arange(self.n_frames, dtype=np.int64) * n_pts)
+
+                    # Static topology: Cell/Connectivity/Part offsets 모두 0
+                    steps.create_dataset("CellOffsets",
+                                         data=np.zeros(self.n_frames, dtype=np.int64))
+                    steps.create_dataset("ConnectivityIdOffsets",
+                                         data=np.zeros(self.n_frames, dtype=np.int64))
+                    steps.create_dataset("PartOffsets",
+                                         data=np.zeros(self.n_frames, dtype=np.int64))
+
+                    # PointDataOffsets
+                    pdo = steps.create_group("PointDataOffsets")
+                    pt_offsets = np.arange(self.n_frames, dtype=np.int64) * n_pts
+                    for key in spatial_keys:
+                        pdo.create_dataset(key, data=pt_offsets)
+                    pdo.create_dataset("displacement_vec", data=pt_offsets)
+
+                    # CellDataOffsets
+                    cdo = steps.create_group("CellDataOffsets")
+                    cd_offsets = np.arange(self.n_frames, dtype=np.int64) * n_cells
+                    cdo.create_dataset("PartID", data=cd_offsets)
+
+                    print(f"    [{part_name}] {n_pts} pts x {self.n_frames} frames written.")
+
+                # ── Assembly 그룹 ──
+                assembly = root.create_group("Assembly", track_order=True)
+                for p_count, part in enumerate(valid_parts):
+                    pname = part['name']
+                    asm_grp = assembly.create_group(pname, track_order=True)
+                    asm_grp[pname] = h5py.SoftLink(f"/VTKHDF/{pname}")
+                    root[pname].attrs.create("Index", p_count, dtype=np.int32)
+
+            print(f"\n  [VTKHDF] Written: {vtkhdf_path}")
+            print(f"  [VTKHDF] {len(valid_parts)} parts / {self.n_frames} frames / Max VM: {max_vm:.2f} MPa")
+            print(f"  [VTKHDF] File size: {os.path.getsize(vtkhdf_path) / (1024*1024):.1f} MB")
+            return vtkhdf_path
+
+        except Exception as err:
+            print(f"  [VTKHDF] Native export failed: {err}")
+            traceback.print_exc()
+            print(f"  [VTKHDF] Falling back to PVD+VTU series...")
+            return self.export_to_pvd_series(output_dir, "Result.pvd")
 
     def launch_paraview(self, pvd_path: str):
         """ParaView를 자동 실행하며 PVD 파일을 로드합니다."""

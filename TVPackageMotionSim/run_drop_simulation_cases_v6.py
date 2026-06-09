@@ -12,6 +12,94 @@ import pickle
 import jax.numpy as jnp
 from datetime import datetime
 from typing import Any
+import ctypes
+
+# [WHTOOLS] 윈도우 콘솔 창의 폰트 및 크기 임의 조정 로직 추가
+def configure_terminal_font(font_name="Consolas", font_size=9, cols=120, rows=40):
+    """Windows API를 호출하여 현재 콘솔 창의 폰트, 크기(120열) 및 스크롤 버퍼를 변경합니다."""
+    if sys.platform != 'win32':
+        return
+    try:
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class SMALL_RECT(ctypes.Structure):
+            _fields_ = [
+                ("Left", ctypes.c_short),
+                ("Top", ctypes.c_short),
+                ("Right", ctypes.c_short),
+                ("Bottom", ctypes.c_short)
+            ]
+
+        class CONSOLE_FONT_INFOEX(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_ulong),
+                ("nFont", ctypes.c_ulong),
+                ("dwFontSize", COORD),
+                ("FontFamily", ctypes.c_uint),
+                ("FontWeight", ctypes.c_uint),
+                ("FaceName", ctypes.c_wchar * 32)
+            ]
+
+        STD_OUTPUT_HANDLE = -11
+        handle = ctypes.windll.kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+
+        # 1. 버퍼 크기 변경 (가로 cols열, 세로 2000줄로 넉넉하게 스크롤 확보)
+        buffer_size = COORD(cols, 2000)
+        ctypes.windll.kernel32.SetConsoleScreenBufferSize(handle, buffer_size)
+
+        # 2. 콘솔 폰트 세팅
+        font_info = CONSOLE_FONT_INFOEX()
+        font_info.cbSize = ctypes.sizeof(CONSOLE_FONT_INFOEX)
+        font_info.nFont = 0
+        font_info.dwFontSize.X = 0
+        font_info.dwFontSize.Y = font_size
+        font_info.FontFamily = 54
+        font_info.FontWeight = 400
+        font_info.FaceName = font_name
+        ctypes.windll.kernel32.SetCurrentConsoleFontEx(handle, False, ctypes.byref(font_info))
+
+        # 3. 창 크기 변경 (가로 cols열, 세로 rows행)
+        window_rect = SMALL_RECT(0, 0, cols - 1, rows - 1)
+        ctypes.windll.kernel32.SetConsoleWindowInfo(handle, True, ctypes.byref(window_rect))
+    except Exception:
+        pass
+
+def print_ascii_art():
+    """터미널 화면을 클리어하고 멋진 WHTOOLS TV Drop Motion Simulator 타이틀을 출력합니다."""
+    if sys.platform == 'win32':
+        os.system('cls')
+    art = r"""
+██╗    ██╗██╗  ██╗████████╗██████╗  ██████╗ ██╗     ███████╗
+██║    ██║██║  ██║╚══██╔══╝██╔══██╗██╔═══██╗██║     ██╔════╝
+██║ █╗ ██║███████║   ██║   ██║  ██║██║   ██║██║     ███████╗
+██║███╗██║██╔══██║   ██║   ██║  ██║██║   ██║██║     ╚════██║
+╚███╔███╔╝██║  ██║   ██║   ██████╔╝╚██████╔╝███████╗███████║
+ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   ╚═════╝  ╚═════╝ ╚══════╝╚══════╝
+
+████████╗██╗   ██╗    ██████╗ ██████╗  ██████╗ ██████╗ 
+╚══██╔══╝██║   ██║    ██╔══██╗██╔══██╗██╔═══██╗██╔══██╗
+   ██║   ██║   ██║    ██║  ██║██████╔╝██║   ██║██████╔╝
+   ██║   ╚██╗ ██╔╝    ██║  ██║██╔══██╗██║   ██║██╔═══╝ 
+   ██║    ╚████╔╝     ██████╔╝██║  ██║╚██████╔╝██║     
+   ╚═╝     ╚═══╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝     
+                                                       
+███╗   ███╗ ██████╗ ████████╗██╗ ██████╗ ███╗   ██╗
+████╗ ████║██╔═══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║
+██╔████╔██║██║   ██║   ██║   ██║██║   ██║██╔██╗ ██║
+██║╚██╔╝██║██║   ██║   ██║   ██║██║   ██║██║╚██╗██║
+██║ ╚═╝ ██║╚██████╔╝   ██║   ██║╚██████╔╝██║ ╚████║
+╚═╝     ╚═╝ ╚═════╝    ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+                                                       
+███████╗██╗███╗   ███╗██╗   ██╗██╗      ██████╗ ████████╗██████╗ ██████╗ 
+██╔════╝██║████╗ ████║██║   ██║██║     ██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗
+███████╗██║██╔████╔██║██║   ██║██║     ███████║   ██║   ██║   ██║██████╔╝
+╚════██║██║██║╚██╔╝██║██║   ██║██║     ██╔══██║   ██║   ██║   ██║██╔══██╗
+███████║██║██║ ╚═╝ ██║╚██████╔╝███████╗██║  ██║   ██║   ╚██████╔╝██║  ██║
+╚══════╝╚═╝╚═╝     ╚═╝ ╚══════╝╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
+"""
+    print(art)
+    print("=" * 120)
 
 # [WHTOOLS] UTF-8 인코딩 강제 설정 (표준 출력/에러)
 if sys.stdout.encoding != 'utf-8':
@@ -21,6 +109,10 @@ if sys.stdout.encoding != 'utf-8':
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
     except (AttributeError, io.UnsupportedOperation):
         pass
+
+# 콘솔 폰트 및 120열 사이즈 설정
+configure_terminal_font("Consolas", 9, cols=120, rows=40)
+print_ascii_art()
 
 import tempfile
 from datetime import datetime
@@ -33,20 +125,20 @@ class TeeLogger:
         self.lock = threading.Lock()
         
     def write(self, data):
-        # [WHTOOLS] FIX: UnicodeEncodeError 방지 및 쓰기 에러 무시
-        try:
-            self.stream.write(data)
-            self.stream.flush()
-        except Exception:
-            pass
-            
-        # [WHTOOLS] FIX: 디스크 I/O 충돌 방지를 위한 Lock 적용
-        try:
-            with self.lock:
+        with self.lock:
+            # [WHTOOLS] FIX: UnicodeEncodeError 방지 및 쓰기 에러 무시
+            try:
+                self.stream.write(data)
+                self.stream.flush()
+            except Exception:
+                pass
+                
+            # [WHTOOLS] FIX: 디스크 I/O 충돌 방지를 위한 Lock 적용
+            try:
                 with open(self.log_file, "a", encoding="utf-8") as f:
                     f.write(data)
-        except Exception:
-            pass
+            except Exception:
+                pass
             
     def flush(self):
         try:
@@ -366,7 +458,7 @@ def test_case_1_setup():
     #'''
     cfg["include_paperbox"] = False        # 종이 박스 메쉬 모델 활성화
     # [4. CONTACT & PAIR PARAMETERS] : 명시적 접촉 쌍 설정 (A1/A2 통합 점검)
-    common_friction = [0.3, 0.3]
+    common_friction = [0.26, 0.26]
     p_solref = [-25000.0,-200.0]
     p_solimp = [0.90, 0.95, 0.001, 0.5, 2]
     cfg["contacts"] = {
@@ -430,6 +522,9 @@ def test_case_1_setup():
         "target_cog"    : [0.0034228, -0.01196665, 0.0059899],              # [x, y, z] m
     }
 
+    # [WHTOOLS] 텔레메트리 콜백
+    cfg["telemetry_callback"] = telemetry_callback
+    
     # [7. GROUND PROPERTIES]
     # (Unused legacy keys removed)
 
@@ -441,6 +536,9 @@ def test_case_1_setup():
     sim = DropSimulator(config=cfg)
     sim.simulate()
     return sim
+
+def telemetry_callback(event_name):
+    pass
 
 if __name__ == "__main__":
     # Case 1 기반으로 v6 파이프라인 실행

@@ -19,6 +19,8 @@ import logging
 from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # User Guideline: koreanize-matplotlib (하지만 영어로 기록하라는 요구사항 반영)

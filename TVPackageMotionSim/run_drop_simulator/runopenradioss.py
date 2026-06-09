@@ -564,7 +564,7 @@ class RunOpenRadioss():
                     line = raw_line.decode('utf-8')
                 except UnicodeDecodeError:
                     line = raw_line.decode('cp949', 'replace')
-                print("  "+line.strip())
+                print(line.strip())
 
     def batch_run(self):
         custom_env = self.environment()

@@ -409,37 +409,49 @@ class WHToolsSessionLogger:
 
     @classmethod
     def _acquire(cls, base_dir: Path):
-        """사용 가능한 (log_path, lock_path) 쌍을 반환. 실패 시 (None, None)."""
+        # 1. base_dir 내의 모든 *.lock 파일을 검색하여 프로세스가 종료된 좀비 락 및 로그 파일 일괄 제거
+        try:
+            for lock_path in base_dir.glob("*.lock"):
+                if lock_path.is_file():
+                    try:
+                        content_lock = lock_path.read_text(encoding='utf-8').strip()
+                        if content_lock.isdigit():
+                            pid = int(content_lock)
+                            alive = cls._pid_alive(pid)
+                        else:
+                            alive = False
+                    except Exception:
+                        alive = False
+
+                    if not alive:
+                        try:
+                            lock_path.unlink()
+                        except Exception:
+                            pass
+                        log_path = lock_path.with_suffix('.log')
+                        if log_path.exists():
+                            try:
+                                log_path.unlink()
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+
+        # 2. 비어 있는 첫 번째 락 슬롯 획득
         candidates = [base_dir / "whtoolsbox.log"] + \
                      [base_dir / f"whtoolsbox_{i}.log" for i in range(1, 20)]
-
         for log_path in candidates:
             lock_path = log_path.with_suffix('.lock')
             if not lock_path.exists():
-                # lock 없음 → 독점 생성 시도
                 try:
                     fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                     os.write(fd, str(os.getpid()).encode())
                     os.close(fd)
                     return log_path, lock_path
                 except FileExistsError:
-                    continue  # 경합 발생 → 다음 슬롯
+                    continue
             else:
-                # lock 존재 → PID 살아있는지 확인
-                try:
-                    pid = int(lock_path.read_text().strip())
-                    alive = cls._pid_alive(pid)
-                except Exception:
-                    alive = False
-
-                if not alive:
-                    # 좀비 락 → 교체 후 획득
-                    try:
-                        lock_path.write_text(str(os.getpid()))
-                        return log_path, lock_path
-                    except Exception:
-                        continue
-                # 살아있는 세션 → 다음 슬롯
+                continue
         return None, None
 
     @classmethod
@@ -486,4 +498,3 @@ def get_external_tool_path(tool_name):
     except Exception:
         pass
     return None
-

@@ -1206,7 +1206,7 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
             return self.config.get("total_mass", 12.0)
 
     def _update_all(self):
-        from whts_ista_helper import ISTA6ASimulator, IstaFaceMapper
+        from .whts_ista_helper import ISTA6ASimulator, IstaFaceMapper
         
         mass = self._update_reporting()
         
@@ -2959,8 +2959,6 @@ class BatchRdsWorker(QThread):
                     self.sig_log.emit(f"  💾 {part_name}: {csv_path.name}")
 
                 self._write_topo_arg(scen_dir, scen, cfg, t_hist, s_i, e_i)
-                from .whts_engine import _mujoco_thread_registry
-                _mujoco_thread_registry.pop(threading.get_ident(), None)
 
             except Exception as e:
                 self.sig_log.emit(f"  ❌ Scenario {idx+1} failed: {e}")
@@ -3395,6 +3393,60 @@ class ControlPanel(QMainWindow):
         self._last_mujoco_hwnd = None
         self._last_mujoco_rect = None
 
+        # [WHTOOLS] 버튼 및 메뉴 클릭 이벤트 텔레메트리 연동
+        self._setup_ui_telemetry()
+
+    def _trigger_telemetry(self, event_name: str):
+        """[WHTOOLS] config에 정의된 telemetry_callback 함수를 호출하여 사용 현황을 로깅/전송합니다."""
+        try:
+            callback = None
+            if self.sim and hasattr(self.sim, 'config') and self.sim.config:
+                callback = self.sim.config.get("telemetry_callback")
+            
+            if callback and callable(callback):
+                callback(event_name)
+        except Exception:
+            pass
+
+    def _setup_ui_telemetry(self):
+        """[WHTOOLS] 특정 QPushButton, QToolButton 및 QAction에 사용 현황 텔레메트리 콜백을 연동합니다."""
+        import re
+        from PySide6.QtWidgets import QAbstractButton
+        def clean_name(text):
+            # 이모지 및 특수 데코레이션 제거하여 순수 기능명만 추출
+            cleaned = re.sub(r'[^\w\s\(\)\-\[\]\.\,\/\+\*]', '', text)
+            return cleaned.strip()
+
+        # [WHTOOLS] 우선 호출을 허용할 특정 기능명 리스트 (Pause 상태도 Play로 자동 매핑)
+        ALLOWED_FEATURES = {
+            "New Model Setup", "Play", "Monitor", "Cam. Info.", 
+            "Log Motion", "Str. Analysis", "Generate Model", "Run Engine", "ParaView"
+        }
+
+        # 1. 모든 버튼(QPushButton, QToolButton 등 QAbstractButton 상속) 탐색 및 연결
+        for btn in self.findChildren(QAbstractButton):
+            raw_text = btn.text()
+            feature_name = clean_name(raw_text) if raw_text else btn.objectName()
+            if not feature_name:
+                continue
+            if feature_name == "Pause":
+                feature_name = "Play"
+            if feature_name not in ALLOWED_FEATURES:
+                continue
+            btn.clicked.connect(partial(self._trigger_telemetry, feature_name))
+
+        # 2. 모든 QAction (메뉴 아이템) 탐색 및 연결
+        for act in self.findChildren(QtGui.QAction):
+            raw_text = act.text()
+            feature_name = clean_name(raw_text) if raw_text else act.objectName()
+            if not feature_name:
+                continue
+            if feature_name == "Pause":
+                feature_name = "Play"
+            if feature_name not in ALLOWED_FEATURES:
+                continue
+            act.triggered.connect(partial(self._trigger_telemetry, feature_name))
+
     def _on_view_log(self):
         """세션 로그 파일(whtoolsbox.log)의 내용을 보여주는 창을 엽니다."""
         from .whts_utils import WHToolsSessionLogger
@@ -3431,6 +3483,76 @@ class ControlPanel(QMainWindow):
         
         dlg.exec()
 
+    def _on_open_result_folder(self):
+        """결과 폴더를 윈도우 파일 탐색기(Explorer)로 엽니다."""
+        target_dir = os.path.abspath("results")
+        if self.sim:
+            if hasattr(self.sim, 'output_dir') and self.sim.output_dir:
+                target_dir = os.path.abspath(str(self.sim.output_dir))
+            elif "result_base_dir" in self.sim.config:
+                target_dir = os.path.abspath(self.sim.config["result_base_dir"])
+
+        if not os.path.exists(target_dir):
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+            except Exception:
+                pass
+
+        try:
+            if os.name == 'nt':
+                os.startfile(target_dir)
+            else:
+                import subprocess
+                import sys
+                if sys.platform == 'darwin':
+                    subprocess.Popen(['open', target_dir])
+                else:
+                    subprocess.Popen(['xdg-open', target_dir])
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Open Folder Error", f"Failed to open result folder:\n{e}")
+
+    def _on_edit_external_tools_config(self):
+        """external_tools_config.ini 파일을 시스템 기본 텍스트 에디터로 엽니다."""
+        ini_candidates = [
+            Path("external_tools_config.ini"),
+            Path(__file__).parent.parent / "external_tools_config.ini",
+            Path(sys.argv[0]).parent / "external_tools_config.ini",
+            Path(sys.executable).parent / "external_tools_config.ini"
+        ]
+        
+        target_path = None
+        for candidate in ini_candidates:
+            if candidate.exists():
+                target_path = candidate.absolute()
+                break
+                
+        if target_path is None:
+            target_path = Path("external_tools_config.ini").absolute()
+            
+        if not target_path.exists():
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "File Not Found", 
+                f"'external_tools_config.ini' 파일을 찾을 수 없습니다.\n예상 위치: {target_path}"
+            )
+            return
+
+        try:
+            if os.name == 'nt':
+                os.startfile(str(target_path))
+            else:
+                import subprocess
+                if sys.platform == 'darwin':
+                    subprocess.Popen(['open', str(target_path)])
+                else:
+                    subprocess.Popen(['xdg-open', str(target_path)])
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "Open File Error", 
+                f"설정 파일을 여는 중 오류가 발생했습니다:\n{e}"
+            )
+
     def showEvent(self, event):
         """창이 표시될 때 정렬을 위해 부모 이벤트를 호출합니다."""
         super().showEvent(event)
@@ -3466,6 +3588,14 @@ class ControlPanel(QMainWindow):
         view_menu = menubar.addMenu("🔍 View")
         act_view_log = view_menu.addAction("📜 View Log")
         act_view_log.triggered.connect(self._on_view_log)
+        
+        act_open_result = view_menu.addAction("📂 Open Result Folder in Explorer")
+        act_open_result.triggered.connect(self._on_open_result_folder)
+        
+        view_menu.addSeparator()
+        
+        act_edit_ini = view_menu.addAction("⚙️ Edit External Tools Config (INI)")
+        act_edit_ini.triggered.connect(self._on_edit_external_tools_config)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -3794,29 +3924,75 @@ class ControlPanel(QMainWindow):
         if self.sim is None or self.sim.data is None:
             QtWidgets.QMessageBox.warning(self, "No Data", "시뮬레이션 데이터가 없습니다.")
             return
-            
-        target_time = self.sim.config.get("sim_duration", 1.0)
-        curr_time = self.sim.data.time
-        if curr_time < target_time:
-            QtWidgets.QMessageBox.warning(self, "Incomplete", "시뮬레이션 진행이 목표 시간까지 수행된 후 실행할 수 있습니다.")
-            return
-            
-        if not hasattr(self.sim, 'result') or self.sim.result is None:
+
+        # [WHTOOLS] 완료 판정 1순위: result 객체 보유 여부
+        # result가 이미 있으면 time 체크 없이 바로 분석 진행
+        has_result = hasattr(self.sim, 'result') and self.sim.result is not None
+
+        if not has_result:
+            # 완료 판정 2순위: data.time이 목표 시간에 도달했는지 확인
+            target_time = self.sim.config.get("sim_duration", 1.0)
+            curr_time = self.sim.data.time
+            if curr_time < target_time:
+                QtWidgets.QMessageBox.warning(
+                    self, "Incomplete",
+                    f"시뮬레이션 진행이 목표 시간까지 수행된 후 실행할 수 있습니다.\n"
+                    f"(현재: {curr_time:.3f}s / 목표: {target_time:.3f}s)"
+                )
+                return
+            # result 미생성 시 build 시도
             if hasattr(self.sim, 'build_and_save_result'):
                 self.sim.build_and_save_result()
             else:
                 QtWidgets.QMessageBox.warning(self, "No Result", "시뮬레이션 결과(result)를 생성할 수 없습니다.")
                 return
 
+        # ── 시각화 방식 선택 다이얼로그 ──
+        dlg = QtWidgets.QMessageBox(self)
+        dlg.setWindowTitle("Str. Analysis — 시각화 방식 선택")
+        dlg.setText(
+            "<b>구조 해석 결과를 어떤 방식으로 확인하시겠습니까?</b><br><br>"
+            "• <b>ParaView (VTKHDF)</b>: 단일 .vtkhdf 파일 내보내기 후 ParaView 실행<br>"
+            "&nbsp;&nbsp;&nbsp;&nbsp;(파트 수에 따라 내보내기 시간이 소요됩니다)<br><br>"
+            "• <b>WHT Visualizer</b>: WHTOOLS 전용 Qt 대시보드 실행<br>"
+            "&nbsp;&nbsp;&nbsp;&nbsp;(Von-Mises, 변형장, 마커 궤적 인터랙티브 분석)"
+        )
+        dlg.setIcon(QtWidgets.QMessageBox.Question)
+
+        btn_paraview = dlg.addButton("ParaView (VTKHDF)", QtWidgets.QMessageBox.AcceptRole)
+        btn_visualizer = dlg.addButton("WHT Visualizer", QtWidgets.QMessageBox.AcceptRole)
+        btn_cancel = dlg.addButton("취소", QtWidgets.QMessageBox.RejectRole)
+        dlg.setDefaultButton(btn_visualizer)
+        dlg.exec()
+
+        clicked = dlg.clickedButton()
+        if clicked == btn_cancel or clicked is None:
+            return
+
+        mode = 'paraview' if clicked == btn_paraview else 'visualizer'
+
+        # ── WHT Visualizer 선택 시 분석 옵션 다이얼로그 ──
+        visualizer_settings = None
+        if mode == 'visualizer':
+            from .whts_multipostprocessor_ui import OpenSettingsDialog
+            settings_dlg = OpenSettingsDialog(self.sim.result, ['bcushion', 'bchassis', 'bopencell'], parent=self)
+            if settings_dlg.exec() != QtWidgets.QDialog.Accepted:
+                return
+            visualizer_settings = settings_dlg.get_settings()
+
+        # ── 분석 파이프라인 실행 ──
         from .whts_analysis_pipeline import run_analysis_pipeline
         import os
-        # Path manipulation to match the expected 'curr_dir' (TVPackageMotionSim folder)
         parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
+
         try:
-            self._post_dashboard = run_analysis_pipeline(self.sim.result, parent_dir, standalone=False)
+            self._post_dashboard = run_analysis_pipeline(
+                self.sim.result, parent_dir, standalone=False,
+                mode=mode, visualizer_settings=visualizer_settings
+            )
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Analysis Error", f"분석 파이프라인 실행 중 오류가 발생했습니다:\n{e}")
+
 
     def _update_status(self):
         """시뮬레이터의 현재 상태를 UI에 반영합니다."""
@@ -4166,7 +4342,7 @@ class ControlPanel(QMainWindow):
         self.btn_run_rad.setText("⏳ Running Engine...")
         
         self._radioss_worker = RadiossEngineWorker(builder)
-        self._radioss_worker.sig_log.connect(lambda msg: self.sim.log(msg))
+        self._radioss_worker.sig_log.connect(lambda msg: print(msg, flush=True))
         self._radioss_worker.sig_finished.connect(self._on_radioss_worker_finished)
         self._radioss_worker.start()
 
@@ -4438,6 +4614,8 @@ class ControlPanel(QMainWindow):
             return
 
         import pyvista as pv
+        import vtkmodules.vtkRenderingCore as _vtkRC
+        _vtkRC.vtkObject.GlobalWarningDisplayOff()
 
         p_vec = self.sim.data.xpos[rid].copy()
         R     = self.sim.data.xmat[rid].reshape(3, 3).copy()

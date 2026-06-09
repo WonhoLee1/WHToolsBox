@@ -820,7 +820,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         
         # 4. 리소스 경로 설정
         self.res_dir = os.path.join(os.path.dirname(__file__), "resources")
-        self.logo_path = os.path.join(self.res_dir, "logo.png")
+        self.logo_path = os.path.join(self.res_dir, "sidebar_logo.png")
         # 5. UI 엔진 가동
         self.statusBar().showMessage("WHTOOLS Ready")
         

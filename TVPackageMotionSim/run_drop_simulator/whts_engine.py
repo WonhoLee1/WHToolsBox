@@ -73,14 +73,12 @@ from .whts_control_panel import launch_control_panel
 # [WHTOOLS] 외부 패키지 임포트
 from run_discrete_builder import create_model, get_default_config
 
-# [WHTOOLS] Thread-safe MuJoCo callback dispatcher
-import threading
-_mujoco_thread_registry = {}
+# [WHTOOLS] MuJoCo control callback dispatcher (Thread-safety & Solver multi-thread compatibility)
+_mujoco_thread_registry = {}  # 하위 호환성용 빈 딕셔너리
+_mujoco_model_registry = {}
 
 def _global_mujoco_control_callback(model, data):
-    import threading
-    tid = threading.get_ident()
-    cb = _mujoco_thread_registry.get(tid)
+    cb = _mujoco_model_registry.get(id(model))
     if cb is not None:
         try:
             cb(model, data)
@@ -357,12 +355,10 @@ class DropSimulator:
         시뮬레이션 환경을 설정합니다. 모델 XML 생성, MuJoCo 객체 초기화,
         컴포넌트 식별 및 물리 콜백 등록을 포함합니다.
         """
-        # 이전 실행이 등록한 stale 콜백 해제 (프로세스 전역 싱글톤)
-        # 해제하지 않으면 GC된 DropSimulator 인스턴스를 참조해 "Python exception raised" 발생
-        import threading
         import mujoco
-        mujoco.set_mjcb_control(None)
-        _mujoco_thread_registry.pop(threading.get_ident(), None)
+        # [WHTOOLS] 이전 모델 콜백 정리
+        if self.model is not None:
+            _mujoco_model_registry.pop(id(self.model), None)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         xml_path = self.output_dir / "simulation_model.xml"
@@ -401,10 +397,9 @@ class DropSimulator:
             self._init_tracking_containers()
             self._init_plasticity_tracker()
             
-            # [CRITICAL] 물리 제어 콜백 등록 (Thread-safe Dispatcher)
+            # [CRITICAL] 물리 제어 콜백 등록 (모델 객체 id를 기반으로 멀티스레드 병렬 실행 완벽 호환)
             self._mjcb_control = lambda m, d: self._physics_control_callback(m, d)
-            import threading
-            _mujoco_thread_registry[threading.get_ident()] = self._mjcb_control
+            _mujoco_model_registry[id(self.model)] = self._mjcb_control
             mujoco.set_mjcb_control(_global_mujoco_control_callback)
             
             self.start_real_time = time.time()
@@ -412,10 +407,10 @@ class DropSimulator:
             self.log(f"🚀 Simulation Ready. Timestep: {self.model.opt.timestep:.6f}s")
             
         except Exception as e:
-            import threading
             import traceback
             traceback.print_exc()
-            _mujoco_thread_registry.pop(threading.get_ident(), None)  # dangling 콜백 방지
+            if self.model is not None:
+                _mujoco_model_registry.pop(id(self.model), None)  # dangling 콜백 방지
             self.log(f"Failed to setup simulation: {e}", level="error")
             raise
 
@@ -1383,8 +1378,9 @@ class DropSimulator:
 
     def _wrap_up(self) -> None:
         """시뮬레이션 종료 후 데이터를 정리하고 결과를 저장하며 UI를 호출합니다."""
-        # 콜백 해제 — 이 인스턴스가 GC 된 후에도 전역 콜백이 남지 않도록 정리
-        mujoco.set_mjcb_control(None)
+        # [WHTOOLS] 본인 모델 id에 대한 콜백만 안전하게 제거 (다른 병렬 스레드 간섭 방지)
+        if self.model is not None:
+            _mujoco_model_registry.pop(id(self.model), None)
 
         if self.data is None:
             self.log("⚠️ _wrap_up skipped: model/data not initialized (setup failed)", level="warning")
@@ -1455,8 +1451,22 @@ class DropSimulator:
             self.result.save(str(result_path))
             self.log(f"💾 Results saved to: {result_path}")
 
+            # [WHTOOLS] 시뮬레이션 완료 시 CSV 및 PNG 그래프 기본 자동 출력
+            try:
+                try:
+                    from run_drop_simulator.wht_export_sim_result import SimulationDataExporter
+                except ImportError:
+                    from .wht_export_sim_result import SimulationDataExporter
+                exporter = SimulationDataExporter(str(result_path))
+                exporter.export_all()
+                self.log(f"📊 Auto-exported CSV and PNG plots to: {exporter.output_dir}")
+            except Exception as exp_err:
+                import traceback
+                self.log(f"Warning: Failed to auto-export simulation figures/CSV: {exp_err}\n{traceback.format_exc()}", level="warning")
+
         except Exception as e:
-            self.log(f"Error during result building: {e}", level="error")
+            import traceback
+            self.log(f"Error during result building: {e}\n{traceback.format_exc()}", level="error")
 
     def _launch_postprocess(self) -> None:
         pass

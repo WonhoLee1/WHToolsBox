@@ -165,7 +165,7 @@ class RadiossModelBuilder:
                         line, self.buffer = self.buffer.split("\n", 1)
                         val = line.strip()
                         if val:
-                            self.cb(f"[Radioss] {val}")
+                            self.cb(val)
                 finally:
                     self._in_callback = False
                 return len(s)
@@ -175,7 +175,7 @@ class RadiossModelBuilder:
                 self._in_callback = True
                 try:
                     if self.buffer.strip():
-                        self.cb(f"[Radioss] {self.buffer.strip()}")
+                        self.cb(self.buffer.strip())
                         self.buffer = ""
                 finally:
                     self._in_callback = False
@@ -188,14 +188,14 @@ class RadiossModelBuilder:
             _sys.stdout = stream
 
         try:
-            runner = RunOpenRadioss(command, debug=1)
+            runner = RunOpenRadioss(command, debug=0)
             runner.openradioss_path = openradioss_dir
             runner.batch_run()
         except Exception:
             import traceback
             err_msg = traceback.format_exc()
             if callback:
-                callback(f"[Radioss] Error executing OpenRadioss:\n{err_msg}")
+                callback(f"Error executing OpenRadioss:\n{err_msg}")
             else:
                 print(err_msg, file=old_stdout)
         finally:

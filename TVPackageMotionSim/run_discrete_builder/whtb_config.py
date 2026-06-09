@@ -313,6 +313,7 @@ def _build_default_dict() -> Dict[str, Any]:
         "air_density": 1.225, "air_viscosity": 1.81e-5, "air_cd_drag": 1.05, "air_cd_viscous": 0.01,
         "air_coef_squeeze": 0.2, "air_squeeze_hmax": 0.20, "air_squeeze_hmin": 0.005,
         "enable_air_drag": True, "enable_air_squeeze": False,
+        "telemetry_callback": lambda event_name: None,
     }
 
 def get_default_config(user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
