@@ -2116,7 +2116,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                         else:
                             for m in range(min(y_data.shape[1], 8)): ax.plot(self.mgr.times, y_data[:, m], alpha=0.5, label=f"{name}-M{m}")
                                 
-                    if len(target_data_list) > 1: ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=fsize-2, borderaxespad=0.)
+                    if len(target_data_list) > 1: ax.legend(loc='upper right', fontsize=max(6, fsize-3), framealpha=0.6, handlelength=1.2, borderpad=0.4, labelspacing=0.3)
                     self.vls[i] = ax.axvline(current_time, color='red', ls='--')
                     ax.set_ylabel(key, fontsize=fsize); ax.set_xlabel("Time [s]", fontsize=fsize)
                     t_str = f"[Multi] {key}" if len(target_data_list) > 1 or cfg.part_indices[0] < 0 else f"[{target_data_list[0][1]}] {key}"

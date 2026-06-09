@@ -280,6 +280,7 @@ class RealTimeMonitorWindow(QWidget):
         self._init_ui()
         
         # [WHTOOLS] 초기 데이터 플로팅 및 타이머 설정
+        self._last_drawn_len = -1  # 마지막으로 그린 데이터 길이 캐시
         self._update_plot() # 창이 열리는 즉시 기존 데이터 반영
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._update_plot)
@@ -550,13 +551,23 @@ class RealTimeMonitorWindow(QWidget):
         self.fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
         
         if not show:
-            self.fig.subplots_adjust(right=0.95, left=0.1, top=0.9, bottom=0.1)
+            self.fig.subplots_adjust(right=0.97, left=0.1, top=0.9, bottom=0.1)
         else:
             if self.act_leg_right.isChecked():
                 self.fig_legend.set_bbox_to_anchor((0.99, 0.5))
                 self.fig_legend._loc = 7 # center right
                 self.fig_legend._ncol = 1
-                self.fig.subplots_adjust(right=0.82)
+                # 레전드 실제 폭을 측정해서 right 값 동적 계산
+                self.fig.subplots_adjust(right=0.97)
+                self.canvas.draw()
+                try:
+                    renderer = self.canvas.get_renderer()
+                    bbox = self.fig_legend.get_window_extent(renderer)
+                    fig_w_px = self.fig.get_figwidth() * self.fig.dpi
+                    legend_frac = bbox.width / fig_w_px + 0.015
+                    self.fig.subplots_adjust(right=max(0.70, 1.0 - legend_frac))
+                except Exception:
+                    self.fig.subplots_adjust(right=0.88)
             elif self.act_leg_left.isChecked():
                 self.fig_legend.set_bbox_to_anchor((0.01, 0.5))
                 self.fig_legend._loc = 6 # center left
@@ -708,6 +719,11 @@ class RealTimeMonitorWindow(QWidget):
             
         min_len = min(history_lens)
         if min_len == 0: return
+
+        # 데이터가 늘어나지 않았으면 렌더링 스킵
+        if min_len == self._last_drawn_len:
+            return
+        self._last_drawn_len = min_len
 
         try:
             times_np = np.array(times[:min_len])
