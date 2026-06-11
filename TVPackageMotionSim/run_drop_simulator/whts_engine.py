@@ -12,6 +12,7 @@ import signal
 import json
 import pickle
 import logging
+import shutil
 import numpy as np
 import mujoco
 import mujoco.viewer
@@ -90,13 +91,20 @@ def _global_mujoco_control_callback(model, data):
 # 로깅 설정
 import platform
 is_windows = platform.system() == "Windows"
-_console = Console(color_system=None if is_windows else "auto")
+_console_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+_console = Console(color_system=None if is_windows else "auto", width=_console_width)
+
+class _StripPyExtFilter(logging.Filter):
+    def filter(self, record):
+        if record.filename.endswith('.py'):
+            record.filename = record.filename[:-3]
+        return True
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(console=_console, rich_tracebacks=True, markup=True)]
+    handlers=[RichHandler(console=_console, rich_tracebacks=True, markup=True, show_time=False)]
 )
 # [WHTOOLS] UTF-8 인코딩 강제 설정 (Rich/Console 호환성)
 if sys.stdout.encoding != 'utf-8':
@@ -111,7 +119,9 @@ logger = logging.getLogger("WHTS_Engine")
 logger.propagate = False
 # 중복 콘솔 로깅 방지 및 WHTS_Engine 로거에만 RichHandler 단독 매핑
 logger.handlers = []
-logger.addHandler(RichHandler(console=_console, rich_tracebacks=True, markup=True))
+_rich_handler = RichHandler(console=_console, rich_tracebacks=True, markup=True, show_time=False)
+_rich_handler.addFilter(_StripPyExtFilter())
+logger.addHandler(_rich_handler)
 console = _console
 
 from PySide6.QtCore import QThread
@@ -161,7 +171,15 @@ class DropSimulator:
         self.model: Optional[mujoco.MjModel] = None
         self.data: Optional[mujoco.MjData] = None
         self.viewer = None
-        
+
+        # ── Video capture (headless offscreen) ──────────────────────────
+        self.video_capture_enabled: bool = False
+        self.video_fps: int = 30
+        self.video_width: int = 1280
+        self.video_height: int = 720
+        self._video_frames: list = []
+        self._video_renderer = None
+
         # 상태 변수 및 히스토리 초기화
         self._init_state_variables()
         self._init_histories()
@@ -356,9 +374,11 @@ class DropSimulator:
         컴포넌트 식별 및 물리 콜백 등록을 포함합니다.
         """
         import mujoco
-        # [WHTOOLS] 이전 모델 콜백 정리
+        # [WHTOOLS] 이전 모델 콜백 정리 + 모델 로딩 중 stale 콜백 방어
+        # from_xml_string 내부에서 mjcb_control이 호출될 경우를 대비해 전역 콜백 임시 비활성화
         if self.model is not None:
             _mujoco_model_registry.pop(id(self.model), None)
+        mujoco.set_mjcb_control(None)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         xml_path = self.output_dir / "simulation_model.xml"
@@ -873,6 +893,57 @@ class DropSimulator:
             self.viewer = None
             self.log("🌐 MuJoCo Viewer Closed.")
 
+    # ── Video capture helpers ─────────────────────────────────────────────
+
+    def _init_video_renderer(self) -> None:
+        """오프스크린 렌더러를 초기화합니다."""
+        try:
+            self._video_renderer = mujoco.Renderer(
+                self.model, self.video_height, self.video_width
+            )
+            # 카메라: 수동 뷰어와 동일한 초기 시점 적용
+            self._video_renderer.update_scene(self.data)
+            self._video_frames = []
+            self.log(f"🎥 Video renderer initialised ({self.video_width}×{self.video_height} @ {self.video_fps}fps)")
+        except Exception as e:
+            self.log(f"⚠ Video renderer init failed: {e}", level="warning")
+            self._video_renderer = None
+
+    def _capture_video_frame(self) -> None:
+        """현재 시뮬레이션 상태를 프레임으로 캡처합니다."""
+        if self._video_renderer is None:
+            return
+        try:
+            self._video_renderer.update_scene(self.data)
+            frame = self._video_renderer.render()
+            self._video_frames.append(frame)
+        except Exception:
+            pass
+
+    def save_video(self, path) -> bool:
+        """수집된 프레임을 MP4 파일로 저장합니다. 성공 시 True 반환."""
+        if not self._video_frames:
+            self.log("⚠ No video frames captured.", level="warning")
+            return False
+        try:
+            import imageio
+            path = str(path)
+            writer = imageio.get_writer(path, fps=self.video_fps, codec="libx264",
+                                        quality=6, macro_block_size=16,
+                                        output_params=["-pix_fmt", "yuv420p"])
+            for frame in self._video_frames:
+                writer.append_data(frame)
+            writer.close()
+            self._video_frames.clear()
+            if self._video_renderer is not None:
+                self._video_renderer.close()
+                self._video_renderer = None
+            self.log(f"🎬 Video saved → {path}")
+            return True
+        except Exception as e:
+            self.log(f"❌ Video save failed: {e}", level="error")
+            return False
+
     def _restart_sim_thread(self) -> None:
         """시뮬레이션 스레드를 (재)시작합니다. 기존 스레드가 살아있으면 종료를 기다립니다."""
         if hasattr(self, 'sim_thread') and self.sim_thread.isRunning():
@@ -948,6 +1019,13 @@ class DropSimulator:
         self._collect_history() # [WHTOOLS] time=0 시점 초기값 기록
         self._save_snapshot()
 
+        # 비디오 캡처 초기화 (enabled인 경우)
+        if self.video_capture_enabled:
+            self._init_video_renderer()
+            _video_interval = max(1, round(1.0 / (self.video_fps * self.model.opt.timestep)))
+        else:
+            _video_interval = 0
+
         self.log(f"🎬 Simulation Session Started. Target Duration: {self.config.get('sim_duration', 1.0)}s")
 
         # [WHTOOLS] 120 Hz 렌더링 스로틀링(Throttling)을 위한 실시간 시계 변수 초기화
@@ -986,6 +1064,10 @@ class DropSimulator:
 
                 # 4. Progress Reporting
                 self._report_progress(self.step_idx)
+
+                # 5. Video Frame Capture
+                if _video_interval and self.step_idx % _video_interval == 0:
+                    self._capture_video_frame()
 
                 # [WHTOOLS] 동적으로 sim_duration을 재계산 (UI 실시간 변경 지원)
                 dynamic_target_time = self.config.get("sim_duration", 1.0)
@@ -1374,7 +1456,7 @@ class DropSimulator:
 
     def _print_border(self) -> None:
         """리포트 구분선을 출력합니다."""
-        console.print(f"[bold white]{'━' * 128}[/bold white]")
+        console.print(f"[bold white]{'━' * (_console_width - 1)}[/bold white]")
 
     def _wrap_up(self) -> None:
         """시뮬레이션 종료 후 데이터를 정리하고 결과를 저장하며 UI를 호출합니다."""

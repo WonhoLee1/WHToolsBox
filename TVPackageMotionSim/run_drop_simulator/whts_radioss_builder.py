@@ -123,13 +123,6 @@ class RadiossModelBuilder:
         from .whts_utils import get_external_tool_path
         from .runopenradioss import RunOpenRadioss
         
-        # runopenradioss.py is now integrated into the project
-        openradioss_gui_dir = get_external_tool_path('openradioss_gui_dir')
-        if openradioss_gui_dir and os.path.exists(openradioss_gui_dir):
-            _gui_dir = str(openradioss_gui_dir)
-        else:
-            _gui_dir = str(Path(r"D:\OpenRadioss_win64\OpenRadioss\openradioss_gui"))
-
         starter_file = str(self.out.resolve() / f"{self.name}_0000.rad")
         command = [
             starter_file,   # [0] input file
@@ -143,10 +136,10 @@ class RadiossModelBuilder:
             'yes',          # [8] anim_to_vtkhdf
             '',             # [9] mpi_path
         ]
-        
+
         openradioss_dir = get_external_tool_path('openradioss_dir')
         if not (openradioss_dir and os.path.exists(openradioss_dir)):
-            openradioss_dir = str(Path(_gui_dir).parent)
+            openradioss_dir = str(Path(r"D:\OpenRadioss_win64\OpenRadioss"))
 
         # Buffered stream to redirect sys.stdout (RunOpenRadioss prints) to callback
         class CallbackStream(io.TextIOBase):
@@ -160,6 +153,8 @@ class RadiossModelBuilder:
                     return self.fallback.write(s)
                 self._in_callback = True
                 try:
+                    # \r\n → \n, 단독 \r → \n 으로 정규화
+                    s = s.replace("\r\n", "\n").replace("\r", "\n")
                     self.buffer += s
                     while "\n" in self.buffer:
                         line, self.buffer = self.buffer.split("\n", 1)
@@ -833,9 +828,12 @@ class RadiossModelBuilder:
         path  = self.out / f"{self.name}_0001.rad"
         h_mm  = self.h * 1000.0
         v0    = math.sqrt(max(2.0 * G * h_mm, 0.0))    # mm/s
-        t_end = self.cfg.get("export_radioss_time", self.cfg.get("radioss_sim_duration", 0.05))
-        if t_end == 0.05 and "sim_duration" in self.cfg:
-            t_end = self.cfg["sim_duration"]
+        if "export_radioss_time" in self.cfg:
+            t_end = self.cfg["export_radioss_time"]
+        elif "radioss_sim_duration" in self.cfg:
+            t_end = self.cfg["radioss_sim_duration"]
+        else:
+            t_end = self.cfg.get("sim_duration", 0.05)
         dt_anim = self.cfg.get("export_radioss_dt_anim", 0.001)
         print_interval = self.cfg.get("radioss_print_interval", -10)
 
@@ -878,17 +876,46 @@ class RadiossModelBuilder:
 
     # ── transform helpers ─────────────────────────────────────────────────────
 
+    def _min_package_z_after_transform(self) -> float:
+        """R·pos + t[2] 기준 전체 패키지 노드의 최저 Z 반환 (mm). 지면(Z=0) 침투 검사용."""
+        r2 = self.R[2]  # [R20, R21, R22]
+        min_z = float('inf')
+        for p in self._parts:
+            if p.part_id == 6:
+                continue
+            for _, (x, y, z) in p.nodes.items():
+                rz = r2[0]*x + r2[1]*y + r2[2]*z + self.t[2]
+                if rz < min_z:
+                    min_z = rz
+        return min_z if min_z != float('inf') else 0.0
+
     def _append_transforms(self, L: list) -> None:
         R = self.R.copy()
         t = self.t.copy()   # mm
 
-        # Determine target group
+        # ── 지면 침투 사전 보정 ──────────────────────────────────────────────
+        # 회전+이동 후 패키지 최저 Z가 0 미만이면 침투로 판정.
+        # 'parts' 모드: 세트를 +Z 이동 / 'ground' 모드: 바닥을 -Z 이동.
+        CLEARANCE_MM = 0.5   # 최소 여유 gap (mm)
+        min_z = self._min_package_z_after_transform()
+        penetration = CLEARANCE_MM - min_z   # > 0 이면 보정 필요
+
+        # Determine target group and compute effective transform
         if self.mode == 'parts':
             grnod = 2         # package (parts 1-5)
+            if penetration > 0.0:
+                t[2] += penetration
+                print(f"[Radioss] ⚠ 침투 감지: 최저Z={min_z:.2f}mm → "
+                      f"세트 +{penetration:.2f}mm 이동 적용")
         else:
             grnod = 3         # ground (part 6), apply inverse
             R     = R.T
             t     = -(R @ self.t)
+            if penetration > 0.0:
+                # 바닥을 추가로 -Z 방향으로 내려 침투 제거
+                t[2] -= penetration
+                print(f"[Radioss] ⚠ 침투 감지: 최저Z={min_z:.2f}mm → "
+                      f"바닥 -{penetration:.2f}mm 이동 적용")
 
         identity_R = np.allclose(R, np.eye(3), atol=1e-6)
         zero_t     = np.allclose(t, np.zeros(3), atol=1e-3)

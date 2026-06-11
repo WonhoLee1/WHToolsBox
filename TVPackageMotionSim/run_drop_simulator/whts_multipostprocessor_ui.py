@@ -1684,7 +1684,7 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
         edges = gp.extract_feature_edges(boundary_edges=True, non_manifold_edges=False, feature_edges=False, manifold_edges=False)
         self.v_int.add_mesh(edges, color="darkgray", line_width=2)
         
-        self.lut = pv.LookupTable(cmap="jet_r")
+        self.lut = pv.LookupTable(cmap="jet")
         self.lut.below_range_color = 'lightgrey'
         self.lut.above_range_color = 'magenta'
         
@@ -1741,14 +1741,28 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                 ma.SetVisibility(False)
                 self.part_actors[i] = {'mesh': ma, 'body_color': c_hex, 'visible': False}
                 continue
-                
+
             mka.SetVisibility(False)
             la.SetVisibility(False)
-            
+
+            # results 실제 shape에서 해상도 확인 후 sol과 동기화
+            for _rk in ('Displacement [mm]', 'Curvature Mean [1/mm]', 'Von Mises Stress [MPa]'):
+                if _rk in ana.results and ana.results[_rk].ndim == 3:
+                    _actual_res = ana.results[_rk].shape[1]
+                    if _actual_res != ana.sol.res and ana.kin is not None:
+                        ana.sol.res = _actual_res
+                        ana.sol.setup_mesh(ana.kin.x_bounds, ana.kin.y_bounds)
+                        poly.points = pv.Plane(
+                            i_size=ana.W, j_size=ana.H,
+                            i_resolution=_actual_res - 1,
+                            j_resolution=_actual_res - 1
+                        ).points
+                    break
+
             p_base = np.column_stack([
-                ana.sol.X_mesh.ravel(), 
-                ana.sol.Y_mesh.ravel(), 
-                np.zeros(ana.sol.res**2)
+                ana.sol.X_mesh.ravel(),
+                ana.sol.Y_mesh.ravel(),
+                np.zeros(len(ana.sol.X_mesh.ravel()))
             ])
             
             self.part_actors[i] = {
@@ -2095,26 +2109,31 @@ class QtVisualizerV2(QtWidgets.QMainWindow):
                             if 0 <= p_idx < len(self.mgr.analyzers):
                                 a = self.mgr.analyzers[p_idx]; target_data_list.append((a, a.name))
                                 
+                    n_t = len(self.mgr.times)
+
+                    def _to_1d(a, key):
+                        """결과 배열을 1D 시계열로 변환하고 mgr.times 길이에 맞춤."""
+                        if key.startswith("Max-"):
+                            real_key = key.replace("Max-", "")
+                            raw = np.max(a.results[real_key], axis=(1, 2)) if real_key in a.results else np.zeros(n_t)
+                        else:
+                            raw = a.results.get(key, np.zeros(n_t))
+                        if raw.ndim != 1:
+                            raw = raw.ravel()[:n_t]
+                        n = len(raw)
+                        if n >= n_t:
+                            return raw[:n_t]
+                        return np.pad(raw, (0, n_t - n))
+
                     for obj, name in target_data_list:
                         key = cfg.data_key
                         if isinstance(obj, list):
-                            vals = []
-                            for a in obj:
-                                if key.startswith("Max-"):
-                                    real_key = key.replace("Max-", "")
-                                    v = np.max(a.results[real_key], axis=(1, 2)) if real_key in a.results else np.zeros(len(self.mgr.times))
-                                else: v = a.results.get(key, np.zeros(len(self.mgr.times)))
-                                vals.append(v)
+                            vals = [_to_1d(a, key) for a in obj]
                             y_data = np.max(np.array(vals), axis=0)
                         else:
-                            if key.startswith("Max-"):
-                                real_key = key.replace("Max-", "")
-                                y_data = np.max(obj.results[real_key], axis=(1, 2)) if real_key in obj.results else np.zeros(len(self.mgr.times))
-                            else: y_data = obj.results.get(key, np.zeros(len(self.mgr.times)))
-                        
-                        if y_data.ndim == 1: ax.plot(self.mgr.times, y_data, label=name)
-                        else:
-                            for m in range(min(y_data.shape[1], 8)): ax.plot(self.mgr.times, y_data[:, m], alpha=0.5, label=f"{name}-M{m}")
+                            y_data = _to_1d(obj, key)
+
+                        ax.plot(self.mgr.times, y_data, label=name)
                                 
                     if len(target_data_list) > 1: ax.legend(loc='upper right', fontsize=max(6, fsize-3), framealpha=0.6, handlelength=1.2, borderpad=0.4, labelspacing=0.3)
                     self.vls[i] = ax.axvline(current_time, color='red', ls='--')

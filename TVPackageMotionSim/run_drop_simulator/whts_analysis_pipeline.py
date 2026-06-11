@@ -179,12 +179,7 @@ def _launch_visualizer_mode(manager: PlateAssemblyManager, standalone: bool = Fa
     """
     print("\nLaunching WHT Visualizer...", flush=True)
 
-    # visualizer_settings의 res 값이 있으면 각 analyzer의 sol.res에 적용
-    if visualizer_settings and 'res' in visualizer_settings:
-        res_override = visualizer_settings['res']
-        for az in manager.analyzers:
-            if az.sol is not None:
-                az.sol.res = res_override
+    # res_override는 분석 전 cfg에만 적용 (분석 후 sol.res 변경 시 results와 mesh 불일치 발생)
 
     gui = None
     try:
@@ -199,6 +194,8 @@ def _launch_visualizer_mode(manager: PlateAssemblyManager, standalone: bool = Fa
             sys.stdout.flush()
             sys.exit(0)
     except Exception as e:
+        import traceback
         print(f"\nDashboard Launch Skipped: {e}")
+        traceback.print_exc()
 
     return gui

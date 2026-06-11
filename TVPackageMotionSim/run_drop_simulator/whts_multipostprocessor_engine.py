@@ -431,9 +431,11 @@ class ShellDeformationAnalyzer:
         if markers is None: return False
         self.m_raw = markers # 내부적으로 m_raw로 통일
         
-        # [A1] 시뮬레이션 데이터에서 설정 자동 추출 시도
+        # [A1] 시뮬레이션 데이터에서 설정 자동 추출 시도 (mesh_resolution은 기존 cfg 값 유지)
         if sim_data is not None:
+            _prev_res = self.cfg.mesh_resolution
             self.cfg = PlateConfig.from_simulation_data(sim_data, self.name)
+            self.cfg.mesh_resolution = _prev_res
         
         # 매칭된 재료 정보 로그 출력
         p_name_lower = self.name.lower()

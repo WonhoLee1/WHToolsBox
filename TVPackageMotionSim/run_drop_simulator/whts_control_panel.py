@@ -134,6 +134,21 @@ CONFIG_METADATA = {
     "enable_air_squeeze": {"desc": "Enable Squeeze Film Damping", "cat": "Air Fluidics"},
 }
 
+_CAT_DESCRIPTIONS = {
+    "Geometry":           "Box and assembly outer dimensions (m)",
+    "Components":         "Per-component mesh divisions, weld, mass, and RGBA color",
+    "Components Balance": "Assembly-level mass, center of gravity, and moment of inertia targets",
+    "Contacts":           "Contact friction and solver constraint parameters for each surface pair",
+    "Drop Env":           "Drop scenario: mode, direction, height, and enabled parts",
+    "Meshing":            "(Legacy) Per-component element divisions and weld flags",
+    "Solver":             "MuJoCo and OpenRadioss solver settings: integrator, time-step, duration",
+    "Weld Physics":       "Weld connector stiffness, impedance, and torque-scale definitions",
+    "Air Fluidics":       "Air drag, viscous damping, squeeze-film, and legacy contact parameters",
+    "Plasticity":         "EPS foam plasticity model: yield pressure, hardening, and strain limits",
+    "Light/Visuals":      "Scene lighting diffuse and ambient color vectors",
+    "Miscellaneous":      "Additional configuration keys not covered by the standard metadata",
+}
+
 class VisualSchematicWidget(QtWidgets.QWidget):
     """[WHTOOLS] 박스 및 부품 크기 비율을 가시화하는 2D 스키매틱 위젯"""
     def __init__(self, parent=None):
@@ -569,31 +584,24 @@ class SelectTVModelDialog(QtWidgets.QDialog):
         if os.path.exists(csv_path):
             try:
                 with open(csv_path, "r", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
+                    reader = csv.reader(f)
+                    next(reader, None)  # 헤더 행 건너뜀
                     for row in reader:
-                        models.append(row)
+                        if row:
+                            models.append(row)
             except Exception as e:
                 QtWidgets.QMessageBox.warning(self, "Load Error", f"CSV 로드 실패: {e}")
-        
+
         if not models:
             return
-            
+
+        def _col(row, i):
+            return row[i].strip() if i < len(row) else ''
+
         self.table.setRowCount(len(models))
         for row_idx, m in enumerate(models):
-            self.table.setItem(row_idx, 0, QtWidgets.QTableWidgetItem(m.get('name', '')))
-            self.table.setItem(row_idx, 1, QtWidgets.QTableWidgetItem(m.get('inch', '')))
-            self.table.setItem(row_idx, 2, QtWidgets.QTableWidgetItem(m.get('pkg_size', '')))
-            self.table.setItem(row_idx, 3, QtWidgets.QTableWidgetItem(m.get('pkg_m', '')))
-            self.table.setItem(row_idx, 4, QtWidgets.QTableWidgetItem(m.get('set_w_std_size', '')))
-            self.table.setItem(row_idx, 5, QtWidgets.QTableWidgetItem(m.get('set_w_std_m', '')))
-            self.table.setItem(row_idx, 6, QtWidgets.QTableWidgetItem(m.get('set_wo_std_size', '')))
-            self.table.setItem(row_idx, 7, QtWidgets.QTableWidgetItem(m.get('set_wo_std_m', '')))
-            self.table.setItem(row_idx, 8, QtWidgets.QTableWidgetItem(m.get('stand_base', '')))
-            self.table.setItem(row_idx, 9, QtWidgets.QTableWidgetItem(m.get('cushion_m', '')))
-            self.table.setItem(row_idx, 10, QtWidgets.QTableWidgetItem(m.get('chassis_m', '')))
-            self.table.setItem(row_idx, 11, QtWidgets.QTableWidgetItem(m.get('opencell_m', '')))
-            self.table.setItem(row_idx, 12, QtWidgets.QTableWidgetItem(m.get('cog', '')))
-            self.table.setItem(row_idx, 13, QtWidgets.QTableWidgetItem(m.get('moi', '')))
+            for col_idx in range(14):
+                self.table.setItem(row_idx, col_idx, QtWidgets.QTableWidgetItem(_col(m, col_idx)))
             
         self.table.resizeColumnsToContents()
 
@@ -851,6 +859,8 @@ class IstaSetupHelperDialog(QtWidgets.QDialog):
         if self.multi_select_mode:
             self.btn_select_all = QtWidgets.QPushButton("Select All")
             self.btn_deselect_all = QtWidgets.QPushButton("Deselect All")
+            for _b in (self.btn_select_all, self.btn_deselect_all):
+                _b.setFixedHeight(_b.sizeHint().height() - 2)
             self.btn_select_all.clicked.connect(self._on_select_all)
             self.btn_deselect_all.clicked.connect(self._on_deselect_all)
             seq_header_lay.addStretch()
@@ -2114,6 +2124,109 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
             traceback.print_exc()
             QMessageBox.critical(self, "Apply Error", f"Failed to apply inertia correction:\n{e}")
 
+class GroundFrictionDialog(QtWidgets.QDialog):
+    """지면 및 쿠션 마찰 계수 설정 다이얼로그."""
+    def __init__(self, config: dict, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Ground Friction Configuration")
+        self.setMinimumWidth(480)
+        self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 14, 16, 12)
+
+        # 설명 텍스트
+        desc = QtWidgets.QLabel(
+            "Configuration의 Contacts 중 바닥면과의 마찰 계수를 지정합니다.\n\n"
+            "이 값이 작은 경우, 전도되는 시간이 짧고 빠르게 지면-코너가 충돌되는 경향이 있고,\n"
+            "높을 수록 전도가 느려지는 경향이 있습니다.\n\n"
+            "85QN80H를 대상으로 비교했을 때, 약 0.24의 값이 적절하였으며\n"
+            "이는 약 1.5s 전후로 전도 충돌이 일어납니다.\n"
+            "전반적으로 'Fast' Block 설정에서 조정이 용이합니다."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        layout.addWidget(desc)
+
+        # 구분선
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setStyleSheet("color: #444;")
+        layout.addWidget(line)
+
+        # 입력 그리드
+        grid = QtWidgets.QGridLayout()
+        grid.setColumnStretch(1, 1)
+
+        contacts = config.get("contacts", {})
+        ground_val = contacts.get("ground", 0.26)
+        cushion_val = contacts.get("cushion", 0.26)
+
+        grid.addWidget(QtWidgets.QLabel("ground :"), 0, 0)
+        self.edit_ground = QtWidgets.QLineEdit(str(ground_val))
+        self.edit_ground.setPlaceholderText("e.g. 0.24")
+        grid.addWidget(self.edit_ground, 0, 1)
+
+        grid.addWidget(QtWidgets.QLabel("cushion :"), 1, 0)
+        self.edit_cushion = QtWidgets.QLineEdit(str(cushion_val))
+        self.edit_cushion.setPlaceholderText("e.g. 0.26")
+        grid.addWidget(self.edit_cushion, 1, 1)
+
+        layout.addLayout(grid)
+
+        # Apply / Cancel 버튼
+        btn_lay = QtWidgets.QHBoxLayout()
+        btn_lay.addStretch()
+        self.btn_apply = QtWidgets.QPushButton("Apply")
+        self.btn_apply.setFixedWidth(90)
+        self.btn_apply.setDefault(True)
+        btn_cancel = QtWidgets.QPushButton("Cancel")
+        btn_cancel.setFixedWidth(90)
+        btn_lay.addWidget(self.btn_apply)
+        btn_lay.addWidget(btn_cancel)
+        layout.addLayout(btn_lay)
+
+        self.btn_apply.clicked.connect(self._on_apply)
+        btn_cancel.clicked.connect(self.reject)
+
+    def _parse_float(self, text: str):
+        """문자열을 float 또는 list[float]로 파싱. 실패 시 None 반환."""
+        text = text.strip()
+        try:
+            # 리스트 형식 [a, b, ...] 허용
+            if text.startswith("["):
+                import ast
+                val = ast.literal_eval(text)
+                if isinstance(val, list) and all(isinstance(v, (int, float)) for v in val):
+                    return val
+                return None
+            return float(text)
+        except Exception:
+            return None
+
+    def _on_apply(self):
+        ground_val = self._parse_float(self.edit_ground.text())
+        cushion_val = self._parse_float(self.edit_cushion.text())
+
+        errors = []
+        if ground_val is None:
+            errors.append("'ground' 값이 유효하지 않습니다. 숫자 또는 [a, b] 형식으로 입력하세요.")
+        if cushion_val is None:
+            errors.append("'cushion' 값이 유효하지 않습니다. 숫자 또는 [a, b] 형식으로 입력하세요.")
+
+        if errors:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "\n".join(errors))
+            return
+
+        if "contacts" not in self.config:
+            self.config["contacts"] = {}
+        self.config["contacts"]["ground"] = ground_val
+        self.config["contacts"]["cushion"] = cushion_val
+        self.accept()
+
+
 class ModelSetupDialog(QtWidgets.QDialog):
     """
     [WHTOOLS] MuJoCo Model Configuration & Setup Dialog
@@ -2200,6 +2313,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
         setup_vlay = QtWidgets.QVBoxLayout(setup_group)
         setup_vlay.setSpacing(6)
         setup_vlay.setContentsMargins(12, 4, 12, 4)
+        setup_group.setMinimumWidth(270)
         
         # 1) Setup 버튼
         self.btn_select_ref_model_direct = QtWidgets.QPushButton("🔍 Size and ISTA")        
@@ -2213,55 +2327,73 @@ class ModelSetupDialog(QtWidgets.QDialog):
         self.btn_mass_cog_moi.clicked.connect(self._on_balance_clicked)
         setup_vlay.addWidget(self.btn_mass_cog_moi)
         
-        # 3) Blocks (Mesh Resolution Preset) 추가
+        # 3) Blocks (Mesh Resolution Preset) — Normal / Fast / Rough 세 버튼 한 행
         blocks_group = QtWidgets.QGroupBox("Blocks (Mesh Preset)")
         blocks_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         blocks_vlay = QtWidgets.QVBoxLayout(blocks_group)
         blocks_vlay.setSpacing(6)
         blocks_vlay.setContentsMargins(8, 10, 8, 8)
-        
-        # Normal
-        lay_normal = QtWidgets.QHBoxLayout()
+
+        lay_blocks_btns = QtWidgets.QHBoxLayout()
         self.btn_normal = QtWidgets.QPushButton("Normal")
-        self.btn_normal.setCheckable(True)        
-        lbl_normal_desc = QtWidgets.QLabel("5x5x3, 4x4x1 (Weld)")        
-        lbl_normal_desc.setStyleSheet(f"color: {C_TEXT_DIM};")
-        lay_normal.addWidget(self.btn_normal)
-        lay_normal.addWidget(lbl_normal_desc)
-        lay_normal.addStretch()
-        blocks_vlay.addLayout(lay_normal)
-        
-        # Fast
-        lay_fast = QtWidgets.QHBoxLayout()
+        self.btn_normal.setCheckable(True)
+        self.btn_normal.setToolTip(
+            "Normal\n• Paper/Cushion: 5×5×3, Weld ON\n"
+            "• OpenCell/Chassis: 4×4×1, Weld ON\n"
+            "High fidelity — slower solve."
+        )
         self.btn_fast = QtWidgets.QPushButton("Fast")
-        self.btn_fast.setCheckable(True)        
-        lbl_fast_desc = QtWidgets.QLabel("3x3x3, 3x3x1 (Full Rigid)")        
-        lbl_fast_desc.setStyleSheet(f"color: {C_TEXT_DIM};")
-        lay_fast.addWidget(self.btn_fast)
-        lay_fast.addWidget(lbl_fast_desc)
-        lay_fast.addStretch()
-        blocks_vlay.addLayout(lay_fast)
-        
+        self.btn_fast.setCheckable(True)
+        self.btn_fast.setToolTip(
+            "Fast\n• Paper/Cushion: 3×3×3, Weld ON\n"
+            "• OpenCell/Chassis: 3×3×1, Weld OFF (Full Rigid)\n"
+            "Reduced mesh — quick iteration."
+        )
+        self.btn_rough = QtWidgets.QPushButton("Rough")
+        self.btn_rough.setCheckable(True)
+        self.btn_rough.setToolTip(
+            "Rough\n• Paper/Cushion: 3×3×3, Weld ON\n"
+            "• OpenCell/Chassis: 3×3×1, Weld ON\n"
+            "Coarse mesh with welds — balanced speed and connectivity."
+        )
+        lay_blocks_btns.addWidget(self.btn_normal)
+        lay_blocks_btns.addWidget(self.btn_fast)
+        lay_blocks_btns.addWidget(self.btn_rough)
+        blocks_vlay.addLayout(lay_blocks_btns)
+
         setup_vlay.addWidget(blocks_group)
-        
+
         self.block_group = QtWidgets.QButtonGroup(self)
         self.block_group.addButton(self.btn_normal)
         self.block_group.addButton(self.btn_fast)
-        
-        # 초기 활성 Preset 판정 및 스타일 적용
+        self.block_group.addButton(self.btn_rough)
+
+        # 초기 활성 Preset 판정
         comp = self.config.get("components", {})
         paper_div = comp.get("paper", {}).get("div", [5, 5, 3])
-        if paper_div == [3, 3, 3]:
-            self.btn_fast.setChecked(True)
-            self.btn_fast.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
+        oc_weld = comp.get("opencell", {}).get("use_weld", True)
+        if paper_div == [3, 3, 3] and not oc_weld:
+            _active_block = "Fast"
+        elif paper_div == [3, 3, 3]:
+            _active_block = "Rough"
         else:
-            self.btn_normal.setChecked(True)
-            self.btn_normal.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
-            
-        # 클릭 이벤트 연결
+            _active_block = "Normal"
+        for _mn, _mb in [("Normal", self.btn_normal), ("Fast", self.btn_fast), ("Rough", self.btn_rough)]:
+            if _mn == _active_block:
+                _mb.setChecked(True)
+                _mb.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
+
         self.btn_normal.clicked.connect(lambda: self._on_block_preset_changed("Normal"))
         self.btn_fast.clicked.connect(lambda: self._on_block_preset_changed("Fast"))
-        
+        self.btn_rough.clicked.connect(lambda: self._on_block_preset_changed("Rough"))
+
+        # 4) Ground Friction 버튼
+        self.btn_ground_friction = QtWidgets.QPushButton("🌍 Ground Friction")
+        self.btn_ground_friction.setFixedHeight(30)
+        self.btn_ground_friction.setToolTip("Configure ground and cushion surface friction coefficients")
+        self.btn_ground_friction.clicked.connect(self._on_ground_friction_clicked)
+        setup_vlay.addWidget(self.btn_ground_friction)
+
         setup_vlay.addStretch()
         
                 
@@ -2283,17 +2415,31 @@ class ModelSetupDialog(QtWidgets.QDialog):
         tree_lay.setContentsMargins(0, 0, 0, 0)
         
         tree_btn_lay = QtWidgets.QHBoxLayout()
-        btn_expand_all = QtWidgets.QPushButton("Expand All")
-        btn_fold_all = QtWidgets.QPushButton("Fold All")
+        btn_expand_all = QtWidgets.QPushButton("📂 All")
+        btn_fold_all = QtWidgets.QPushButton("📁 All")
+        btn_expand = QtWidgets.QPushButton("📂")
+        btn_fold = QtWidgets.QPushButton("📁")
+        for _b in (btn_expand_all, btn_fold_all, btn_expand, btn_fold):
+            _b.setFixedHeight(_b.sizeHint().height() - 2)
+        btn_expand_all.setToolTip("Expand all items")
+        btn_fold_all.setToolTip("Fold all items")
+        btn_expand.setToolTip("Expand selected items")
+        btn_fold.setToolTip("Fold selected items")
         tree_btn_lay.addWidget(btn_expand_all)
         tree_btn_lay.addWidget(btn_fold_all)
+        tree_btn_lay.addWidget(btn_expand)
+        tree_btn_lay.addWidget(btn_fold)
         tree_btn_lay.addStretch()
         tree_lay.addLayout(tree_btn_lay)
-        
+
         self.config_tree = QtWidgets.QTreeWidget()
         self.config_tree.setColumnCount(3)
         btn_expand_all.clicked.connect(self.config_tree.expandAll)
         btn_fold_all.clicked.connect(self.config_tree.collapseAll)
+        btn_expand.clicked.connect(
+            lambda: [item.setExpanded(True) for item in self.config_tree.selectedItems()])
+        btn_fold.clicked.connect(
+            lambda: [item.setExpanded(False) for item in self.config_tree.selectedItems()])
         tree_lay.addWidget(self.config_tree)
         self.config_tree.setHeaderLabels(["Configuration Key", "Value", "Description"])
         self.config_tree.setColumnWidth(0, 200)
@@ -2409,6 +2555,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
             if cat not in categories:
                 cat_item = QtWidgets.QTreeWidgetItem(self.config_tree)
                 cat_item.setText(0, cat)
+                cat_item.setText(2, _CAT_DESCRIPTIONS.get(cat, ""))
                 cat_item.setExpanded(False)
                 categories[cat] = cat_item
 
@@ -2453,6 +2600,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
                 if misc_cat is None:
                     misc_cat = QtWidgets.QTreeWidgetItem(self.config_tree)
                     misc_cat.setText(0, "Miscellaneous")
+                    misc_cat.setText(2, _CAT_DESCRIPTIONS.get("Miscellaneous", ""))
                     misc_cat.setExpanded(False)
                 key_item = QtWidgets.QTreeWidgetItem(misc_cat)
                 key_item.setText(0, key) # 0번째 열(Configuration Key)에 키 주입!
@@ -2719,6 +2867,11 @@ class ModelSetupDialog(QtWidgets.QDialog):
         else:
             self.accept()
 
+    def _on_ground_friction_clicked(self):
+        dlg = GroundFrictionDialog(self.config, self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            self._populate_config_tree()
+
     def _on_block_preset_changed(self, mode):
         """[WHTOOLS] Blocks 프리셋 변경에 따라 components의 div 및 weld 속성을 정교하게 리매핑합니다."""
         if "components" not in self.config:
@@ -2727,7 +2880,7 @@ class ModelSetupDialog(QtWidgets.QDialog):
         comp = self.config["components"]
         
         # UI 스타일 피드백 업데이트 (눌린 버튼 하이라이트)
-        for mode_name, btn in [("Normal", self.btn_normal), ("Fast", self.btn_fast)]:
+        for mode_name, btn in [("Normal", self.btn_normal), ("Fast", self.btn_fast), ("Rough", self.btn_rough)]:
             if mode_name == mode:
                 btn.setStyleSheet(f"background-color: {C_BTN_BLUE3}; color: white; font-weight: bold;")
             else:
@@ -2829,7 +2982,46 @@ class ModelSetupDialog(QtWidgets.QDialog):
                 "mass": comp["chassis"].get("mass", 10.0),
                 "rgba": comp["chassis"].get("rgba", fallback_rgba["chassis"])
             })
-            
+
+        # 3. Rough Mode
+        elif mode == "Rough":
+            if "paper" not in comp: comp["paper"] = {}
+            comp["paper"].update({
+                "div": [3, 3, 3],
+                "use_weld": True,
+                "mass": comp["paper"].get("mass", 4.0),
+                "rgba": comp["paper"].get("rgba", fallback_rgba["paper"])
+            })
+            if "cushion" not in comp: comp["cushion"] = {}
+            comp["cushion"].update({
+                "div": [3, 3, 3],
+                "use_weld": True,
+                "mass": comp["cushion"].get("mass", 3.0),
+                "rgba": comp["cushion"].get("rgba", fallback_rgba["cushion"])
+            })
+            if "opencell" not in comp: comp["opencell"] = {}
+            comp["opencell"].update({
+                "div": [3, 3, 1],
+                "use_weld": True,
+                "mass": comp["opencell"].get("mass", 5.0),
+                "rgba": comp["opencell"].get("rgba", fallback_rgba["opencell"])
+            })
+            if "opencellcoh" not in comp: comp["opencellcoh"] = {}
+            comp["opencellcoh"].update({
+                "div": [3, 3, 1],
+                "use_weld": True,
+                "mass": comp["opencellcoh"].get("mass", 0.1),
+                "rgba": comp["opencellcoh"].get("rgba", fallback_rgba["opencellcoh"]),
+                "enable_btm_weld": True
+            })
+            if "chassis" not in comp: comp["chassis"] = {}
+            comp["chassis"].update({
+                "div": [3, 3, 1],
+                "use_weld": True,
+                "mass": comp["chassis"].get("mass", 10.0),
+                "rgba": comp["chassis"].get("rgba", fallback_rgba["chassis"])
+            })
+
         # 변경 사항 실시간 UI 동기화
         self._populate_config_tree()
         self.schematic.update_config(self.config)
@@ -2861,13 +3053,14 @@ class BatchRdsWorker(QThread):
     ]
 
     def __init__(self, base_config, scenarios, output_folder,
-                 parallel_workers=1, parent=None):
+                 parallel_workers=1, record_video=False, parent=None):
         import copy, threading
         super().__init__(parent)
         self.base_config      = copy.deepcopy(base_config)  # 병렬 시나리오 간 공유 방지
         self.scenarios        = scenarios
         self.output_folder    = Path(output_folder)
         self.parallel_workers = max(1, parallel_workers)
+        self.record_video = record_video
         self._stop_event  = threading.Event()
         self._pause_event = threading.Event()
 
@@ -2921,8 +3114,16 @@ class BatchRdsWorker(QThread):
 
                 sim = DropSimulator(cfg)
                 sim.ctrl_paused = False
+                if self.record_video and self.parallel_workers == 1:
+                    sim.video_capture_enabled = True
                 sim.setup()
                 sim._main_loop()
+
+                # 동영상 저장 (순차 실행 전용 — GL 컨텍스트 스레드 안전성)
+                if self.record_video and self.parallel_workers == 1:
+                    video_path = scen_dir / f"{safe_label}.mp4"
+                    sim.save_video(video_path)
+                    self.sig_log.emit(f"  🎬 Video: {video_path.name}")
 
                 t_hist  = sim.time_history
                 g_hist  = sim.ground_impact_hist
@@ -3167,6 +3368,14 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         par_lay.addWidget(self.spin_workers)
         par_lay.addStretch()
         ol.addLayout(par_lay)
+
+        self.chk_record_video = QtWidgets.QCheckBox("🎬 Record Video (MP4, sequential only)")
+        self.chk_record_video.setToolTip(
+            "각 시나리오 시뮬레이션을 MP4 동영상으로 저장합니다.\n"
+            "⚠ Parallel workers = 1 일 때만 동작합니다.\n"
+            "해상도: 1280×720 @ 30fps (libx264)"
+        )
+        ol.addWidget(self.chk_record_video)
         layout.addWidget(opt_group)
 
         # ── 4. 진행 표시 ──────────────────────────────────────────────
@@ -3180,6 +3389,10 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
         self.log_view = QtWidgets.QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setFixedHeight(80)
+        _log_font = QFont("Consolas", 9)
+        if not _log_font.exactMatch():
+            _log_font = QFont("Courier New", 9)
+        self.log_view.setFont(_log_font)
         pl.addWidget(self.progress_bar)
         pl.addWidget(self.lbl_status)
         pl.addWidget(self.log_view)
@@ -3282,6 +3495,7 @@ class StructuralDynamicsDialog(QtWidgets.QDialog):
             scenarios=self._scenarios,
             output_folder=output_folder,
             parallel_workers=self.spin_workers.value(),
+            record_video=self.chk_record_video.isChecked(),
             parent=None,
         )
         self._worker.sig_progress.connect(self._on_worker_progress)
@@ -4405,9 +4619,6 @@ class ControlPanel(QMainWindow):
 
             if valid_anim_files:
                 self.sim.log(f"[ParaView] 현재 완료된 {len(valid_anim_files)}개의 결과 파일로 VTKHDF 생성 중...")
-                openradioss_gui_dir = get_external_tool_path('openradioss_gui_dir') or r"D:\OpenRadioss_win64\OpenRadioss\openradioss_gui"
-                if openradioss_gui_dir not in sys.path:
-                    sys.path.insert(0, openradioss_gui_dir)
                 try:
                     # 기존 vtkhdf_file이 있으면 삭제 시도
                     can_use_default = True
