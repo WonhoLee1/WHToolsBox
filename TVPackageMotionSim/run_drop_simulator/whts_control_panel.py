@@ -2124,6 +2124,80 @@ class ComponentBalanceDialog(QtWidgets.QDialog):
             traceback.print_exc()
             QMessageBox.critical(self, "Apply Error", f"Failed to apply inertia correction:\n{e}")
 
+class AboutDialog(QtWidgets.QDialog):
+    """About / 버전 정보 다이얼로그."""
+
+    _FALLBACK_BUILD = 115  # PyInstaller exe 환경 등 git 없을 때 사용
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About WHTools Drop Simulator")
+        self.setFixedSize(520, 340)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        build = self._get_build_number()
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        # Banner logo
+        banner_path = Path(__file__).parent.parent / "resources" / "sidebar_logo.png"
+        if not banner_path.exists():
+            banner_path = Path(__file__).parent.parent / "sidebar_logo.png"
+        if banner_path.exists():
+            pixmap = QPixmap(str(banner_path))
+            if not pixmap.isNull():
+                logo_lbl = QLabel()
+                logo_lbl.setPixmap(pixmap.scaledToHeight(180, Qt.SmoothTransformation))
+                logo_lbl.setAlignment(Qt.AlignCenter)
+                lay.addWidget(logo_lbl)
+
+        lay.addSpacing(2)
+
+        build_label = QLabel(f"Build  <b>#{build}</b>")
+        build_label.setAlignment(Qt.AlignCenter)
+        build_label.setStyleSheet("font-size: 13px; color: #a0c8ff;")
+        lay.addWidget(build_label)
+
+        info_lines = [
+            ("Engine", "MuJoCo  ·  OpenRadioss"),
+            ("UI", "PySide6  ·  PyQtGraph"),
+            ("Contact", "whbest.lee@gmail.com"),
+        ]
+        for label, value in info_lines:
+            row = QLabel(f"<span style='color:#888;'>{label}:</span>  {value}")
+            row.setAlignment(Qt.AlignCenter)
+            row.setStyleSheet("font-size: 10px;")
+            lay.addWidget(row)
+
+        lay.addStretch()
+
+        btn = QPushButton("Close")
+        btn.setFixedWidth(90)
+        btn.clicked.connect(self.accept)
+        h = QHBoxLayout()
+        h.addStretch()
+        h.addWidget(btn)
+        h.addStretch()
+        lay.addLayout(h)
+
+    @classmethod
+    def _get_build_number(cls) -> int:
+        try:
+            import subprocess, sys
+            result = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                capture_output=True, text=True, timeout=3,
+                cwd=Path(__file__).parent,
+            )
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+        except Exception:
+            pass
+        return cls._FALLBACK_BUILD
+
+
 class GroundFrictionDialog(QtWidgets.QDialog):
     """지면 및 쿠션 마찰 계수 설정 다이얼로그."""
     def __init__(self, config: dict, parent=None):
@@ -3810,6 +3884,10 @@ class ControlPanel(QMainWindow):
         
         act_edit_ini = view_menu.addAction("⚙️ Edit External Tools Config (INI)")
         act_edit_ini.triggered.connect(self._on_edit_external_tools_config)
+
+        view_menu.addSeparator()
+        act_about = view_menu.addAction("ℹ️ About")
+        act_about.triggered.connect(lambda: AboutDialog(self).exec())
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
