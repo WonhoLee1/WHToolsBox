@@ -13,7 +13,24 @@
       "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" add TVPackageMotionSim/resources/tv_ref_model_info.csv TVPackageMotionSim/run_drop_simulator/whts_control_panel.py TVPackageMotionSim/run_discrete_builder/whtb_config.py)",
       "Bash(git -C 'c:\\\\Users\\\\GOODMAN\\\\WHToolsBox' commit -m ' *)",
       "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" status --short)",
-      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" add -A)"
+      "Bash(git -C \"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\" add -A)",
+      "Bash(ls -la \"c:/Users/GOODMAN/WHToolsBox/.agents/skills/whtools-openradiossent/\" 2>/dev/null; echo \"---DOC---\"; ls -la \"c:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/wht_openradiossent_doc/\" 2>/dev/null; echo \"---OR EXEC---\"; ls \"D:/OpenRadioss_win64/OpenRadioss/exec/\" 2>/dev/null | head -30; echo \"---OR GUI---\"; ls \"D:/OpenRadioss_win64/OpenRadioss/openradioss_gui/\" 2>/dev/null | head -30)",
+      "Read(//d/OpenRadioss_win64/OpenRadioss/exec/**)",
+      "Read(//d/OpenRadioss_win64/OpenRadioss/openradioss_gui/**)",
+      "Bash(python -c \"import gmsh; print\\('gmsh', gmsh.__version__\\)\")",
+      "Bash(python -m py_compile TVPackageMotionSim/run_drop_simulator/whts_radioss_builder.py)",
+      "Bash(python -m py_compile TVPackageMotionSim/run_drop_simulator/whts_control_panel.py)",
+      "Bash(Copy-Item whts_radioss_builder.py whts_radioss_builder.py.bak)",
+      "Bash(python test_rad_gen.py)",
+      "Skill(update-config)",
+      "PowerShell(*)",
+      "Bash(powershell *)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\GOODMAN\\.gemini"
     ]
   }
 }

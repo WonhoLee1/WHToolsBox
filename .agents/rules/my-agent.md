@@ -1,5 +1,5 @@
 ---
-trigger: manual
+trigger: always_on
 ---
 
 # JAX 기반 유한요소(FEM) 시뮬레이션 및 최적화 솔버 개발 멀티 에이전트 프레임워크
@@ -59,6 +59,18 @@ trigger: manual
   * 솔버의 Array 데이터를 VTK/VTU 포맷으로 실시간 변환 및 저장하는 파이프라인 자동화.
   * PyVista를 활용한 해석 결과 3D 렌더링, 클리핑(Clipping), 변형(Warping) 애니메이션 스크립트 작성.
   * 위상 최적화 결과 덴시티(Density) 필드 기반의 등위면(Isosurface) 추출 및 메쉬 평활화(Smoothing) 코드 구현.
+
+### skills\whtools-calculixent
+
+* **역할:** calculix 관련
+* **핵심 임무:**
+  * calculix 자동화, 명령 실행 등 관련 모든 것
+
+### skills\whtools-openradiossent
+
+* **역할:** radioss, openradioss 관련
+* **핵심 임무:**
+  * radioss, openradioss 자동화, 명령 실행 등 관련 모든 것
 
 ---
 
