@@ -11,8 +11,10 @@ legacy_temp.xml
 v2_temp.xml
 temp_twist.xml
 *.png
-!TVPackageMotionSim/*.png
-!TVPackageMotionSim/resources/*.png
-!TVPackageMotionSim/run_drop_simulator/resources/*.png
 !sidebar_logo.png
+!sidebar_logo_raw.png
 !ui_banner.png
+!resources/*.png
+!resources/**/*.png
+!dev_log/*.png
+!penetration_comparison.png

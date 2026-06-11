@@ -5,11 +5,12 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 block_cipher = None
 
 # 주요 라이브러리들의 데이터 파일(바이너리, 설정 파일 등)을 수집합니다.
-mujoco_datas = collect_data_files('mujoco')
-jax_datas = collect_data_files('jaxlib')
-scipy_datas = collect_data_files('scipy')
+mujoco_datas  = collect_data_files('mujoco')
+jax_datas     = collect_data_files('jaxlib')
+scipy_datas   = collect_data_files('scipy')
 pyvista_datas = collect_data_files('pyvista')
-glfw_datas = collect_data_files('glfw')
+glfw_datas    = collect_data_files('glfw')
+imageio_datas = collect_data_files('imageio')
 
 # 누락되기 쉬운 동적 임포트 패키지들을 모두 포함합니다.
 hidden_imports = [
@@ -77,7 +78,11 @@ hidden_imports = [
     'jax.numpy',
     'jax.lax',
     'jaxlib',
-    'glfw'
+    'glfw',
+    'imageio',
+    'imageio.plugins',
+    'imageio.plugins.ffmpeg',
+    'imageio_ffmpeg',
 ]
 
 
@@ -91,7 +96,7 @@ a = Analysis(
         ('ui_banner.png', '.'),
         ('external_tools_config.ini', '.'),
         ('resources', 'resources'),
-    ] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas,
+    ] + mujoco_datas + jax_datas + scipy_datas + pyvista_datas + glfw_datas + imageio_datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
