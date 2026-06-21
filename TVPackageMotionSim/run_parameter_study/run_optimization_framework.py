@@ -115,7 +115,7 @@ def ensure_default_config():
             }
 
             # [WELD PARAMETERS CALCULATION]
-            from run_discrete_builder import calculate_plate_twist_weld_params
+            from run_discrete_builder import calculate_plate_twist_weld_params, calculate_cushion_torquescale
             k_oc, d_oc, ts_oc = calculate_plate_twist_weld_params(
                 mass=default_cfg["components"]["opencell"]["mass"],
                 width=default_cfg["assy_w"],
@@ -139,10 +139,24 @@ def ensure_default_config():
                 zeta=0.05
             )
 
+            # 완충재(Cushion, Cushion_corner) torquescale 이론적 자동 계산
+            ts_cush = calculate_cushion_torquescale(
+                div=default_cfg["components"]["cushion"]["div"],
+                nu=0.05,
+                is_corner=False,
+                verbose=False
+            )
+            ts_cush_corner = calculate_cushion_torquescale(
+                div=default_cfg["components"]["cushion"]["div"],
+                nu=0.05,
+                is_corner=True,
+                verbose=False
+            )
+
             default_cfg["welds"] = {
                 "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-                "cushion"        : {"solref": p_solref, "solimp": p_solimp},
-                "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
+                "cushion"        : {"solref": p_solref, "solimp": p_solimp, "torquescale": ts_cush},
+                "cushion_corner" : {"solref": p_solref, "solimp": p_solimp, "torquescale": ts_cush_corner},
                 "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
                 "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
                 "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},

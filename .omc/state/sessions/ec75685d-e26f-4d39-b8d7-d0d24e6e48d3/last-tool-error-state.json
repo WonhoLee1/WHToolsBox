@@ -1,0 +1,7 @@
+{
+  "tool_name": "PowerShell",
+  "tool_input_preview": "{\"command\":\"cd \\\"C:\\\\Users\\\\GOODMAN\\\\WHToolsBox\\\"; python test_rad_gen.py 2>&1\",\"timeout\":120000,\"description\":\"Run rad generation test\"}",
+  "error": "Exit code 1\n[Radioss] inc → TVDrop_Test_part1_Box.inc  (nodes=5692, shells=5690)\r\n[Radioss] inc → TVDrop_Test_part2_CushFront.inc  (nodes=44, bricks=10)\r\n[Radioss] inc → TVDrop_Test_part3_CushBack.inc  (nodes=44, bricks=10)\r\n[Radioss] inc → TVDrop_Test_part4_OpenCell.inc  (nodes=44, bricks=10)\r\n[Radioss] inc → TVDrop_Test_part5_Chassis.inc  (nodes=1881, shells=1792)\r\n[Radioss] inc → TVDrop_Test_part6_Ground.inc  (nodes=44, bricks=10)\r\n\u001b[31;1mTraceback (most recent call last):\u001b[0m\r\n\u001b[31;1m  File ...",
+  "timestamp": "2026-06-06T12:46:41.567Z",
+  "retry_count": 1
+}

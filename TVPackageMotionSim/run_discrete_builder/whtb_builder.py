@@ -313,7 +313,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
             body2_name = f"b_{b_chassis.name.lower()}_{ci}_{cj}_{ck}" if b_chassis.use_internal_weld else b_chassis.name
             
             # [V5.11.2] 인터페이스 용접 전용 클래스 적용 (솔레프/솔임프 속성 제거)
-            w_prop = config["welds"].get("auxboxmass", {"torquescale": 1.0})
+            w_prop = config.get("welds", {}).get("auxboxmass", {"torquescale": 1.0})
             ts = w_prop.get("torquescale", 1.0)
             inter_weld_xml.append(f'        <weld class="weld_bauxboxmass" body1="{body1_name}" body2="{body2_name}" torquescale="{ts}"/>')
 
@@ -403,7 +403,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         if "paperbox" in w_name: w_name = "paper"
         if "opencellcohesive" in w_name: w_name = "opencellcoh" # Standardize to config key
         
-        w_prop = config["welds"].get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2], "torquescale": 1.0})
+        w_prop = config.get("welds", {}).get(w_name, {"solref": [0.02, 1.0], "solimp": [0.1, 0.95, 0.005, 0.5, 2], "torquescale": 1.0})
         sr_w = " ".join(map(str, w_prop["solref"]))
         si_w = " ".join(map(str, w_prop["solimp"]))
         # [V5.11.1] MuJoCo: <weld>가 <default> 직접 자식 불가. <equality> 속성으로 정의하여 상속 유도.
@@ -411,7 +411,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         
         # [WHTOOLS] Cushion Corner 전용 용접 클래스 추가
         if mat_name == "bcushion":
-            w_prop_c = config["welds"].get("cushion_corner", w_prop)
+            w_prop_c = config.get("welds", {}).get("cushion_corner", w_prop)
             sr_wc = " ".join(map(str, w_prop_c["solref"]))
             si_wc = " ".join(map(str, w_prop_c["solimp"]))
             xml_str_io.write(f'    <default class="weld_{mat_name}_corner">\n      <equality solref="{sr_wc}" solimp="{si_wc}"/>\n    </default>\n')
@@ -543,7 +543,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
         )
         # chassis body name (use_internal_weld 여부에 따라 결정)
         chassis_body_name = b_chassis.name if not b_chassis.use_internal_weld else f"b_{b_chassis.name.lower()}_0_0_0"
-        w_prop = config["welds"].get("auxboxmass", {"torquescale": 1.0})
+        w_prop = config.get("welds", {}).get("auxboxmass", {"torquescale": 1.0})
         ts_ic = w_prop.get("torquescale", 1.0)
         inter_weld_xml.append(
             f'        <weld class="weld_bauxboxmass" body1="InertiaCorrection" body2="{chassis_body_name}" torquescale="{ts_ic}"/>'
@@ -552,7 +552,7 @@ def create_model(export_path: str, config: Optional[Dict[str, Any]] = None, logg
     xml_str_io.write('    </body>\n  </worldbody>\n')
     xml_str_io.write(f'  <contact>\n{contact_pairs_xml}  </contact>\n')
     xml_str_io.write('  <equality>\n')
-    for line in root_container.get_weld_xml_strings() + inter_weld_xml: xml_str_io.write(line + "\n")
+    for line in root_container.get_weld_xml_strings(config) + inter_weld_xml: xml_str_io.write(line + "\n")
     xml_str_io.write('  </equality>\n</mujoco>\n')
     
     with open(export_path, "w", encoding="utf-8") as f: 

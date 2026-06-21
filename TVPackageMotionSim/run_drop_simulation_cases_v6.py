@@ -176,8 +176,16 @@ except Exception:
 curr_dir = os.path.dirname(os.path.abspath(__file__))
 if curr_dir not in sys.path: sys.path.append(curr_dir)
 
+if '--doe-worker' in sys.argv:
+    from run_doe_worker_impl import doe_worker_main
+    doe_worker_main()
+    sys.exit(0)
+
 from run_drop_simulator import DropSimulator
-from run_discrete_builder import get_default_config, get_rgba_by_name, calculate_plate_twist_weld_params
+from run_discrete_builder import (
+    get_default_config, get_rgba_by_name, 
+    calculate_plate_twist_weld_params, calculate_cushion_torquescale
+)
 from run_drop_simulator.whts_analysis_pipeline import run_analysis_pipeline
 from run_drop_simulator.whts_mapping import get_assembly_data_from_sim
 from run_drop_simulator.whts_multipostprocessor_engine import (
@@ -480,9 +488,9 @@ def test_case_1_setup():
         height=cfg["assy_h"],
         thickness=cfg["opencell_d"],
         div=cfg["components"]["opencell"]["div"],
-        E_real=70e9,          # 실제 유리 탄성계수
+        E_real=40e9,          # 실제 유리 탄성계수 (40000 MPa)
         real_thickness=0.001, # 실제 유리 두께 (1mm)
-        target_freq_hz=1.0,   # 판 전체 목표 벤딩 진동수 (1Hz)
+        target_freq_hz=None,   # 이론적 트위스트 진동수 자동 계산 적용
         zeta=0.05
     )
     k_chas, d_chas, ts_chas = calculate_plate_twist_weld_params(
@@ -493,18 +501,32 @@ def test_case_1_setup():
         div=cfg["components"]["chassis"]["div"],
         E_real=170e9,         # 실제 Chassis 탄성계수 (Steel계열)
         real_thickness=0.0006, # 실제 Chassis 두께 (0.6mm)
-        target_freq_hz=4.0,   # 판 전체 목표 벤딩 진동수 (4Hz)
+        target_freq_hz=2.0,   # 판 전체 목표 벤딩 진동수 (2Hz)
         zeta=0.05
+    )
+
+    # 완충재(Cushion, Cushion_corner) torquescale 이론적 자동 계산
+    ts_cush = calculate_cushion_torquescale(
+        div=cfg["components"]["cushion"]["div"],
+        nu=0.05,
+        is_corner=False,
+        verbose=True
+    )
+    ts_cush_corner = calculate_cushion_torquescale(
+        div=cfg["components"]["cushion"]["div"],
+        nu=0.05,
+        is_corner=True,
+        verbose=True
     )
 
     cfg["welds"] = {
         "paper"          : {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion"        : {"solref": p_solref, "solimp": p_solimp},
-        "cushion_corner" : {"solref": p_solref, "solimp": p_solimp},
+        "cushion"        : {"solref": p_solref, "solimp": p_solimp, "torquescale": ts_cush},
+        "cushion_corner" : {"solref": p_solref, "solimp": p_solimp, "torquescale": ts_cush_corner},
         "opencell"       : {"solref": [k_oc, d_oc], "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
         "opencellcoh"    : {"solref": [-50000.0, -500.0], "solimp": [0.10, 0.95, 0.005, 0.5, 2]},
         "chassis"        : {"solref": [k_chas, d_chas], "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_chas},
-        "auxboxmass"     : {"solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.001, 0.5, 2], "torquescale": 100.0},
+        "auxboxmass"     : {"solref": [0.001, 1.0], "solimp": [0.1, 0.95, 0.001, 0.5, 2], "torquescale": 1.0},
     }
     
     # [5. PLASTICITY & HARDENING]

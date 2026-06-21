@@ -27,7 +27,8 @@
       "Bash(powershell *)",
       "Bash(git push *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "mcp__plugin_oh-my-claudecode_t__state_write"
     ],
     "additionalDirectories": [
       "C:\\Users\\GOODMAN\\.gemini"

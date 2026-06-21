@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "D:/OpenRadioss_win64/OpenRadioss/openradioss_gui"
+		},
+		{
+			"path": "D:/PythonCodeStudy/openradioss-to-vtkhdf-main"
+		}
+	],
+	"settings": {
+		"python.languageServer": "Jedi"
+	}
+}

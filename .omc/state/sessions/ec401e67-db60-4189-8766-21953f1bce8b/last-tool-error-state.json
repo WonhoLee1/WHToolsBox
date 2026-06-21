@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"Get-ChildItem \\\"C:\\\\Users\\\\GOODMAN\\\\WHToolsBox\\\\TVPackageMotionSim\\\\run_drop_simulator\\\" -Filter \\\"*.py\\\" -Recurse | Where-Object { $_.FullName -notmatch \\\"legacy|backup|dev_log\\\" } | Sele...",
+  "error": "Exit code 127\n/usr/bin/bash: line 1: Get-ChildItem: command not found\n/usr/bin/bash: line 1: Where-Object: command not found\n/usr/bin/bash: line 1: Select-Object: command not found",
+  "timestamp": "2026-06-10T15:47:16.466Z",
+  "retry_count": 1
+}

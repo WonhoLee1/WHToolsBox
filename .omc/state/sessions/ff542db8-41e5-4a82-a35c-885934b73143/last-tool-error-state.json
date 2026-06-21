@@ -1,0 +1,7 @@
+{
+  "tool_name": "PowerShell",
+  "tool_input_preview": "{\"command\":\"python -c \\\"import ast; ast.parse(open('C:/Users/GOODMAN/WHToolsBox/TVPackageMotionSim/run_doe_worker_impl.py').read()); print('worker_impl OK')\\\"\\npython -c \\\"import ast; ast.parse(open('...",
+  "error": "Exit code 1\nTraceback (most recent call last):\r\n  File \"<string>\", line 1, in <module>\r\nUnicodeDecodeError: 'cp949' codec can't decode byte 0xe2 in position 30: illegal multibyte sequence\r\nTraceback (most recent call last):\r\n  File \"<string>\", line 1, in <module>\r\nUnicodeDecodeError: 'cp949' codec can't decode byte 0xe2 in position 14: illegal multibyte sequence\r\nTraceback (most recent call last):\r\n  File \"<string>\", line 1, in <module>\r\nUnicodeDecodeError: 'cp949' codec can't decode byte 0xec i...",
+  "timestamp": "2026-06-19T17:27:28.253Z",
+  "retry_count": 1
+}

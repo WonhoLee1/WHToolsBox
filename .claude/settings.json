@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "Bash(python -c ' *)",
+      "Bash(git fetch *)",
+      "Bash(python -c \"import pptx; print\\(pptx.__version__\\)\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import pptx; print\\('OK', pptx.__version__\\)\")",
+      "Bash(C:\\\\Users\\\\GOODMAN\\\\miniconda3\\\\envs\\\\vdmc\\\\python.exe -m pip install python-pptx -q)",
+      "Bash(C:\\\\Users\\\\GOODMAN\\\\miniconda3\\\\envs\\\\vdmc\\\\python.exe -c \"import pptx; print\\('OK', pptx.__version__\\)\")"
+    ]
+  }
+}

@@ -94,15 +94,35 @@ class BCushion(BaseDiscreteBody):
         by = (j == 0 or j == ny - 1)
         return bx and by
 
-    def get_weld_xml_strings(self) -> List[str]:
+    def get_weld_xml_strings(self, config: Optional[Dict[str, Any]] = None) -> List[str]:
         """
         완충재 내부 블록들을 연결하는 Weld 구문을 생성합니다.
         특히 '모서리 용접(Corner Weld)' 물성을 별도로 분리하여 설정할 수 있는 기능을 제공합니다.
         """
         weld_xml = []
         if not self.use_internal_weld:
+            for child in self.children:
+                weld_xml.extend(child.get_weld_xml_strings(config))
             return weld_xml
             
+        # config에서 파트별 torquescale 조회 (일반 및 코너 각각 조회)
+        ts_normal = 1.0
+        ts_corner = 1.0
+        if config and "welds" in config:
+            w_name = self.name.replace("B", "", 1) if self.name.startswith("B") else self.name
+            w_name = w_name.lower()
+            
+            # 일반 완충재 torquescale 조회
+            for k, v in config["welds"].items():
+                if k.lower() == w_name:
+                    ts_normal = v.get("torquescale", 1.0)
+                    break
+            
+            # 모서리 완충재(cushion_corner) torquescale 조회
+            for k, v in config["welds"].items():
+                if k.lower() == f"{w_name}_corner":
+                    ts_corner = v.get("torquescale", ts_normal)
+                    break
 
         block_keys = set(self.blocks.keys())
         
@@ -122,18 +142,22 @@ class BCushion(BaseDiscreteBody):
                     if match:
                         is_c2 = self.is_corner_block(ni, nj, nk)
                         
-                        # [V6.1] 클래스 기반 용접 시스템 적용: solref/solimp 직접 기입 대신 class 속성 활용
-                        # 두 블록 중 하나라도 코너 블록인 경우 corner 클래스 적용
-                        w_class = "weld_bcushion_corner" if (is_c1 or is_c2) else "weld_bcushion"
+                        # [V6.1] 클래스 기반 용접 시스템 적용: 두 블록 중 하나라도 코너 블록인 경우 corner 클래스 및 torquescale 적용
+                        if is_c1 or is_c2:
+                            w_class = "weld_bcushion_corner"
+                            ts_actual = ts_corner
+                        else:
+                            w_class = "weld_bcushion"
+                            ts_actual = ts_normal
                             
                         site1_name = f"s_{self.name}_{i}_{j}_{k}_{suffix}"
                         opp_suffix = "NX" if suffix=="PX" else "NY" if suffix=="PY" else "NZ"
                         site2_name = f"s_{self.name}_{ni}_{nj}_{nk}_{opp_suffix}"
-                        weld_xml.append(f'        <weld class="{w_class}" site1="{site1_name}" site2="{site2_name}"/>')
+                        weld_xml.append(f'        <weld class="{w_class}" site1="{site1_name}" site2="{site2_name}" torquescale="{ts_actual:.6f}"/>')
                         
         # 자식 요소들의 Weld 정보도 병합
         for child in self.children:
-            weld_xml.extend(child.get_weld_xml_strings())
+            weld_xml.extend(child.get_weld_xml_strings(config))
         return weld_xml
 
 class BOpenCellCohesive(BaseDiscreteBody):

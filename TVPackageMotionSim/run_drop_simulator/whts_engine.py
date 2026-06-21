@@ -1526,7 +1526,8 @@ class DropSimulator:
                 components=self.components.copy(), 
                 body_index_map=self.body_index_map, 
                 block_half_extents=self.block_half_extents,
-                part_corner_hist=self.part_corner_hist
+                part_corner_hist=self.part_corner_hist,
+                corner_impact_hist=self.corner_impact_hist
             )
             
             result_path = self.output_dir / "simulation_result.pkl"

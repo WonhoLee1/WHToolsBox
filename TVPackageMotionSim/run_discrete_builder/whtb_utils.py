@@ -252,6 +252,50 @@ def calculate_plate_twist_weld_params(mass: float, width: float, height: float, 
     
     return solref_k, solref_d, torquescale
 
+def calculate_cushion_torquescale(div: Tuple[int, int, int], nu: float = 0.05, is_corner: bool = False, verbose: bool = True) -> float:
+    """
+    [WHTOOLS] 3D Solid 연속체 역학(Continuum Mechanics) 기반 완충재 torquescale 산출.
+    
+    Args:
+        div (Tuple[int, int, int]): 격자 분할 수 (Nx, Ny, Nz)
+        nu (float): 포아송 비 (EPS/EPP 폼 기준 기본값 0.05)
+        is_corner (bool): 모서리부(Corner) 여부
+        verbose (bool): 결과 터미널 출력 여부
+    """
+    # 1. 3D 연속체 기반 이론적 torquescale비 계산 (G / E)
+    ts_theory = 1.0 / (2.0 * (1.0 + nu))
+    
+    # 2. 격자 분할도(Coarse Grid)에 따른 감쇄 보정 (Hinge Effect 보간)
+    # Nx, Ny, Nz 평균 격자 분할 수 산출
+    N_avg = np.mean(div)
+    
+    # N_avg = 3일 때, 보정 계수 alpha_grid가 약 0.0021이 되도록 설계
+    # N_avg = 20(조밀)일 때, alpha_grid가 1.0에 근사하도록 보간식 정의
+    # 보간식: alpha_grid = 10 ** (-4.0 / (N_avg - 1.0)) (N_avg > 1일 때)
+    if N_avg > 1.0:
+        alpha_grid = 10.0 ** (-4.0 / (N_avg - 1.0))
+    else:
+        alpha_grid = 0.0001
+        
+    ts_cushion = alpha_grid * ts_theory
+    
+    # 3. 모서리부(cushion_corner) 기하학적 보정 (L-shape 힌지 효과 방지)
+    # 코너 부위는 굽힘에 저항하기 위해 평면부보다 약 100배 큰 강성을 유지
+    if is_corner:
+        ts_cushion = min(1.0, ts_cushion * 100.0)
+        
+    if verbose:
+        part_name = "Cushion Corner" if is_corner else "Cushion"
+        print(f"\n[WHTOOLS] {part_name} torquescale Calculation:")
+        print(f"   - Div (Grid)          : {div}")
+        print(f"   - Average Grid Div    : {N_avg:.2f}")
+        print(f"   - Poisson's Ratio (nu): {nu:.3f}")
+        print(f"   - Theory Ratio (G/E)  : {ts_theory:.4f}")
+        print(f"   - Grid Scale Factor   : {alpha_grid:.6f}")
+        print(f"   - Output torquescale  : {ts_cushion:.6f}")
+        
+    return float(ts_cushion)
+
 
 def mat2axisangle(R: np.ndarray) -> np.ndarray:
     """Rotation Matrix -> Axis-Angle (x, y, z, deg)"""

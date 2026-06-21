@@ -157,7 +157,7 @@ class BaseDiscreteBody:
             blk.mass = self.total_mass * (blk.volume / total_vol)
             self.blocks[blk.idx] = blk
 
-    def get_weld_xml_strings(self) -> List[str]:
+    def get_weld_xml_strings(self, config: Optional[Dict[str, Any]] = None) -> List[str]:
         """
         인접한 블록 간의 연결 관계를 MuJoCo <weld> 요소로 생성합니다.
         이 기능은 이산형 모델의 '강성(Stiffness)'을 표현하는 핵심 수단입니다.
@@ -165,9 +165,23 @@ class BaseDiscreteBody:
         weld_xml = []
         # 내부 용접을 사용하지 않는 경우 자식 바디의 문자열만 수집
         if not self.use_internal_weld:
-            for child in self.children: weld_xml.extend(child.get_weld_xml_strings())
+            for child in self.children: weld_xml.extend(child.get_weld_xml_strings(config))
             return weld_xml
 
+        # config에서 파트별 torquescale 조회
+        ts = 1.0
+        if config and "welds" in config:
+            w_name = self.name.replace("B", "", 1) if self.name.startswith("B") else self.name
+            if "paperbox" in w_name.lower(): 
+                w_name = "paper"
+            elif "opencellcohesive" in w_name.lower(): 
+                w_name = "opencellcoh"
+            w_name = w_name.lower()
+            
+            for k, v in config["welds"].items():
+                if k.lower() == w_name:
+                    ts = v.get("torquescale", 1.0)
+                    break
 
         block_keys = set(self.blocks.keys())
         for (i, j, k), blk1 in self.blocks.items():
@@ -178,17 +192,17 @@ class BaseDiscreteBody:
             if (i+1, j, k) in block_keys:
                 blk2 = self.blocks[(i+1, j, k)]
                 if abs((blk1.cx + blk1.dx) - (blk2.cx - blk2.dx)) < 1e-4:
-                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PX" site2="s_{self.name}_{i+1}_{j}_{k}_NX"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PX" site2="s_{self.name}_{i+1}_{j}_{k}_NX" torquescale="{ts:.6f}"/>')
             if (i, j+1, k) in block_keys:
                 blk2 = self.blocks[(i, j+1, k)]
                 if abs((blk1.cy + blk1.dy) - (blk2.cy - blk2.dy)) < 1e-4:
-                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PY" site2="s_{self.name}_{i}_{j+1}_{k}_NY"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PY" site2="s_{self.name}_{i}_{j+1}_{k}_NY" torquescale="{ts:.6f}"/>')
             if (i, j, k+1) in block_keys:
                 blk2 = self.blocks[(i, j, k+1)]
                 if abs((blk1.cz + blk1.dz) - (blk2.cz - blk2.dz)) < 1e-4:
-                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PZ" site2="s_{self.name}_{i}_{j}_{k+1}_NZ"/>')
+                    weld_xml.append(f'        <weld class="{weld_class}" site1="s_{self.name}_{i}_{j}_{k}_PZ" site2="s_{self.name}_{i}_{j}_{k+1}_NZ" torquescale="{ts:.6f}"/>')
         
-        for child in self.children: weld_xml.extend(child.get_weld_xml_strings())
+        for child in self.children: weld_xml.extend(child.get_weld_xml_strings(config))
         return weld_xml
 
     def calculate_inertia(self) -> Tuple[float, np.ndarray, np.ndarray, List[Dict[str, Any]]]:

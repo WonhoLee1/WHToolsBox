@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"git add TVPackageMotionSim/dev_doc/control_center_manual.html TVPackageMotionSim/README.md TVPackageMotionSim/run_drop_simulator/whts_control_panel.py TVPackageMotionSim/run_drop_simulator...",
+  "error": "Exit code 1\nwarning: in the working copy of 'TVPackageMotionSim/README.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'TVPackageMotionSim/drop_simulator_v6.spec', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'TVPackageMotionSim/run_drop_simulator/runopenradioss.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'TVPackageMotionSim/run_drop_simulator/wht_export_sim...",
+  "timestamp": "2026-06-09T17:53:26.586Z",
+  "retry_count": 1
+}

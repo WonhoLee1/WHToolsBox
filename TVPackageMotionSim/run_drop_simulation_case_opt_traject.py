@@ -53,7 +53,8 @@ if curr_dir not in sys.path:
 
 from run_drop_simulator import DropSimulator
 from run_discrete_builder import (
-    get_default_config, get_rgba_by_name, calculate_plate_twist_weld_params
+    get_default_config, get_rgba_by_name, 
+    calculate_plate_twist_weld_params, calculate_cushion_torquescale
 )
 
 # ── Numba DTW (설치 안 된 경우 순수 numpy fallback) ──────────────────────────
@@ -397,10 +398,24 @@ def build_base_cfg() -> dict:
         target_freq_hz=4.0,     # 판 전체 1차 벤딩 목표 주파수 [Hz]
         zeta=0.05)
 
+    # 완충재(Cushion, Cushion_corner) torquescale 이론적 자동 계산
+    ts_cush = calculate_cushion_torquescale(
+        div=cfg["components"]["cushion"]["div"],
+        nu=0.05,
+        is_corner=False,
+        verbose=True
+    )
+    ts_cush_corner = calculate_cushion_torquescale(
+        div=cfg["components"]["cushion"]["div"],
+        nu=0.05,
+        is_corner=True,
+        verbose=True
+    )
+
     cfg["welds"] = {
         "paper":          {"solref": [0.010, 1.00], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
-        "cushion":        {"solref": p_sr,           "solimp": p_si},
-        "cushion_corner": {"solref": p_sr,           "solimp": p_si},
+        "cushion":        {"solref": p_sr,           "solimp": p_si, "torquescale": ts_cush},
+        "cushion_corner": {"solref": p_sr,           "solimp": p_si, "torquescale": ts_cush_corner},
         "opencell":       {"solref": [k_oc, d_oc],  "solimp": [0.10, 0.95, 0.1, 0.5, 2], "torquescale": ts_oc},
         "opencellcoh":    {"solref": [-15000.0, -500.0], "solimp": [0.10, 0.95, 0.01, 0.5, 2]},
         "chassis":        {"solref": [k_ch, d_ch],  "solimp": [0.10, 0.99, 0.1, 0.5, 2], "torquescale": ts_ch},

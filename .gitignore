@@ -50,3 +50,7 @@ TVPackageMotionSim/results/
 *_backup.py
 *_backup_*.py
 
+
+*.db
+results/
+*.pkl

@@ -1,0 +1,427 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782019421967,
+  "projectRoot": "C:\\Users\\GOODMAN\\WHToolsBox",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": "snake_case",
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "backup_test_box_mujoco": {
+      "path": "backup_test_box_mujoco",
+      "purpose": null,
+      "fileCount": 108,
+      "lastAccessed": 1782019421924,
+      "keyFiles": [
+        "check_default.py",
+        "check_mujoco_opt.py",
+        "compare_penetration.py",
+        "create_xmls.py",
+        "debug_cor_neg.py"
+      ]
+    },
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1782019421925,
+      "keyFiles": []
+    },
+    "dev_log": {
+      "path": "dev_log",
+      "purpose": null,
+      "fileCount": 144,
+      "lastAccessed": 1782019421926,
+      "keyFiles": [
+        "2026-03-21_walkthrough.md",
+        "history.md",
+        "implementation_plan_2026-03-27_v11.md",
+        "implementation_plan_2026-03-27_v11_final.md",
+        "implementation_plan_2026-03-31.md"
+      ]
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 0,
+      "lastAccessed": 1782019421927,
+      "keyFiles": []
+    },
+    "doe_results": {
+      "path": "doe_results",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782019421928,
+      "keyFiles": []
+    },
+    "headless_output": {
+      "path": "headless_output",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1782019421928,
+      "keyFiles": [
+        "pipe_connector_assembly.step",
+        "pipe_connector_cutters.step",
+        "pipe_connector_info.txt",
+        "pipe_connector_simplified.step"
+      ]
+    },
+    "main_legacy": {
+      "path": "main_legacy",
+      "purpose": null,
+      "fileCount": 138,
+      "lastAccessed": 1782019421929,
+      "keyFiles": [
+        "analysis_plots.png",
+        "BoxMesh_grad.pos",
+        "BoxMesh_groups_analyzed.pos",
+        "BoxMesh_groups_bnd.pos",
+        "BoxMesh_groups_cg.pos"
+      ]
+    },
+    "results": {
+      "path": "results",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782019421929,
+      "keyFiles": []
+    },
+    "scratch": {
+      "path": "scratch",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1782019421930,
+      "keyFiles": [
+        "test_v5_contacts.py",
+        "verify_refactoring.py"
+      ]
+    },
+    "skills": {
+      "path": "skills",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782019421930,
+      "keyFiles": [
+        "AGENTS.md"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 4,
+      "lastAccessed": 1782019421931,
+      "keyFiles": [
+        "AGENTS.md",
+        "autocalculix_api.py",
+        "copper_pipe_pipeline.py",
+        "pipeline.py"
+      ]
+    },
+    "test_box_msh": {
+      "path": "test_box_msh",
+      "purpose": null,
+      "fileCount": 33,
+      "lastAccessed": 1782019421931,
+      "keyFiles": [
+        "Box.iges",
+        "box.msh",
+        "Box.rad",
+        "Box.step",
+        "box.stl"
+      ]
+    },
+    "test_box_mujoco": {
+      "path": "test_box_mujoco",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782019421932,
+      "keyFiles": [
+        "test_shapes_check.xml"
+      ]
+    },
+    "TVPackageMotionSim": {
+      "path": "TVPackageMotionSim",
+      "purpose": null,
+      "fileCount": 108,
+      "lastAccessed": 1782019421933,
+      "keyFiles": [
+        "audit_config.py",
+        "bench_jax_test.py",
+        "bench_result.txt",
+        "build_drop_simulator_v6.bat",
+        "build_drop_simulator_v6.ps1"
+      ]
+    },
+    "whtb_doe": {
+      "path": "whtb_doe",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1782019421934,
+      "keyFiles": [
+        "definition.py",
+        "doe_widget.py",
+        "dsl_parser.py",
+        "sampler.py",
+        "__init__.py"
+      ]
+    },
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1782019421934,
+      "keyFiles": [
+        "box_mesh_generator.cpython-312.pyc",
+        "box_motion.cpython-311.pyc",
+        "mujoco_material_utils.cpython-311.pyc",
+        "mujoco_material_utils.cpython-312.pyc",
+        "mujoco_secvd_boxmotionsim_v0_0_3.cpython-311.pyc"
+      ]
+    },
+    "src\\utils": {
+      "path": "src\\utils",
+      "purpose": "Utility functions",
+      "fileCount": 4,
+      "lastAccessed": 1782019421937,
+      "keyFiles": [
+        "AGENTS.md",
+        "build_calculix_index.py",
+        "build_openradioss_index.py"
+      ]
+    },
+    "TVPackageMotionSim\\build": {
+      "path": "TVPackageMotionSim\\build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1782019421940,
+      "keyFiles": []
+    },
+    "whtb_doe\\tests": {
+      "path": "whtb_doe\\tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1782019421940,
+      "keyFiles": [
+        "test_dsl_parser.py",
+        "test_sampler.py",
+        "__init__.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulator\\whts_control_panel.py",
+      "accessCount": 30,
+      "lastAccessed": 1781195325237,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulator\\whts_engine.py",
+      "accessCount": 26,
+      "lastAccessed": 1781889638134,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim",
+      "accessCount": 6,
+      "lastAccessed": 1781888838967,
+      "type": "directory"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulation_cases_doe.py",
+      "accessCount": 6,
+      "lastAccessed": 1781888846722,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulator\\whts_data.py",
+      "accessCount": 6,
+      "lastAccessed": 1781890073152,
+      "type": "directory"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_parameter_study\\whts_optimization_engine.py",
+      "accessCount": 5,
+      "lastAccessed": 1781886986765,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\drop_simulator_v6.spec",
+      "accessCount": 5,
+      "lastAccessed": 1781888845724,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulation_cases_v6.py",
+      "accessCount": 5,
+      "lastAccessed": 1781890041020,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 4,
+      "lastAccessed": 1781890158563,
+      "type": "directory"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_parameter_study\\whts_optimization_ui.py",
+      "accessCount": 2,
+      "lastAccessed": 1781360681662,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulator",
+      "accessCount": 2,
+      "lastAccessed": 1781888447341,
+      "type": "directory"
+    },
+    {
+      "path": "whtb_doe\\__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1781889825886,
+      "type": "file"
+    },
+    {
+      "path": "make_pptx.py",
+      "accessCount": 1,
+      "lastAccessed": 1781330092180,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_parameter_study\\run_optimization_framework.py",
+      "accessCount": 1,
+      "lastAccessed": 1781330954753,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\dev_log\\issue_tracker.md",
+      "accessCount": 1,
+      "lastAccessed": 1781330955315,
+      "type": "file"
+    },
+    {
+      "path": ".claude\\settings.json",
+      "accessCount": 1,
+      "lastAccessed": 1781886475779,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\dev_doc\\dev_plan.md",
+      "accessCount": 1,
+      "lastAccessed": 1781886521246,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_drop_simulator\\__main__.py",
+      "accessCount": 1,
+      "lastAccessed": 1781888817578,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\dsl_parser.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889752820,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\tests\\__init__.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889756476,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\tests\\test_dsl_parser.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889765006,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\sampler.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889804052,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\definition.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889813901,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\tests\\test_sampler.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889819888,
+      "type": "file"
+    },
+    {
+      "path": "whtb_doe\\doe_widget.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889873600,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\whts_contact_extractor.py",
+      "accessCount": 1,
+      "lastAccessed": 1781889992224,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_doe_worker_impl.py",
+      "accessCount": 1,
+      "lastAccessed": 1781890004376,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_doe_runner.py",
+      "accessCount": 1,
+      "lastAccessed": 1781890034893,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_doe_analysis.py",
+      "accessCount": 1,
+      "lastAccessed": 1781890087216,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\run_doe_analysis_widget.py",
+      "accessCount": 1,
+      "lastAccessed": 1781890120533,
+      "type": "file"
+    },
+    {
+      "path": "TVPackageMotionSim\\dev_doc\\doe_system_guide.md",
+      "accessCount": 1,
+      "lastAccessed": 1781890327828,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

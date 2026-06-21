@@ -182,7 +182,7 @@ class DOEBatchRunner:
         self.output_base_dir = Path(output_base_dir)
         self.output_base_dir.mkdir(parents=True, exist_ok=True)
 
-    def run_doe_batch(self, doe_table: List[Dict[str, float]]) -> List[Dict[str, Any]]:
+    def run_doe_batch(self, doe_table: List[Dict[str, float]], custom_config_list: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """
         전체 DOE 테이블에 대해 순차적 해석을 실행하고, 핵심 요약 지표를 수집합니다.
         Gooey Progress Bar 파싱용 로그를 터미널로 실시간 스트리밍합니다.
@@ -234,23 +234,26 @@ class DOEBatchRunner:
             print(f"🔧 Parameters: {case_params}", flush=True)
             print(f"==================================================", flush=True)
 
-            # 개별 설정 조합 생성
-            case_config = base_config.copy()
-            
-            # target_cog 변수 조합 매핑 및 밸런싱 동기화
-            cog_x = case_params.get("target_cog_x")
-            cog_y = case_params.get("target_cog_y")
-            cog_z = case_params.get("target_cog_z")
-            if cog_x is not None or cog_y is not None or cog_z is not None:
-                cb = case_config.get("components_balance", {}).copy()
-                tc = list(cb.get("target_cog", [0.0, 0.0, 0.0]))
-                if cog_x is not None: tc[0] = cog_x
-                if cog_y is not None: tc[1] = cog_y
-                if cog_z is not None: tc[2] = cog_z
-                cb["target_cog"] = tc
-                case_config["components_balance"] = cb
+            if custom_config_list is not None and idx < len(custom_config_list):
+                case_config = custom_config_list[idx].copy()
+            else:
+                # 개별 설정 조합 생성
+                case_config = base_config.copy()
+                
+                # target_cog 변수 조합 매핑 및 밸런싱 동기화
+                cog_x = case_params.get("target_cog_x")
+                cog_y = case_params.get("target_cog_y")
+                cog_z = case_params.get("target_cog_z")
+                if cog_x is not None or cog_y is not None or cog_z is not None:
+                    cb = case_config.get("components_balance", {}).copy()
+                    tc = list(cb.get("target_cog", [0.0, 0.0, 0.0]))
+                    if cog_x is not None: tc[0] = cog_x
+                    if cog_y is not None: tc[1] = cog_y
+                    if cog_z is not None: tc[2] = cog_z
+                    cb["target_cog"] = tc
+                    case_config["components_balance"] = cb
 
-            case_config.update(case_params)
+                case_config.update(case_params)
             
             # auto-balancing 물리 보정값 자동 갱신
             from run_discrete_builder.whtb_physics import analyze_and_balance_components

@@ -542,6 +542,12 @@ def setup_gooey_parser() -> GooeyParser:
         help="LHS 및 Random 샘플링 시 생성할 실험 횟수(샘플 수)를 입력하세요."
     )
 
+    base_group.add_argument(
+        "--use_custom_vars_ui",
+        action="store_true",
+        help="체크 시 CoG 튜닝 설정을 무시하고, 자유롭게 변수를 선택할 수 있는 '커스텀 파라미터 트리 UI'를 먼저 띄웁니다."
+    )
+
     # ── [Tab 2] Target CoG Bounds ──
     cog_group = parser.add_argument_group("🎯 Target CoG Bounds Config", "내용물의 타겟 무게중심(target_cog) [m] 범위를 지정합니다.")
     
@@ -601,56 +607,80 @@ def main():
         dashboard.show()
         sys.exit(app.exec())
 
-    # 튜닝 대상 변수 리스트화 (오직 Target CoG 3축 성분만 추출)
-    tuned_variables = []
-    
-    if args.tune_target_cog_x:
-        tuned_variables.append({
-            "name": "target_cog_x",
-            "min": args.target_cog_x_min,
-            "max": args.target_cog_x_max,
-            "type": "Discrete" if args.target_cog_x_step > 0 else "Continuous",
-            "step": args.target_cog_x_step
-        })
+    doe_table_list = None
+    custom_config_list = None
+
+    if args.use_custom_vars_ui:
+        print("\n[WHTOOLS] Opening Custom Variables Setup UI...", flush=True)
+        from run_discrete_builder.whtb_config import load_config
+        base_config = load_config(args.base_config)
         
-    if args.tune_target_cog_y:
-        tuned_variables.append({
-            "name": "target_cog_y",
-            "min": args.target_cog_y_min,
-            "max": args.target_cog_y_max,
-            "type": "Discrete" if args.target_cog_y_step > 0 else "Continuous",
-            "step": args.target_cog_y_step
-        })
+        app = QApplication.instance()
+        if not app:
+            app = QApplication(sys.argv)
+        apply_app_theme(app)
         
-    if args.tune_target_cog_z:
-        tuned_variables.append({
-            "name": "target_cog_z",
-            "min": args.target_cog_z_min,
-            "max": args.target_cog_z_max,
-            "type": "Discrete" if args.target_cog_z_step > 0 else "Continuous",
-            "step": args.target_cog_z_step
-        })
+        from whtb_doe.doe_widget import DOESetupDialog
+        result = DOESetupDialog.run_dialog(base_config)
+        if not result:
+            print("❌ Custom Setup Cancelled.", flush=True)
+            sys.exit(0)
+            
+        doe_df, config_list = result
+        doe_table_list = doe_df.to_dict(orient="records")
+        custom_config_list = config_list
 
-    if not tuned_variables:
-        print("❌ [Warning] 선택된 튜닝 설계 변수가 없습니다. 최소 하나 이상의 튜닝 체크박스를 켜주십시오.", flush=True)
-        sys.exit(1)
+    else:
+        # 튜닝 대상 변수 리스트화 (오직 Target CoG 3축 성분만 추출)
+        tuned_variables = []
+        
+        if args.tune_target_cog_x:
+            tuned_variables.append({
+                "name": "target_cog_x",
+                "min": args.target_cog_x_min,
+                "max": args.target_cog_x_max,
+                "type": "Discrete" if args.target_cog_x_step > 0 else "Continuous",
+                "step": args.target_cog_x_step
+            })
+            
+        if args.tune_target_cog_y:
+            tuned_variables.append({
+                "name": "target_cog_y",
+                "min": args.target_cog_y_min,
+                "max": args.target_cog_y_max,
+                "type": "Discrete" if args.target_cog_y_step > 0 else "Continuous",
+                "step": args.target_cog_y_step
+            })
+            
+        if args.tune_target_cog_z:
+            tuned_variables.append({
+                "name": "target_cog_z",
+                "min": args.target_cog_z_min,
+                "max": args.target_cog_z_max,
+                "type": "Discrete" if args.target_cog_z_step > 0 else "Continuous",
+                "step": args.target_cog_z_step
+            })
 
-    print(f"🔧 Tuned Variables Config: {tuned_variables}", flush=True)
+        if not tuned_variables:
+            print("❌ [Warning] 선택된 튜닝 설계 변수가 없습니다. 최소 하나 이상의 튜닝 체크박스를 켜주십시오.", flush=True)
+            sys.exit(1)
 
-    # 1. DOE 테이블 생성
-    engine = DOEEngine(
-        variables=tuned_variables,
-        sampling_method=args.sampling_method,
-        sample_count=args.sample_count
-    )
-    doe_table = engine.generate_doe_table()
+        print(f"🔧 Tuned Variables Config: {tuned_variables}", flush=True)
+
+        # 1. DOE 테이블 생성
+        engine = DOEEngine(
+            variables=tuned_variables,
+            sampling_method=args.sampling_method,
+            sample_count=args.sample_count
+        )
+        doe_table_list = engine.generate_doe_table()
 
     # 2. 배치 시뮬레이션 해석 시작
     runner = DOEBatchRunner(
         base_config_path=args.base_config,
         output_base_dir=args.output_dir
     )
-    runner.run_doe_batch(doe_table)
+    runner.run_doe_batch(doe_table_list, custom_config_list=custom_config_list)
 
     # 3. 배치 완료 후 결과 대시보드 팝업 실행
     print(f"\n[WHTOOLS] Opening Optimization Dashboard UI...", flush=True)

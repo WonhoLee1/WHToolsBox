@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd \\\"c:\\\\Users\\\\GOODMAN\\\\WHToolsBox\\\\TVPackageMotionSim\\\" && python -c \\\"\\nimport re\\nsrc = open('run_drop_simulator/whts_control_panel.py', encoding='utf-8').read()\\n# 정확한 패턴으로 재확인\\ncheck...",
+  "error": "Exit code 1\n  File \"<string>\", line 12\r\n    print(f'{'OK' if found else 'FAIL'}: {desc}')\r\n              ^^\r\nSyntaxError: f-string: expecting '}'",
+  "timestamp": "2026-06-05T18:23:34.727Z",
+  "retry_count": 1
+}

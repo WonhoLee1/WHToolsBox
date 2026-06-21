@@ -65,6 +65,9 @@ class DropSimResult:
     components: Dict[str, Dict[Tuple[int, int, int], int]] = field(default_factory=dict) # {PartName: {(i,j,k): BodyID}}
     body_index_map: Dict[int, str] = field(default_factory=dict) # BodyID -> Name
     block_half_extents: Dict[int, List[float]] = field(default_factory=dict) # BodyID -> [dx, dy, dz]
+
+    # [DOE] 코너별 충격력 이력 (N_frames x 8)
+    corner_impact_hist: Optional[list] = None
     
     def save(self, filepath: str) -> None:
         """
